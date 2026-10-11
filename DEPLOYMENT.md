@@ -1,3 +1,12 @@
+## Company spaces and authentication — 11 October 2026
+
+Production runs source `d70b40eb479d16b809dac4b2327b067324089409`, image
+`sha256:f99620c32c21540e5dddb2754d9fd03e822054b2518a5d54a274cc45b85e7c26`.
+Existing knowledge and access remain in Company; personal spaces are optional.
+The [cutover record](docs/production-spaces-cutover.md) records the verified
+complete encrypted R2 checkpoint, isolated migration, live ordinary-user checks
+and restored CD. The checkpoint remains retained until explicitly released.
+
 ## Current container recovery contract
 
 The maintained deployment procedure is [docs/deployment.md](docs/deployment.md).

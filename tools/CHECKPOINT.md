@@ -2,7 +2,11 @@
 
 `checkpoint.py` packages an **already stopped, frozen** WikiContext snapshot. It
 never freezes/stops a service or establishes writer fencing. The operator must
-stop every writer, prevent restart, and retain the source volume. It preserves WAL, SHM and journal sidecars. SQLite validation runs on a second
+stop every writer, prevent restart, and retain an immutable copy of the stopped
+volume. The production cutover migrates the existing working volume; that named
+volume is not an unchanged rollback copy. The retained stopped-volume snapshot,
+ONCE archive and verified off-host checkpoint supply the old state. The helper
+preserves WAL, SHM and journal sidecars. SQLite validation runs on a second
 disposable copy with WAL-aware read-only connections; raw checkpoint and ONCE
 bytes remain unchanged. Never delete sidecars to force validation. Both databases
 must pass full integrity checks.
@@ -15,13 +19,37 @@ bucket**, including unreferenced objects and mutable file fields. Use a dedicate
 application originals bucket. No object is deleted. Listings and conditional GETs
 detect concurrent changes, but do not replace stopping external writers.
 
-Supply an actual ONCE backup of the same stopped volume and a `docker save`
+Supply an actual ONCE backup of the same stopped volume and a Docker-format
 archive of the exact old image. The helper checks every snapshot file against the
-ONCE archive and checks saved-image manifest members exist and verifies its sole config SHA-256
-against the required inspected `--image-id`. Docker-save archives
-do not reliably retain registry RepoDigests: the association between image bytes
-and `--image-digest` is explicitly operator-attested. Verify the selected running
-image/digest safely before export. Do not print raw inspect/ONCE settings.
+ONCE archive, checks saved-image manifest members exist, and verifies its sole
+configuration SHA-256 against `--image-id`. This argument identifies the saved
+image **configuration digest**. With Docker's containerd image store, both the
+container's `Image` and image-inspect `Id` can instead identify a registry index;
+do not assume those values equal the configuration digest. Capture receipts keep
+`image_id` and `image_config_digest` separately. Pass `image_config_digest` to the
+packaging command.
+
+First attempt a platform-specific export of the verified immutable image:
+`docker image save --platform linux/arm64 --output NEW_ARCHIVE EXACT_DIGEST_REF`.
+Use the inspected OS/architecture, not an assumed host platform. Preserve partial
+outputs on failure. If the daemon cannot export its retained index, obtain the
+same immutable image directly from the registry with `skopeo copy` into a new
+`docker-archive:` destination. Verify this complete chain before accepting it:
+
+1. Hash the raw registry index and match the recorded running digest.
+2. Select its exact OS/architecture manifest; hash its raw bytes and match the
+   index descriptor.
+3. Match the archive configuration bytes to that manifest's configuration digest;
+   verify platform and application revision.
+4. Verify every archive layer against the configuration's ordered `rootfs.diff_ids`.
+5. Record the archive SHA-256, size, index, platform manifest and configuration
+   digests in the private recovery receipt.
+
+Use immutable digest references for registry reads. Never substitute a moved
+`latest` tag, and never recreate the image by committing a running container.
+Docker-format archives do not reliably retain registry RepoDigests; the packaging
+helper does not independently establish this chain, so retain its verification
+receipt. Do not print raw Docker metadata or ONCE settings.
 
 Generate/use an age recipient under operator-controlled recovery key custody.
 Only the public recipient is needed for capture. Retain the private identity
@@ -41,7 +69,7 @@ python3 tools/checkpoint.py capture \
   --once /private/stopped/once.tar.gz \
   --image-archive /private/stopped/old-image.tar \
   --image-digest ghcr.io/pocketcontext/wikicontext@sha256:EXACT_DIGEST \
-  --image-id sha256:EXACT_INSPECTED_IMAGE_ID \
+  --image-id sha256:VERIFIED_IMAGE_CONFIG_DIGEST \
   --recipient age1PUBLIC_RECIPIENT \
   --output /private/new-checkpoint
 ```
@@ -92,7 +120,8 @@ SQLite databases and all referenced originals. Only then does it create the new
 recovery destination and report success. No application or replica writer starts.
 The recovered files remain private. This proves stored-artifact recovery; perform
 the independently fenced old-image application restore before deployment acceptance.
-Keep the immutable checkpoint and retained original source until rollback release.
+Keep the immutable checkpoint and retained stopped-volume snapshot until rollback
+release; the migrated working volume no longer contains the original state.
 
 ## Synthetic validation
 

@@ -2,9 +2,12 @@
 
 The user authorized proceeding on 11 October 2026. The candidate and local ONCE
 rehearsal are recorded in [the rehearsal receipt](local-once-rehearsal.md).
-The final pre-checkpoint PR run
-[38154996889](https://github.com/pocketcontext/wikicontext/actions/runs/38154996889)
-passed application and container checks on AMD64 and ARM64.
+The final release run
+[38157742568](https://github.com/pocketcontext/wikicontext/actions/runs/38157742568)
+passed application and container checks on AMD64 and ARM64. Production acceptance
+completed at 17:23 UTC on 11 October 2026. The released source is
+`d70b40eb479d16b809dac4b2327b067324089409`, image
+`ghcr.io/pocketcontext/wikicontext@sha256:f99620c32c21540e5dddb2754d9fd03e822054b2518a5d54a274cc45b85e7c26`.
 
 ## Recovery storage and authority
 
@@ -25,14 +28,17 @@ vault document/version; never place key material or credentials in this document
 
 The [checkpoint tool](../tools/CHECKPOINT.md) includes both databases, WAL and
 other local recovery state, the ONCE configuration archive, saved old image,
-every originals-bucket object and an encrypted hash manifest. The original
-stopped volume is retained independently. A registry digest alone is not the
+every originals-bucket object and an encrypted hash manifest. A private copy of the stopped
+volume is retained independently; the working named volume was migrated. A registry digest alone is not the
 image backup. On Docker's containerd image store, the reported image ID can be
 an index digest; the saved image configuration has a separate verified digest.
 
 ## Delivery and writer fencing
 
-`CONTEXT_DEPLOY_PAUSED=true` is set and main-branch delivery was drained.
+`CONTEXT_DEPLOY_PAUSED=true` was set and main-branch delivery was drained.
+After acceptance, the owned pending marker was archived and cleared under the
+deployment locks, then the variable was removed to restore its previous unset
+state. CD is enabled again.
 This suppresses deployment only; main publication can still move `latest`.
 ONCE auto-update is disabled. The current host dispatcher serializes using
 `/run/once-deploy/wiki.pocketcontext.com.lock` and refuses delivery while
@@ -72,15 +78,45 @@ checkpoint and old image into fresh storage and a fresh replica path. Never
 restart the old image against a migrated volume. After new writes are admitted,
 reverting to the checkpoint loses those later writes.
 
-## Current execution boundary
+## Completed execution
 
-Storage provisioning and synthetic off-host recovery verification are complete.
-The actual operator helpers also passed an isolated Docker/ONCE lifecycle:
-capture, full logical replica comparison, complete encrypted MinIO recovery,
-private migration with legacy-data/membership checks, ONCE activation while
-frozen, and explicit thaw. The drill identified ONCE's second mount of the same
-volume at `/rails/storage`; validation now accepts only those known aliases and
-still rejects unrelated mounts.
-The live application remains writable while capture/activation tooling and
-maintenance authentication are verified. No production checkpoint, freeze,
-migration or activation is claimed by this preparation record.
+The actual operator helpers passed an isolated Docker/ONCE lifecycle before the
+cutover: capture, full logical replica comparison, complete encrypted MinIO
+recovery, private migration with legacy-data/membership checks, ONCE activation
+while frozen, and explicit thaw. The drill identified ONCE's second mount of the
+same volume at `/rails/storage`; validation accepts only those known aliases.
+
+Production was frozen through its maintenance API and stopped cleanly with
+restart disabled. The capture completed at 17:16:12 UTC with both databases,
+sidecars, an actual ONCE archive and the exact old ARM64 image. Docker 29's
+containerd exporter failed, including with an explicit platform and an exact
+local tag. The old image was instead obtained from its immutable registry
+manifest and verified through the index, configuration and every layer hash;
+see [the archive procedure](../tools/CHECKPOINT.md).
+
+A restore-only Litestream container recovered a database logically identical to
+the stopped source. The complete encrypted checkpoint includes all 319 originals
+bucket objects and is 538,765,928 bytes. Actual R2 upload, fresh download,
+Vault-restored-key decryption, full integrity checks of both databases and every
+file hash passed before migration. No recovery writer was started by verification.
+Private operator receipts retain the checkpoint UUID, object key and Vault key
+reference. Retention remains until explicit user release.
+
+The isolated migration preserved every legacy column and row across all ten
+domain tables. Every previous user received the expected Company membership;
+disabled accounts stayed inactive. No personal spaces were created. ONCE then
+started the accepted digest frozen at generation 7. Configuration, resource
+limits, disabled automatic updates and one volume writer were independently
+verified. Explicit thaw advanced maintenance to writable generation 8.
+
+Ordinary `users` authentication, Company default selection, schema compatibility,
+scoped search, an existing page's REST access, a protected original's exact hash,
+public health and the reader shell passed. Browser authentication/privacy and
+mobile scenarios passed in isolated tests; fresh interactive production Google
+sign-in was not repeated. No production test records were created.
+
+Current main and registry `latest` matched the accepted release before CD was
+restored. Subsequent documentation-only commits do not change the deployed
+image. Never downgrade the migrated working volume; restore the retained
+checkpoint into fresh storage and a fresh replica path. Such a rollback loses
+writes accepted after the checkpoint.
