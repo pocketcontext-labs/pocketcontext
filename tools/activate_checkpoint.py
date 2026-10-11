@@ -251,6 +251,14 @@ def temporary(cfg, receipt, original, image, image_id, network, run_id, env, tok
             c.run(['docker', 'rm', owned['Id']])
 
 
+def once_mounts(row, volume):
+    mounts = row['Mounts']
+    destinations = {m.get('Destination') for m in mounts}
+    c.require(destinations in ({'/storage'}, {'/storage', '/rails/storage'})
+              and len(mounts) == len(destinations)
+              and all(m.get('Name') == volume and m.get('Type') == 'volume' and m.get('RW') for m in mounts), 'once_volume_changed')
+
+
 def original_source(receipt):
     row = inspect(receipt['container_id'])
     stopped(row)
@@ -258,8 +266,7 @@ def original_source(receipt):
     settings = json.loads(row['Config']['Labels']['once'])
     c.require(settings.get('host') == c.HOST and settings.get('image') == receipt['image']
               and settings.get('autoUpdate') is False, 'old_settings_changed')
-    c.require(len(row['Mounts']) == 1 and row['Mounts'][0].get('Name') == receipt['volume']
-              and row['Mounts'][0].get('Destination') == '/storage' and row['Mounts'][0].get('RW'), 'old_volume_changed')
+    once_mounts(row, receipt['volume'])
     return row
 
 
@@ -322,7 +329,7 @@ def once_source(receipt, image_id):
     c.require(len(matches) == 1, 'once_identity_ambiguous')
     row, settings = matches[0]
     c.require(row['Image'] == image_id and row['State']['Running'] and settings.get('autoUpdate') is False, 'once_candidate_mismatch')
-    c.require(any(m.get('Name') == receipt['volume'] and m.get('Destination') == '/storage' for m in row['Mounts']), 'once_volume_mismatch')
+    once_mounts(row, receipt['volume'])
     return row, settings
 
 

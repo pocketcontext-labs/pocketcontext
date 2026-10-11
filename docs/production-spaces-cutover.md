@@ -75,6 +75,12 @@ reverting to the checkpoint loses those later writes.
 ## Current execution boundary
 
 Storage provisioning and synthetic off-host recovery verification are complete.
+The actual operator helpers also passed an isolated Docker/ONCE lifecycle:
+capture, full logical replica comparison, complete encrypted MinIO recovery,
+private migration with legacy-data/membership checks, ONCE activation while
+frozen, and explicit thaw. The drill identified ONCE's second mount of the same
+volume at `/rails/storage`; validation now accepts only those known aliases and
+still rejects unrelated mounts.
 The live application remains writable while capture/activation tooling and
 maintenance authentication are verified. No production checkpoint, freeze,
 migration or activation is claimed by this preparation record.

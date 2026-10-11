@@ -103,6 +103,14 @@ class ActivationTests(unittest.TestCase):
         for value in variants:
             with self.assertRaises(a.c.CaptureError): a.verify_temporary(value,'digest','volume','private','run')
 
+    def test_once_alias_mounts_allowed_but_unrelated_mounts_rejected(self):
+        storage={'Name':'volume','Type':'volume','Destination':'/storage','RW':True}
+        rails={**storage,'Destination':'/rails/storage'}
+        a.once_mounts({'Mounts':[storage]},'volume')
+        a.once_mounts({'Mounts':[storage,rails]},'volume')
+        for mounts in ([storage,rails,{**storage,'Destination':'/extra'}], [storage,{**rails,'Name':'other'}], [storage,{**rails,'RW':False}], [storage,storage]):
+            with self.assertRaises(a.c.CaptureError):a.once_mounts({'Mounts':mounts},'volume')
+
     def test_other_writer_rejected(self):
         rows=[{'Id':'another','Mounts':[{'Name':'volume'}]}]
         with patch.object(a.c,'run',side_effect=[json.dumps([{'Mountpoint':'/volumes/volume'}]).encode(),b'another\n',json.dumps(rows).encode()]):
