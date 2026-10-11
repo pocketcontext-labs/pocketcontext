@@ -1,3 +1,4 @@
+import { spaceLink } from "./spaceLinks";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, pb, query } from "./api";
@@ -11,13 +12,13 @@ export function evidenceHref(collection: EvidenceCollection, id = "", term = "",
   if (term) params.set("q", term);
   if (offset) params.set("offset", String(offset));
   if (publication) params.set("publication", publication);
-  return `#/${collection}/${encodeURIComponent(id)}${params.size ? `?${params}` : ""}`;
+  return spaceLink(`#/${collection}/${encodeURIComponent(id)}${params.size ? `?${params}` : ""}`);
 }
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
 type Row = { id: string; title: string; body?: string; locator?: string; source_id?: string };
-export default function EvidenceBrowser({ collection, id, term, publication, offset, navigation, onTitleChange }: { collection: EvidenceCollection; id: string; term: string; publication: string; offset: number; navigation: HTMLElement | null; onTitleChange?: (title: string) => void }) {
+export default function EvidenceBrowser({ space, collection, id, term, publication, offset, navigation, onTitleChange }: { space: string; collection: EvidenceCollection; id: string; term: string; publication: string; offset: number; navigation: HTMLElement | null; onTitleChange?: (title: string) => void }) {
   const actionEpoch = useRef(0);
-  useEffect(() => { actionEpoch.current++; return () => { actionEpoch.current++; }; }, [collection, id]);
+  useEffect(() => { actionEpoch.current++; return () => { actionEpoch.current++; }; }, [space, collection, id]);
   const [rows, setRows] = useState<Row[]>([]);
   const [selected, setSelected] = useState<Row | null>(null);
   const [source, setSource] = useState<Source | null>(null);
@@ -34,16 +35,18 @@ export default function EvidenceBrowser({ collection, id, term, publication, off
           ? "SELECT s.id, s.title FROM sources s"
           : "SELECT p.id, s.title, p.locator, p.body, s.id AS source_id FROM passages p JOIN renditions r ON r.id=p.rendition JOIN sources s ON s.id=r.source";
         const key = collection === "sources" ? "s.id" : "p.id";
+        // Evidence is listed per selected space; SQL snapshots already hide foreign spaces.
+        const inSpace = `${collection === "sources" ? "s" : "p"}.space=${literal(space)}`;
         const fields = collection === "sources" ? "s.title || ' ' || s.original_name || ' ' || s.id" : "s.title || ' ' || p.locator || ' ' || p.body || ' ' || p.id || ' ' || s.id";
-        const found = await query<Row>(`${base.replace("p.locator, p.body,", "p.locator,")} WHERE instr(lower(${fields}), lower(${literal(term)}))>0 ORDER BY ${key} LIMIT 21 OFFSET ${offset}`);
-        const record = id ? (await query<Row>(`${base} WHERE ${key}=${literal(id)} LIMIT 1`))[0] : null;
+        const found = await query<Row>(`${base.replace("p.locator, p.body,", "p.locator,")} WHERE ${inSpace} AND instr(lower(${fields}), lower(${literal(term)}))>0 ORDER BY ${key} LIMIT 21 OFFSET ${offset}`);
+        const record = id ? (await query<Row>(`${base} WHERE ${inSpace} AND ${key}=${literal(id)} LIMIT 1`))[0] : null;
         const original = record ? (await query<Source>(`SELECT id,title,original_name,original,media_type,source_date,sha256 FROM sources WHERE id=${literal(record.source_id || record.id)} LIMIT 1`))[0] : null;
         if (active) { setRows(found.slice(0,20)); setMore(found.length>20); setSelected(record || null); onTitleChange?.(record?.title || ""); setSource(original || null); }
       } catch (e) { if (active) setError(e instanceof Error ? e.message : "Unable to load evidence"); }
       finally { if (active) setBusy(false); }
     })(), 200);
     return () => { active = false; clearTimeout(timer); };
-  }, [collection, id, term, offset, onTitleChange]);
+  }, [space, collection, id, term, offset, onTitleChange]);
   const recordLink = (row: Row) => <a key={row.id} className={row.id === id ? "selected" : undefined} aria-current={row.id === id ? "page" : undefined} href={evidenceHref(collection, row.id, term, publication, offset)}>
     <span>{row.title}{row.locator && <small>{row.locator}</small>}</span>
   </a>;

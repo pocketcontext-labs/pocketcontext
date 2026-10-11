@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Command-line client for a WikiContext knowledge-base server.
 
-Configuration comes from three environment variables:
-  WIKICONTEXT_URL             server address, for example https://raise.example.com
+Configuration comes from environment variables:
+  WIKICONTEXT_URL             server address, for example https://wiki.example.com
   WIKICONTEXT_USER_EMAIL     email of an account in the `users` collection
   WIKICONTEXT_USER_PASSWORD  password of that account (optional with Google login)
+  WIKICONTEXT_SPACE          optional space ID; --space overrides it. The default is
+                             company space, verified through SQL.
 
 Exit codes: 0 success; 1 HTTP or transport error; 2 usage or configuration error;
 3 `check` found schema differences; 4 HTTP 409 (read the record again, then retry).
@@ -27,6 +29,9 @@ import urllib.parse
 import urllib.request
 
 ENV = ['WIKICONTEXT_URL', 'WIKICONTEXT_USER_EMAIL', 'WIKICONTEXT_USER_PASSWORD']
+SPACE_ENV = 'WIKICONTEXT_SPACE'
+COMPANY_SPACE = 'companyspace001'
+ROOTS = ('sources', 'ingestion_runs', 'pages')
 SCHEMA_FILE = Path(__file__).resolve().parent / 'schema.json'
 STAMPS = ('created_by', 'updated_by')
 ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
@@ -69,7 +74,39 @@ def config(names=ENV[:2]):
         raise Fail(2, 'WIKICONTEXT_URL must be an HTTP(S) URL without credentials, query, or fragment')
     if parsed.scheme == 'http' and parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
         raise Fail(2, 'Use HTTPS for a remote WikiContext server')
-    return {'url': url, 'email': os.environ[ENV[1]], 'password': hide(os.environ.get(ENV[2]))}
+    space = os.environ.get(SPACE_ENV) or None
+    if space is not None and not re.fullmatch(r'[a-z0-9]{15}', space):
+        raise Fail(2, f'{SPACE_ENV} must be a 15-character space ID')
+    return {'url': url, 'email': os.environ[ENV[1]], 'password': hide(os.environ.get(ENV[2])), 'space': space}
+
+
+def space_id(cfg):
+    """The selected space: explicit --space/WIKICONTEXT_SPACE, else the company space.
+
+    Spaces are visible through SQL only to their active members, so an inaccessible
+    space and an absent one are indistinguishable.
+    """
+    if cfg.get('space_checked'):
+        return cfg['space']
+    selected = cfg.get('space')
+    if selected is not None:
+        if not isinstance(selected, str) or not re.fullmatch(r'[a-z0-9]{15}', selected):
+            raise Fail(2, 'space must be a 15-character space ID')
+        sql = f"SELECT id FROM spaces WHERE id = '{selected}' LIMIT 1"
+    else:
+        sql = f"SELECT id FROM spaces WHERE id = '{COMPANY_SPACE}' AND kind = 'group' LIMIT 1"
+    result = must(cfg, 'POST', '/api/context/query', {'sql': sql})
+    if result.get('truncated'):
+        raise Fail(1, 'space lookup was truncated')
+    found = [row[0] for row in result.get('rows', [])]
+    if selected is not None and found != [selected]:
+        raise Fail(2, 'space not found or not accessible to this account; run `wikicontext spaces`')
+    if selected is None:
+        if len(found) != 1:
+            raise Fail(1, 'company space not accessible to this account; select --space or run `wikicontext spaces`')
+        selected = found[0]
+    cfg['space'], cfg['space_checked'] = selected, True
+    return selected
 
 
 # Token cache: one file per server URL and email, readable only by the current user.
@@ -430,16 +467,25 @@ def home_fields(cfg, args):
         return [dict(zip(result['columns'], row)) for row in result['rows']]
     base = args.home_base
     if base is None:
-        runs = rows(f"SELECT home, clear_home FROM ingestion_runs WHERE id = '{args.run_id}' LIMIT 1")
+        runs = rows(f"SELECT space, home, clear_home FROM ingestion_runs WHERE id = '{args.run_id}' LIMIT 1")
         if not runs:
             raise Fail(1, 'staging run not found')
         if runs[0]['home'] or runs[0]['clear_home']:
             raise Fail(2, 'run already has a staged home choice; preserve it with publish, or reassess and supply explicit --home-base')
-        publications = rows('SELECT home FROM publications ORDER BY sequence DESC LIMIT 1')
+        # The latest publication and page slugs belong to the run's own space.
+        space = runs[0]['space']
+        publications = rows(f"SELECT home FROM publications WHERE space = '{space}' ORDER BY sequence DESC LIMIT 1")
         base = publications[0]['home'] if publications else ''
+    else:
+        runs = rows(f"SELECT space FROM ingestion_runs WHERE id = '{args.run_id}' LIMIT 1")
+        if not runs:
+            raise Fail(1, 'staging run not found')
+        space = runs[0]['space']
+    if not isinstance(space, str) or not re.fullmatch(r'[a-z0-9]{15}', space):
+        raise Fail(1, 'staging run has an invalid space')
     home = ''
     if args.home is not None:
-        pages = rows(f"SELECT id FROM pages WHERE slug = '{args.home}' LIMIT 1")
+        pages = rows(f"SELECT id FROM pages WHERE slug = '{args.home}' AND space = '{space}' LIMIT 1")
         if not pages:
             raise Fail(2, f'home page slug not found: {args.home}')
         home = pages[0]['id']
@@ -457,6 +503,8 @@ def run(args):
         say(f'removed {path}', sys.stdout)
         return 0
     cfg = config()
+    if args.space is not None:
+        cfg['space'] = args.space
     if args.command == 'ingest':
         from . import ingest
         say(dump(ingest.ingest(cfg, args.path, title=args.title, version=args.version, audio_storage=args.audio_storage, image_review=args.image_review), args.pretty), sys.stdout)
@@ -508,6 +556,13 @@ def run(args):
             if method == 'PATCH':
                 require_revision(entry['body'])
         body = {'requests': requests}
+    if args.command in ('create', 'batch'):
+        # Root records go to the selected space; children inherit their parent's space.
+        entries = [(args.collection, body)] if args.command == 'create' else [
+            (entry['url'].split('/')[3], entry['body']) for entry in requests if entry['method'] == 'POST']
+        for collection, entry in entries:
+            if collection in ROOTS and 'space' not in entry:
+                entry['space'] = space_id(cfg)
     if args.command == 'check':
         return check(cfg)
     if args.command == 'whoami':
@@ -515,7 +570,22 @@ def run(args):
         refreshed = must(cfg, 'POST', '/api/collections/users/auth-refresh')
         hide(refreshed.get('token'))
         record = refreshed['record']
-        data = {'id': record['id'], 'name': record.get('name', ''), 'email': cfg['email'], 'url': cfg['url']}
+        data = {'id': record['id'], 'name': record.get('name', ''), 'email': cfg['email'], 'url': cfg['url'], 'space': space_id(cfg)}
+    elif args.command == 'create-personal-space':
+        data = must(cfg, 'POST', '/api/wiki/spaces/personal', {})
+    elif args.command == 'spaces':
+        refreshed = must(cfg, 'POST', '/api/collections/users/auth-refresh')
+        hide(refreshed.get('token'))
+        account = refreshed['record']['id']
+        if not re.fullmatch(r'[a-z0-9]{15}', account):
+            raise Fail(1, 'unexpected account ID')
+        result = must(cfg, 'POST', '/api/context/query', {'sql':
+            'SELECT s.id, s.kind, s.name, m.role FROM spaces s JOIN space_members m ON m.space = s.id '
+            f"WHERE m.account = '{account}' AND m.active = 1 ORDER BY s.kind = 'group', s.name, s.id"})
+        if result.get('truncated'):
+            raise Fail(1, 'space listing was truncated')
+        selected = cfg.get('space') or COMPANY_SPACE
+        data = [dict(zip(result['columns'], row), selected=row[0] == selected) for row in result['rows']]
     elif args.command == 'schema':
         data = must(cfg, 'GET', '/api/context/schema')
     elif args.command in ('sql', 'query'):
@@ -552,8 +622,9 @@ def run(args):
 def parse(argv):
     pretty = argparse.ArgumentParser(add_help=False)
     pretty.add_argument('--pretty', action='store_true', default=argparse.SUPPRESS, help='indent the JSON output')
+    pretty.add_argument('--space', default=argparse.SUPPRESS, help=f'space ID for space-scoped commands (default: {SPACE_ENV}, else the company space)')
     parser = argparse.ArgumentParser(prog='wikicontext', parents=[pretty], description='WikiContext knowledge-base client. Reads with SQL, writes through the records API. There is no delete command: users cannot delete records.',
-                                     epilog='Environment: ' + ', '.join(ENV) + '. JSON arguments may be "-" to read standard input. Exit codes: 0 ok, 1 HTTP or transport error, 2 usage or configuration, 3 check found differences, 4 HTTP 409.')
+                                     epilog='Environment: ' + ', '.join(ENV + [SPACE_ENV]) + '. JSON arguments may be "-" to read standard input. Exit codes: 0 ok, 1 HTTP or transport error, 2 usage or configuration, 3 check found differences, 4 HTTP 409.')
     commands = parser.add_subparsers(dest='command', required=True, metavar='command')
     def add(name, text, *arguments):
         command = commands.add_parser(name, parents=[pretty], help=text, description=text)
@@ -563,7 +634,9 @@ def parse(argv):
     oauth_login.add_argument('--google', action='store_true', required=True)
     oauth_login.add_argument('--port', type=int, default=8765, help='loopback callback port; register the matching redirect URI')
     oauth_login.add_argument('--timeout', type=int, default=180, help='seconds to wait for the browser (1–600)')
-    add('whoami', 'print the user id, name, and server URL; use the id for `owner`')
+    add('whoami', 'print the user id, name, server URL and selected space')
+    add('spaces', 'list your spaces, roles and the selected space')
+    add('create-personal-space', 'explicitly create or return your personal space; does not change the default company space')
     add('check', 'compare the live schema with references/schema.json; exit 3 when they differ')
     add('schema', 'print the live SQL tables and columns')
     add('query', 'run one read-only SELECT', ('query', 'SQL text, or - for standard input'))
@@ -609,6 +682,9 @@ def parse(argv):
     add('lint', 'check published graph structure; semantic review remains agent work')
     args = parser.parse_args(argv)
     args.pretty = getattr(args, 'pretty', False)
+    args.space = getattr(args, 'space', None)
+    if args.space is not None and not re.fullmatch(r'[a-z0-9]{15}', args.space):
+        parser.error('--space must be a 15-character space ID')
     return args
 
 

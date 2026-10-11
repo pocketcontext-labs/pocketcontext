@@ -17,6 +17,7 @@ from unittest.mock import patch
 # This test filename shadows the implementation when run as a script.
 from wikicontext_client import ingest
 UPLOAD_SOURCE = ingest.upload_source
+SPACE = 'space0000000001'
 
 
 class EvidenceStore:
@@ -28,7 +29,7 @@ class EvidenceStore:
         import sqlite3
         db = sqlite3.connect(':memory:')
         db.row_factory = sqlite3.Row
-        for name, fields in [('sources', 'id, sha256'), ('renditions', 'id, source, kind, version_label, notes'), ('passages', 'id, rendition, ordinal INTEGER, locator, body')]:
+        for name, fields in [('sources', 'id, sha256, space'), ('renditions', 'id, source, kind, version_label, notes'), ('passages', 'id, rendition, ordinal INTEGER, locator, body')]:
             db.execute(f'CREATE TABLE {name} ({fields})')
             for record in self.tables[name]:
                 columns = [field.split()[0] for field in fields.split(', ')]
@@ -38,7 +39,7 @@ class EvidenceStore:
         return result
 
     def upload(self, cfg, path, content, digest, title):
-        return self.create(cfg, 'POST', '/api/collections/sources/records', {'sha256': digest, 'original_name': path.name, 'content': content})
+        return self.create(cfg, 'POST', '/api/collections/sources/records', {'space': SPACE, 'sha256': digest, 'original_name': path.name, 'content': content})
 
     def create(self, cfg, method, path, body):
         table = path.split('/')[3]
@@ -58,7 +59,8 @@ class IngestionTests(unittest.TestCase):
         self.store = EvidenceStore()
         for patcher in [patch.dict(os.environ, {'XDG_CACHE_HOME': str(self.root / 'cache')}),
                         patch.object(ingest, 'rows', self.store.query), patch.object(ingest, 'upload_source', self.store.upload),
-                        patch.object(ingest.wc, 'must', self.store.create)]:
+                        patch.object(ingest.wc, 'must', self.store.create),
+                        patch.object(ingest.wc, 'space_id', return_value=SPACE)]:
             patcher.start()
             self.addCleanup(patcher.stop)
 

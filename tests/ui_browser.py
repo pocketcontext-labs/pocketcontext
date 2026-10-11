@@ -102,7 +102,7 @@ def seed(request):
             request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'],
                 {'expected_revision': run['revision'], 'status': 'published'}, token)
             state['directory'] = {'people': people, 'group': group, 'revision': group_revision}
-            return request('GET', '/api/collections/publications/records?sort=-sequence&perPage=1', token=token)['items'][0]
+            return request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
         if action == '/directory-update':
             directory = state['directory']
             run = create('ingestion_runs', {'key': 'browser-directory-update', 'status': 'staging', 'description': 'Synthetic membership change'})
@@ -113,7 +113,7 @@ def seed(request):
             create('page_links', {'page_revision': revision['id'], 'target': directory['people'][0]['id']})
             request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'],
                 {'expected_revision': run['revision'], 'status': 'published'}, token)
-            return request('GET', '/api/collections/publications/records?sort=-sequence&perPage=1', token=token)['items'][0]
+            return request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
         if action == '/repository-files':
             request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
             run = create('ingestion_runs', {'key': 'browser-repository-files', 'status': 'staging', 'description': 'Synthetic repository files'})
@@ -133,13 +133,13 @@ def seed(request):
             create('page_links', {'page_revision': observation['id'], 'target': destinations[0][0]['id']})
             request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'], {'expected_revision': run['revision'], 'status': 'published'}, token)
             state['repository_document'] = (document, revision, props)
-            return request('GET', '/api/collections/publications/records?sort=-sequence&perPage=1', token=token)['items'][0]
+            return request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
         if action == '/repository-files-update':
             document, revision, props = state['repository_document']
             run = create('ingestion_runs', {'key': 'browser-repository-update', 'status': 'staging', 'description': 'Synthetic document update'})
             create('page_revisions', {'run': run['id'], 'page': document['id'], 'base_revision': revision['id'], 'title': 'Shared README', 'summary': 'Updated synthetic file.', 'body': 'Updated synthetic readme. [needs verification]', 'properties': props})
             request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'], {'expected_revision': run['revision'], 'status': 'published'}, token)
-            return request('GET', '/api/collections/publications/records?sort=-sequence&perPage=1', token=token)['items'][0]
+            return request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
         if action == '/catalog':
             request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
             run = create('ingestion_runs', {'key': 'browser-catalog', 'status': 'staging', 'description': 'Synthetic property catalog'})
@@ -158,7 +158,7 @@ def seed(request):
                 create('page_links', {'page_revision': revision['id'], 'target': deployment['id']})
             request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'],
                 {'expected_revision': run['revision'], 'status': 'published'}, token)
-            return request('GET', '/api/collections/publications/records?sort=-sequence&perPage=1', token=token)['items'][0]
+            return request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
         if action == '/images':
             def chunk(kind, data):
                 return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
@@ -212,7 +212,7 @@ def seed(request):
             request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'],
                 {'expected_revision': run['revision'], 'status': 'published'}, token)
             state['home'] = setting.get('home', '')
-            return request('GET', '/api/collections/publications/records?sort=-sequence&perPage=1', token=token)['items'][0]
+            return request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
         if action == '/publish-new-page':
             run = create('ingestion_runs', {'key': 'browser-directory-addition', 'status': 'staging',
                 'description': 'Synthetic welcome directory update'})
@@ -221,7 +221,48 @@ def seed(request):
                 'summary': 'A newly published directory entry.', 'body': 'Synthetic new page. [needs verification]'})
             request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'],
                 {'expected_revision': run['revision'], 'status': 'published'}, token)
-            return request('GET', '/api/collections/publications/records?sort=-sequence&perPage=1', token=token)['items'][0]
+            return request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
+        if action in ('/new-reader', '/new-reader-revoked'):
+            state['new_readers'] = state.get('new_readers', 0) + 1
+            email = 'space-reader-' + str(state['new_readers']) + '@example.com'
+            account = request('POST', '/api/collections/users/records', {'email': email, 'name': 'Synthetic space reader', 'password': 'SyntheticUserPassword123!', 'passwordConfirm': 'SyntheticUserPassword123!', 'verified': True}, admin)
+            if action == '/new-reader-revoked':
+                members = request('GET', '/api/collections/space_members/records?filter=account%3D%27' + account['id'] + '%27', token=admin)['items']
+                member = next(row for row in members if row['space'] == 'companyspace001')
+                request('PATCH', '/api/collections/space_members/records/' + member['id'], {'active': False, 'expected_revision': member['revision']}, admin)
+            return request('POST', '/api/collections/users/auth-with-password', {'identity': email, 'password': 'SyntheticUserPassword123!'})
+        if action == '/spaces':
+            if 'spaces_fixture' in state:
+                return state['spaces_fixture']
+            request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
+            other_token = request('POST', '/api/collections/users/auth-with-password', {'identity': 'second@example.com', 'password': 'SyntheticUserPassword123!'})['token']
+            def personal_fixture(identity, label):
+                space = request('POST', '/api/wiki/spaces/personal', {}, identity)['id']
+                def private_create(table, fields):
+                    return request('POST', '/api/collections/' + table + '/records', {'space': space, **fields}, identity)
+                original = (label + ' private evidence.\n').encode()
+                body, media = multipart({'space': space, 'title': label + ' source', 'original_name': label + '.txt', 'media_type': 'text/plain'}, 'original', label + '.txt', original, 'text/plain')
+                upload = urllib.request.Request(request.base_url + '/api/collections/sources/records', body, {'Authorization': identity, 'Content-Type': media})
+                with urllib.request.urlopen(upload) as response:
+                    private_source = json.load(response)
+                rendition = private_create('renditions', {'source': private_source['id'], 'kind': 'text', 'processor': 'browser-spaces-fixture', 'version_label': 'v1'})
+                private_passage = private_create('passages', {'rendition': rendition['id'], 'ordinal': 1, 'locator': 'line 1', 'body': original.decode()})
+                run = private_create('ingestion_runs', {'key': 'browser-private', 'status': 'staging', 'description': label + ' publication'})
+                page = private_create('pages', {'slug': 'observatory', 'kind': 'concept'})
+                revision = private_create('page_revisions', {'run': run['id'], 'page': page['id'], 'title': label + ' notes', 'summary': label + ' summary', 'body': label + ' private evidence.[^1]'})
+                private_create('citations', {'page_revision': revision['id'], 'passage': private_passage['id'], 'marker': '1'})
+                request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'], {'expected_revision': run['revision'], 'status': 'published'}, identity)
+                publication = request('GET', '/api/collections/publications/records?filter=space%3D%27' + space + '%27&perPage=1', token=identity)['items'][0]
+                return {'space': space, 'source': private_source['id'], 'passage': private_passage['id'], 'publication': publication['id']}
+            own = personal_fixture(token, 'Personal')
+            foreign = personal_fixture(other_token, 'Foreign')
+            state['spaces_fixture'] = {'own': own, 'foreign': foreign}
+            return state['spaces_fixture']
+        if action in ('/revoke-company', '/restore-company'):
+            memberships = request('GET', '/api/collections/space_members/records?filter=account%3D%27' + user['id'] + '%27', token=admin)['items']
+            member = next(row for row in memberships if row['space'] == 'companyspace001')
+            request('PATCH', '/api/collections/space_members/records/' + member['id'], {'active': action == '/restore-company', 'expected_revision': member['revision']}, admin)
+            return {'ok': True}
         if action == '/other-session':
             return request('POST', '/api/collections/users/auth-with-password', {'identity': 'second@example.com', 'password': 'SyntheticUserPassword123!'})
         if action == '/stage':
@@ -292,13 +333,16 @@ def check_static(base_url):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', required=True)
+    parser.add_argument('--grep', help='Run browser scenarios matching this Playwright expression')
     args = parser.parse_args()
     with server(args.binary) as request, controller(seed(request)) as control_url, tempfile.TemporaryDirectory(prefix='wikicontext-ui-') as temporary:
         check_static(request.base_url)
         env = dict(os.environ, WIKICONTEXT_TEST_URL=request.base_url, WIKICONTEXT_TEST_CONTROL=control_url,
                    WIKICONTEXT_TEST_OUTPUT=temporary)
-        subprocess.run(['pnpm', 'exec', 'playwright', 'test', '--config', 'e2e/playwright.config.ts'],
-                       cwd=ROOT / 'ui', env=env, check=True)
+        command = ['pnpm', 'exec', 'playwright', 'test', '--config', 'e2e/playwright.config.ts']
+        if args.grep:
+            command.extend(['--grep', args.grep])
+        subprocess.run(command, cwd=ROOT / 'ui', env=env, check=True)
     print('PASS: real browser reader, synthetic publication and authentication lifecycle')
 
 

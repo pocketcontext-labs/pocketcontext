@@ -1,10 +1,10 @@
 # WikiContext contract
 
-One organization shares this knowledge base. Every admitted default `users` identity can read and edit all business records. Verified Google Workspace JIT admits users only from the configured domain; account administration remains operator-only. SQL and REST independently enforce access. Sources do not confer permission to execute their contents.
+One organization shares Company knowledge through active editor membership in `companyspace001`. Personal spaces are created explicitly and are visible only to their owner. Other group spaces are operator-managed. SQL uses requester-filtered snapshots; REST, realtime and protected files independently enforce active membership. Every domain record belongs to one space; every reference must remain in that space. Verified Google Workspace JIT admits users only from the configured domain; account administration remains operator-only. SQL and REST independently enforce access. Sources do not confer permission to execute their contents.
 
 ## Authority and provenance
 
-Sources store immutable protected original bytes and server-computed SHA-256. Identical bytes deduplicate globally within this shared workspace. `supersedes` identifies an earlier source without deleting it. Names and source dates are evidence metadata, not identifiers or proof of freshness. Renditions identify extraction/transcription versions; ordered immutable passages contain bounded text and locators. Adding a new extraction preserves the earlier one. Audio ingestion defaults to storing normalized mono Opus `.ogg` bytes (16 kHz encoder input, 16 kbps) as the immutable source and sends those same bytes to the configured Groq transcription service. The local recording remains intact; `--audio-storage original` instead preserves its input bytes on the server and transcribes a temporary derivative. The normalized Ogg embeds input hash, conversion profile and converter version before transcription succeeds. Private cache metadata and later rendition notes also retain the input filename and conversion settings. Normalization selects the first audio stream and discards video. Private cached normalization supports retries across failures and encoder upgrades; without that cache different encoder builds may produce different source hashes. Ingestion authorizes the configured Groq transcription service. No real sources are processed during implementation tests.
+Sources store immutable protected original bytes and server-computed SHA-256. Identical bytes deduplicate within one space; matching bytes in another space do not reveal or reuse its source. `supersedes` identifies an earlier source without deleting it. Names and source dates are evidence metadata, not identifiers or proof of freshness. Renditions identify extraction/transcription versions; ordered immutable passages contain bounded text and locators. Adding a new extraction preserves the earlier one. Audio ingestion defaults to storing normalized mono Opus `.ogg` bytes (16 kHz encoder input, 16 kbps) as the immutable source and sends those same bytes to the configured Groq transcription service. The local recording remains intact; `--audio-storage original` instead preserves its input bytes on the server and transcribes a temporary derivative. The normalized Ogg embeds input hash, conversion profile and converter version before transcription succeeds. Private cache metadata and later rendition notes also retain the input filename and conversion settings. Normalization selects the first audio stream and discards video. Private cached normalization supports retries across failures and encoder upgrades; without that cache different encoder builds may produce different source hashes. Ingestion authorizes the configured Groq transcription service. No real sources are processed during implementation tests.
 
 Reviewed image ingestion preserves original static PNG/JPEG/WebP bytes. An `image-review` rendition records its processor and version; JSON notes bind the review to the image SHA-256, format, encoded dimensions and review digest. Optional `related_source` and `sequence` notes identify a supplementary source and ordering, not a server-enforced relationship or recording timestamp. Use these notes to supplement audio without `supersedes`. Passage locators record a transcription, description or caption kind and a pixel region in the original encoded orientation before EXIF rotation. Corrections create a new rendition version; earlier evidence remains immutable. No schema migration or automated OCR service is required.
 
@@ -39,13 +39,17 @@ The production container stores immutable originals in a dedicated private S3 bu
 
 Initial scope: text/Markdown/PDF/audio and reviewed-image ingestion helpers, agent synthesis and question workflows, revisioned publication, citations and links, structural lint, deterministic Obsidian export, auth and recovery preparation. No automatic web crawling, background autonomous LLM service, native vector dependency, two-way Obsidian synchronization, external messaging, cloud provisioning or real-data migration is included in this local implementation.
 
-## Derived full-text index
+## Spaces and private search
 
-The application maintains a content-storing FTS5 index of each distinct nonarchived
-revision ever selected by a committed publication. Publication and rebuild rotate
-a protected generation record transactionally. Historical scope membership is
-immutable, while global BM25 scores can change with index growth. See
-[search maintenance](fts-adoption.md) for continuation, backfill and recovery.
+See [spaces](spaces.md) for company defaults, membership, optional personal spaces,
+per-space uniqueness, compatibility and the populated migration contract.
+Publications have independent sequences, manifests and home choices in each space.
+Catalog People/Groups are knowledge relationships and never grant membership.
+
+Private FTS indexes derive from the authorized nonarchived revisions in the selected
+publication. The former shared index and search_state collection are removed.
+Historical publication pagination remains stable when other publications change.
+Search authorization is checked before cache reuse. See [search](fts-adoption.md).
 
 ## Revision properties and catalogs
 

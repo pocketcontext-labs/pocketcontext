@@ -1,3 +1,31 @@
+# Private-search rehearsal — 11 October 2026
+
+Synthetic benchmark against PocketContext `dc1dc6b0e88bbc46f36fa8441c8f6959bada4732`
+using the spaces implementation. No production records were copied. The approximate
+shape came from authenticated aggregate counts: 350 pages, 800 revisions, 190
+publications, 4.24 million revision-body characters, and 6,400 evidence passages
+with 2.592 million characters. The local database was 14,282,752 bytes.
+
+Seeding took 51.53 seconds. Publication median/max was 110.64/178.34 ms.
+A filtered SQL count snapshot took 237.02 ms. Three-query search medians were
+23.99 ms (topic token), 23.50 ms (broad token) and 20.23 ms (no match).
+The first scope build/query took 23.99 ms. Twelve requests from four distinct
+company readers completed with median 35.32 ms and maximum 48.05 ms, with no
+failures. Current 32 MiB snapshot and 8 MiB per-index limits accommodated this
+synthetic corpus. These are observations on the shared ARM64 development host,
+not a production latency or capacity guarantee; repeat on the proposed clone.
+
+Reproduce with the installed source client and exact pinned binary:
+
+```sh
+python3 tests/search_benchmark.py --binary /absolute/path/to/pinned/pocketcontext
+```
+
+The shared-index results below are historical and describe a different ranking
+and indexing contract. They do not validate private search.
+
+---
+
 # Published-page search benchmark
 
 Measured on 2026-09-28 using synthetic HTTP-created WikiContext records and the

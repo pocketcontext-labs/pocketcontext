@@ -12,7 +12,7 @@ observecontext capture \
   -- wikicontext sql 'SELECT id FROM pages LIMIT 5'
 ```
 
-The wrapper requests authenticated server traces, retrieves them with the same source identity, and uploads correlated client/server timings as a private operation owned by the ObserveContext uploader. Only an operator-managed view-all role can see other users' operations. Source shared-workspace permissions do not make telemetry shared. The source server holds a bounded, expiring memory buffer and has no ObserveContext credentials. It emits no traces for ordinary unwrapped requests.
+The wrapper requests authenticated server traces, retrieves them with the same source identity, and uploads correlated client/server timings as a private operation owned by the ObserveContext uploader. Only an operator-managed view-all role can see other users' operations. Source space membership does not make telemetry shared. The source server holds a bounded, expiring memory buffer and has no ObserveContext credentials. It emits no traces for ordinary unwrapped requests.
 
 Add `--capture-sql` only when the user authorizes retaining SQL text. Without it, timings are recorded without SQL text. SQL literals can contain sensitive information; the wrapper records submitted SQL itself, independently of the server's SQL-capture setting. Results, credentials and request bodies are not captured. Existing traces cannot be retroactively populated with SQL.
 

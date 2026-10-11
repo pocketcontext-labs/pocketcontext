@@ -1,3 +1,4 @@
+import { spaceLink } from "./spaceLinks";
 import {
   useCallback,
   useEffect,
@@ -10,7 +11,7 @@ import PropertiesPanel from "./Properties";
 import "./catalog.css";
 import ImagePreview from "./ImagePreview";
 import EvidenceBrowser, { evidenceHref } from "./EvidenceBrowser";
-import { api, pb, sessionGeneration } from "./api";
+import { api, pb, companySpace, selectSpace, sessionGeneration, type Space } from "./api";
 import SearchResults, { searchHref } from "./SearchResults";
 import { homePageSlug } from "./home";
 import WelcomePage from "./WelcomePage";
@@ -43,10 +44,16 @@ function route() {
     collection: path.startsWith("sources/") ? "sources" as const : path.startsWith("passages/") ? "passages" as const : "pages" as const,
     record: /^(sources|passages)\//.test(path) ? safeDecode(path.split("/")[1] || "") : "",
     publication: params.get("publication") || "",
+    space: params.has("space") ? params.get("space")! : undefined,
     offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)),
     heading: params.get("heading") || "",
     query: params.get("q") || "",
   };
+}
+function historySpace(space: string) {
+  const [path, query = ""] = location.hash.split("?");
+  const params = new URLSearchParams(query); params.set("space", space);
+  history.replaceState(null, "", `${path}?${params}`);
 }
 function message(error: unknown) {
   return error instanceof Error
@@ -64,6 +71,13 @@ function Reader() {
   const [current, setCurrent] = useState(route);
   const routeSelection = useRef(current);
   const [publications, setPublications] = useState<Publication[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [membershipsLoaded, setMembershipsLoaded] = useState(false);
+  const personalCreation = useRef(0);
+  const [space, setSpace] = useState<Space | null>(null);
+  const selectedSpace = useRef("");
+  const [emptySpace, setEmptySpace] = useState(false);
+  const [creatingSpace, setCreatingSpace] = useState(false);
   const [snapshot, setSnapshot] = useState<{
     publication: Publication;
     pages: PageSummary[];
@@ -86,7 +100,7 @@ function Reader() {
   const [connected, setConnected] = useState(false);
   const [theme, setTheme] = useState(savedTheme);
   const generation = useRef(0);
-  useEffect(() => () => { generation.current++; }, []);
+  useEffect(() => () => { generation.current++; personalCreation.current++; }, []);
   const historyOffset = useRef(0);
   const [moreHistory, setMoreHistory] = useState(false);
   const reader = useRef<HTMLElement>(null);
@@ -104,11 +118,16 @@ function Reader() {
     const handler = () => {
       const next = route();
       const previous = routeSelection.current;
+      personalCreation.current++; setCreatingSpace(false);
       if (
         next.slug !== previous.slug || next.welcome !== previous.welcome || next.catalog !== previous.catalog ||
-        next.publication !== previous.publication
+        next.publication !== previous.publication || next.space !== previous.space || next.collection !== previous.collection || next.record !== previous.record
       ) {
         generation.current++;
+      }
+      if (next.space !== previous.space || next.publication !== previous.publication || next.record !== previous.record) {
+        setSnapshot(null); setPublications([]); setSpace(null); setEmptySpace(false);
+        setOriginal(""); lastPublication.current = undefined; latestSeen.current = "";
       }
       routeSelection.current = next;
       setCurrent(next);
@@ -129,6 +148,7 @@ function Reader() {
           generation.current++;
           setSnapshot(null);
           setPublications([]);
+          setSpaces([]); setMembershipsLoaded(false); setSpace(null); selectedSpace.current = "";
           setEvidence(null);
           setOriginal("");
           lastPublication.current = undefined;
@@ -172,7 +192,32 @@ function Reader() {
     setError("");
     try {
       await api.refreshSession();
-      const history = await api.listPublications();
+      const memberships = await api.listSpaces();
+      // A pinned publication link opens in its own space when it is a membership.
+      let pinned = current.publication ? await api.getPublication(current.publication) : null;
+      const recordSpace = current.record && current.collection !== "pages"
+        ? await api.evidenceSpace(current.collection, current.record) : null;
+      const chosen = selectSpace(memberships, recordSpace || pinned?.space || current.space);
+      if (own !== generation.current) return;
+      setSpaces(memberships); setMembershipsLoaded(true);
+      if (!chosen) throw new Error("This space is unavailable. Choose another space to continue.");
+      if ((recordSpace || pinned?.space) && current.space !== chosen.id && (current.space || chosen.id !== companySpace)) {
+        historySpace(chosen.id);
+      }
+      if (own === generation.current) {
+        setSpaces(memberships);
+        setSpace(chosen);
+        if (chosen && chosen.id !== selectedSpace.current) {
+          setSnapshot(null);
+          setEvidence(null);
+          setOriginal("");
+          lastPublication.current = undefined;
+          latestSeen.current = "";
+        }
+        if (chosen) selectedSpace.current = chosen.id;
+      }
+      if (pinned && pinned.space !== chosen.id) pinned = null;
+      const history = await api.listPublications(chosen.id);
       if (own === generation.current && history[0]) {
         if (latestSeen.current && latestSeen.current !== history[0].id)
           setSearchEpoch((n) => n + 1);
@@ -185,10 +230,9 @@ function Reader() {
       let publication = current.publication
         ? history.find((p) => p.id === current.publication)
         : history[0];
-      if (current.publication && !publication) {
-        publication =
-          (await api.getPublication(current.publication)) || undefined;
-        if (publication) history.push(publication);
+      if (current.publication && !publication && pinned) {
+        publication = pinned;
+        history.push(publication);
       }
       if (!publication) {
         if (current.publication)
@@ -198,6 +242,7 @@ function Reader() {
         if (own === generation.current) {
           setPublications(history);
           setSnapshot(null);
+          setEmptySpace(true);
         }
         return;
       }
@@ -206,6 +251,7 @@ function Reader() {
       const page = slug ? await api.getPage(publication.id, slug) : null;
       if (own === generation.current) {
         setPublications(history);
+        setEmptySpace(false);
         lastPublication.current = publication.id;
         setSnapshot({ publication, pages, page });
         setEvidence((previous) =>
@@ -215,11 +261,11 @@ function Reader() {
         );
       }
     } catch (e) {
-      if (own === generation.current) setError(message(e));
+      if (own === generation.current) { setError(message(e)); setSnapshot(null); setEvidence(null); setOriginal(""); setSpace(null); lastPublication.current = undefined; }
     } finally {
       if (own === generation.current) setBusy(false);
     }
-  }, [current.slug, current.welcome, current.catalog, current.publication]);
+  }, [current.slug, current.welcome, current.catalog, current.publication, current.space, current.collection, current.record]);
   useEffect(() => {
     if (!authenticated) return;
     void load();
@@ -305,7 +351,7 @@ function Reader() {
         : current.collection !== "pages"
         ? evidenceHref(current.collection, current.record, current.query, id === "live" ? "" : id, current.offset)
         : current.welcome && !current.query
-        ? `#/welcome${id === "live" ? "" : `?publication=${encodeURIComponent(id)}`}`
+        ? spaceLink(`#/welcome${id === "live" ? "" : `?publication=${encodeURIComponent(id)}`}`)
         : current.query
         ? searchHref(
             current.query,
@@ -366,10 +412,11 @@ function Reader() {
   const welcomeHref = (topic: string) => {
     const params = new URLSearchParams({ topic });
     if (pinned) params.set("publication", pinned);
-    return `#/welcome?${params}`;
+    return spaceLink(`#/welcome?${params}`);
   };
-  const welcoming = !current.catalog && current.collection === "pages" && !searching && !current.slug &&
+  const welcoming = !emptySpace && !current.catalog && current.collection === "pages" && !searching && !current.slug &&
     (current.welcome || (matchingPublication && !snapshot?.publication.home));
+  const showEmptySpace = emptySpace && !current.publication && current.collection === "pages";
   return (
     <div className="workspace">
       <a
@@ -386,16 +433,23 @@ function Reader() {
         className={`sidebar ${menu ? "is-open" : ""}`}
         aria-label="Wiki navigation"
       >
-        <a className="brand" href="#/">
+        <a className="brand" href={pageHref("")}>
           <span className="brand-mark">W</span>
           <span>
             WikiContext<small>YOUR CONNECTED KNOWLEDGE</small>
           </span>
         </a>
-        <div className="workspace-label">
-          <span className="workspace-dot" /> Shared workspace
-        </div>
-        <a className={`welcome-nav ${welcoming ? "selected" : ""}`} href={`#/welcome${pinned ? `?publication=${encodeURIComponent(pinned)}` : ""}`} aria-current={welcoming ? "page" : undefined}>⌂ <span>Welcome</span></a>
+        {spaces.length > 0 && (spaces.length > 1 || !space) ? <label className="publication-control">Space<select aria-label="Space" value={space?.id || ""} onChange={e => { location.hash = `#/?space=${encodeURIComponent(e.target.value)}`; }}>
+          {!space && <option value="" disabled>Choose a space</option>}
+          {spaces.map(item => <option key={item.id} value={item.id}>{item.kind === "personal" ? "Personal space" : item.name}{item.role === "reader" ? " (read only)" : ""}</option>)}
+        </select></label> : <div className="workspace-label"><span className="workspace-dot" /> {space?.name || "Company"}</div>}
+        {membershipsLoaded && !spaces.some(item => item.kind === "personal") && <button className="secondary-button" disabled={creatingSpace} onClick={() => {
+          const own = ++personalCreation.current, identity = sessionGeneration, destination = location.hash;
+          const active = () => own === personalCreation.current && identity === sessionGeneration && pb.authStore.isValid && destination === location.hash;
+          setCreatingSpace(true); setError("");
+          void api.createPersonalSpace().then(result => { if (active()) location.hash = `#/?space=${encodeURIComponent(result.id)}`; }).catch(e => { if (active()) setError(message(e)); }).finally(() => { if (active()) setCreatingSpace(false); });
+        }}>{creatingSpace ? "Creating personal space…" : "Create personal space"}</button>}
+        <a className={`welcome-nav ${welcoming ? "selected" : ""}`} href={spaceLink(`#/welcome${pinned ? `?publication=${encodeURIComponent(pinned)}` : ""}`)} aria-current={welcoming ? "page" : undefined}>⌂ <span>Welcome</span></a>
         <label className="publication-control">Collection<select aria-label="Collection" value={current.collection} onChange={e => { location.hash = e.target.value === "pages" ? pageHref("", pinned) : evidenceHref(e.target.value as "sources" | "passages", "", "", current.publication); }}><option value="pages">Pages</option><option value="sources">Sources</option><option value="passages">Passages</option></select></label>
         <label className="search" hidden={welcoming}>
           <span aria-hidden="true">⌕</span>
@@ -495,9 +549,11 @@ function Reader() {
                 value={pinned || "live"}
                 onChange={(e) => {
                   if (e.target.value === "more") {
+                    const own = generation.current;
                     void api
-                      .listPublications(historyOffset.current, 50)
+                      .listPublications(space?.id || "", historyOffset.current, 50)
                       .then((rows) => {
+                        if (own !== generation.current) return;
                         historyOffset.current += rows.length;
                         setMoreHistory(rows.length === 50);
                         setPublications((previous) =>
@@ -508,7 +564,7 @@ function Reader() {
                           ].sort((a, b) => b.sequence - a.sequence),
                         );
                       })
-                      .catch((e) => setError(message(e)));
+                      .catch((e) => { if (own === generation.current) setError(message(e)); });
                   } else navigatePublication(e.target.value);
                 }}
               >
@@ -554,8 +610,9 @@ function Reader() {
             tabIndex={-1}
             aria-busy={busy}
           >
-            {current.collection !== "pages" && <EvidenceBrowser collection={current.collection} id={current.record} term={current.query} publication={current.publication} offset={current.offset} navigation={evidenceNavigation} onTitleChange={setEvidenceTitle} />}
-            <SearchResults
+            {showEmptySpace && <section className="empty-state"><h1>This space has no published pages</h1><p>Pages appear here when your agent publishes knowledge in this space.</p></section>}
+            {current.collection !== "pages" && space && <EvidenceBrowser key={`evidence-${space.id}`} space={space.id} collection={current.collection} id={current.record} term={current.query} publication={current.publication} offset={current.offset} navigation={evidenceNavigation} onTitleChange={setEvidenceTitle} />}
+            <SearchResults key={`search-${space?.id || "none"}`}
               publication={snapshot?.publication.id || lastPublication.current}
               query={current.query}
               visible={
@@ -563,9 +620,9 @@ function Reader() {
               }
               epoch={searchEpoch}
             />
-            {current.catalog && matchingPublication && (!busy || snapshot) && <Catalog pages={pages} state={current.catalogState} publication={pinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
+            {current.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog pages={pages} state={current.catalogState} publication={pinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
             {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={pinned || "live"} pages={pages} publication={snapshot?.publication || null} pinned={pinned} topic={current.topic} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
-            {current.collection === "pages" && !current.catalog && !searching && !welcoming &&
+            {current.collection === "pages" && !current.catalog && !searching && !welcoming && !showEmptySpace &&
               (page ? (
                 <article>
                   {current.query && current.slug && (
@@ -818,8 +875,11 @@ function Login({
   setTheme: (value: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [googlePending, setGooglePending] = useState(false);
+  useEffect(() => () => api.cancelGoogleLogin(), []);
   const [error, setError] = useState("");
-  const login = async (action: () => Promise<unknown>) => {
+  const login = async (action: () => Promise<unknown>, google = false) => {
+    setGooglePending(google);
     setBusy(true);
     setError("");
     try {
@@ -828,6 +888,7 @@ function Login({
       setError(message(e));
     } finally {
       setBusy(false);
+      setGooglePending(false);
     }
   };
   const password = (event: FormEvent<HTMLFormElement>) => {
@@ -864,10 +925,11 @@ function Login({
         <button
           className="primary-button google-button"
           disabled={busy}
-          onClick={() => void login(() => api.loginGoogle())}
+          onClick={() => void login(() => api.loginGoogle(), true)}
         >
           Continue with Google <span>↗</span>
         </button>
+        {googlePending && <button type="button" className="secondary-button" onClick={() => api.cancelGoogleLogin()}>Cancel Google sign-in</button>}
         <p className="login-hint">Sign in with your Workspace account.</p>
         <details>
           <summary>Sign in with a password</summary>

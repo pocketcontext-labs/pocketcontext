@@ -1,3 +1,4 @@
+import { spaceLink } from "./spaceLinks";
 import RepositoryFiles from "./RepositoryFiles";
 import { catalogValue, groupsFor, ids } from "./ownership";
 import { pageHref } from "./Markdown";
@@ -51,7 +52,7 @@ export function catalogHref(
     if (key !== "type" && value && !(key === "sort" && value === "title"))
       params.set(key === "query" ? "q" : key, String(value));
   }
-  return `#/catalog/${state.type || "resource"}${params.size ? `?${params}` : ""}`;
+  return spaceLink(`#/catalog/${state.type || "resource"}${params.size ? `?${params}` : ""}`);
 }
 const columns: Record<CatalogType, string[]> = {
   repository_document: ["document_type", "output_mode", "accountable_owners"],

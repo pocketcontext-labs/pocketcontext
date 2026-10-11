@@ -5,8 +5,9 @@ Run from the installed skill directory, or replace `wikicontext` with its resolv
 ```sh
 wikicontext login --google
 wikicontext check
+wikicontext spaces
 wikicontext ingest /path/to/source.md --title 'Source title'
-wikicontext sql "SELECT id, sequence, manifest FROM publications ORDER BY sequence DESC LIMIT 1"
+wikicontext sql "SELECT id, sequence, manifest FROM publications WHERE space = 'SPACE_ID_______' ORDER BY sequence DESC LIMIT 1"
 wikicontext sql "SELECT id, ordinal, locator, body FROM passages WHERE rendition = 'RENDITION_ID_15' ORDER BY ordinal LIMIT 10 OFFSET 0"
 ```
 
@@ -19,7 +20,7 @@ wikicontext ingest /path/to/recording.m4a --audio-storage original --title 'Full
 
 The first command stores a mono 16 kbps Opus `.ogg` source encoded from 16 kHz input and transcribes those same bytes. The second stores the input bytes and transcribes a temporary Opus derivative. Both leave the local input untouched. Continue through cited synthesis and publication after extraction.
 
-IDs below are placeholders; replace with returned 15-character IDs. Create a page only after checking for an existing slug. The body belongs to the revision, never the page identity.
+IDs below are placeholders; replace with returned 15-character IDs. `create` adds the selected space (`--space`, `WIKICONTEXT_SPACE` or the company space) to new sources, runs and pages. Create a page only after checking for an existing slug in that space. The body belongs to the revision, never the page identity.
 
 ```sh
 wikicontext create ingestion_runs '{"key":"example-source-v1","status":"staging","description":"Synthesize synthetic example evidence","sources":["SOURCE_ID______"]}'
@@ -141,7 +142,7 @@ FROM publications AS pub
 JOIN json_each(pub.manifest) AS selected
 JOIN pages AS p ON p.id = selected.key
 JOIN page_revisions AS r ON r.id = selected.value AND r.page = p.id
-WHERE pub.sequence = 1 AND r.archived = false
+WHERE pub.space = 'SPACE_ID_______' AND pub.sequence = 1 AND r.archived = false
   AND json_extract(r.properties, '$.catalog_type') = 'resource'
   AND coalesce(json_array_length(json_extract(r.properties, '$.accountable_owners')), 0) = 0
   AND (json_extract(r.properties, '$.accountable_owner') IS NULL

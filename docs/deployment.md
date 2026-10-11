@@ -38,7 +38,8 @@ ordinary operations use default `users`. Enable a separate Internal Google Web c
 with `WIKICONTEXT_GOOGLE_CLIENT_ID`, `WIKICONTEXT_GOOGLE_CLIENT_SECRET` and
 `WIKICONTEXT_GOOGLE_WORKSPACE_DOMAIN`. Configure both the CLI loopback redirect
 `http://127.0.0.1:8765/callback` and the approved origin's `/api/oauth2-redirect`.
-Every admitted, enabled user can read and edit shared wiki content. Google JIT must
+Enabled users with active company membership can read and edit company content;
+personal spaces require their own membership. Google JIT must
 verify trusted claims; public password signup stays blocked.
 
 The documented production architecture uses private R2 bucket `wikicontext-replica`
@@ -144,11 +145,16 @@ The older `deploy/bootstrap-wikicontext.py` is retired and always refuses execut
 it hardcoded the obsolete local-file replica target. `init` initializes application
 storage only and does not provision cloud resources or change deployment policy.
 
+For the spaces migration, review the [predeployment recovery and disposable-clone
+assessment](predeployment-recovery.md) before publishing or deploying. A PocketDeploy
+clone is a separate deployment; its controller checkpoint is not an application
+backup, and a raw ONCE restore must not reuse production settings.
+
 ## Runtime migration freeze
 
-The application pins PocketContext `976ddf71a4734530adefe4a56633658a0894b449`,
-which retains the runtime maintenance API and fixes writable PocketBase backup
-creation under the SQLite guard. Verify API support before attempting a production
+The application pins PocketContext `dc1dc6b0e88bbc46f36fa8441c8f6959bada4732`,
+which retains the runtime maintenance API and writable PocketBase backup support
+under the SQLite guard, and adds private search. Verify API support before attempting a production
 freeze; images predating the maintenance feature do not expose it.
 
 An operator with an existing valid superuser token reads
@@ -201,5 +207,5 @@ python3 tests/maintenance.py --binary /absolute/path/to/maintenance-capable/pock
 
 Container, Litestream, immutable-file backup, smoke/MinIO fixture, bootstrap and
 single-writer deployment patterns were adapted from sibling AccountContext.
-WikiContext changes the protected attachment collection to `sources`, tests shared
-user visibility, and restricts operational deployment to its approved fixed target.
+WikiContext changes the protected attachment collection to `sources`, tests company
+sharing and private-space boundaries, and restricts operational deployment to its approved fixed target.

@@ -52,6 +52,12 @@ def main():
             first = run('first'); rev1 = revision(first, page); publish(first)
             destination = folder / 'vault'
             exporter.export(cfg, destination)
+            manifest_path = destination / exporter.MANIFEST
+            migrated = json.loads(manifest_path.read_text())
+            assert migrated.pop('space') == wc.COMPANY_SPACE
+            manifest_path.write_text(json.dumps(migrated))
+            exporter.export(cfg, destination)
+            assert json.loads(manifest_path.read_text())['space'] == wc.COMPANY_SPACE
             md = destination / 'wiki/observatory.md'
             original_render = md.read_bytes()
             assert b'[^1]: [original \\[synthetic\\].txt]' in original_render, original_render

@@ -9,7 +9,24 @@ import type {
 
 // The SDK synchronizes this application's credentials across same-origin tabs.
 const sessionKey = "wikicontext.reader.auth";
-const authStore = new LocalAuthStore(sessionKey);
+function browserAuthStore(): BaseAuthStore {
+  try {
+    const probe = `${sessionKey}.probe.${Math.random()}`;
+    window.localStorage.setItem(probe, "1");
+    window.localStorage.removeItem(probe);
+    return new LocalAuthStore(sessionKey);
+  } catch { return new BaseAuthStore(); }
+}
+const authStore = browserAuthStore();
+// The SDK handles named keys, but localStorage.clear() emits a null key.
+if (typeof window !== "undefined" && authStore instanceof LocalAuthStore) {
+  window.addEventListener("storage", (event) => {
+    if (event.storageArea !== window.localStorage) return;
+    // Even an empty-to-empty logout must fence a popup that is still signing in.
+    if (event.key === null || event.key === sessionKey) cancelGoogleLogin();
+    if (event.key === null) authStore.clear();
+  });
+}
 // Discard legacy per-tab credentials; never resurrect them after shared logout.
 try { window.sessionStorage.removeItem(sessionKey); } catch { /* Optional storage. */ }
 if (authStore.record?.collectionName !== "users" || !authStore.isValid) authStore.clear();
@@ -174,23 +191,50 @@ async function validatePublication(publicationId: string): Promise<boolean> {
   return true;
 }
 
+export interface Space {
+  id: string;
+  kind: "personal" | "group";
+  name: string;
+  role: "owner" | "editor" | "reader";
+}
+export const companySpace = "companyspace001";
+/** Active memberships of the signed-in account. */
+export async function listSpaces(): Promise<Space[]> {
+  const account = pb.authStore.record?.id;
+  if (!account) throw new Error("Please sign in to continue");
+  const rows = await query<Space>(
+    `SELECT s.id, s.kind, s.name, m.role FROM spaces s JOIN space_members m ON m.space=s.id WHERE m.account=${identity(account)} AND m.active=1 ORDER BY CASE s.id WHEN 'companyspace001' THEN 0 ELSE 1 END, s.name, s.id LIMIT 200`,
+  );
+  return rows.filter((row) => /^[a-z0-9]{15}$/.test(row.id) && (row.kind === "personal" || row.kind === "group"));
+}
+/** Explicit requests must be memberships; legacy links default to the company. */
+export function selectSpace(spaces: Space[], requested?: string): Space | null {
+  return spaces.find((space) => space.id === (requested ?? companySpace)) ?? null;
+}
+export async function createPersonalSpace(): Promise<{ id: string }> {
+  return pb.send("/api/wiki/spaces/personal", { method: "POST" });
+}
+export async function evidenceSpace(collection: "sources" | "passages", id: string): Promise<string | null> {
+  return (await query<{ space: string }>(`SELECT space FROM ${collection} WHERE id=${identity(id)} LIMIT 1`))[0]?.space ?? null;
+}
 export async function listPublications(
+  space: string,
   offset = 0,
   limit = 50,
 ): Promise<Publication[]> {
   windowSize(offset, limit);
   return query(
-    `SELECT id, sequence, run, home, created FROM publications ORDER BY sequence DESC LIMIT ${limit} OFFSET ${offset}`,
+    `SELECT id, space, sequence, run, home, created FROM publications WHERE space=${identity(space)} ORDER BY sequence DESC LIMIT ${limit} OFFSET ${offset}`,
   );
 }
-export async function latestPublication(): Promise<Publication | null> {
-  return (await listPublications(0, 1))[0] ?? null;
+export async function latestPublication(space = companySpace): Promise<Publication | null> {
+  return (await listPublications(space, 0, 1))[0] ?? null;
 }
 export async function getPublication(id: string): Promise<Publication | null> {
   return (
     (
       await query<Publication>(
-        `SELECT id, sequence, run, home, created FROM publications WHERE id=${identity(id)} LIMIT 1`,
+        `SELECT id, space, sequence, run, home, created FROM publications WHERE id=${identity(id)} LIMIT 1`,
       )
     )[0] ?? null
   );
@@ -209,6 +253,17 @@ export interface SearchPage {
 export class SearchChangedError extends Error {
   constructor() {
     super("Search changed. Restart to see consistent results.");
+  }
+}
+export type SearchFailure = "not-found" | "too-large" | "unavailable";
+const searchFailureMessages: Record<SearchFailure, string> = {
+  "not-found": "This publication is not available in your spaces.",
+  "too-large": "This space is too large to search right now. Browse the page list instead.",
+  unavailable: "Search is temporarily unavailable. Please retry shortly.",
+};
+export class SearchUnavailableError extends Error {
+  constructor(readonly reason: SearchFailure) {
+    super(searchFailureMessages[reason]);
   }
 }
 export async function searchPages(
@@ -257,6 +312,9 @@ export async function searchPages(
       )
         pb.authStore.clear();
       if (error.status === 409) throw new SearchChangedError();
+      if (error.status === 404) throw new SearchUnavailableError("not-found");
+      if (error.status === 413) throw new SearchUnavailableError("too-large");
+      if (error.status === 503) throw new SearchUnavailableError("unavailable");
     }
     throw error;
   }
@@ -383,20 +441,62 @@ export async function getPage(
   return { ...page, citations, backlinks, links };
 }
 
+const googleRequestKey = "wikicontext-google-signin";
+let pendingSignIn: { cancel: (message?: string) => void } | null = null;
 async function signIn(email?: string, password?: string): Promise<void> {
+  pendingSignIn?.cancel();
   const generation = sessionGeneration, token = authStore.token;
   const client = new PocketBase(pb.baseURL, new BaseAuthStore());
+  const google = email === undefined;
+  // Open synchronously in the click handler, before provider discovery awaits.
+  const popup = google ? window.open("about:blank", "_blank", "popup,width=520,height=720") : null;
+  if (google && !popup) throw new Error("Allow the sign-in popup, then try again.");
+  let ended = false;
+  let rejectAttempt: (error: Error) => void = () => {};
+  const attempt = {
+    cancel(message = `${google ? "Google sign-in" : "Sign-in"} cancelled. You can try again.`) {
+      if (ended) return;
+      ended = true;
+      // This isolated client owns only this attempt, including discovery and exchange.
+      client.cancelAllRequests();
+      popup?.close();
+      rejectAttempt(Object.assign(new Error(message), { isAbort: true }));
+    },
+  };
+  pendingSignIn = attempt;
+  const timeout = google ? window.setTimeout(() => attempt.cancel("Google sign-in timed out. Please try again."), 180000) : undefined;
   try {
-    const auth = client.collection("users");
-    const result = email === undefined
-      ? await auth.authWithOAuth2({ provider: "google" })
-      : await auth.authWithPassword(email, password!);
-    if (generation !== sessionGeneration || token !== authStore.token) throw new Error("Session changed");
+    const result = await new Promise<RecordAuthResponse>((resolve, reject) => {
+      rejectAttempt = reject;
+      const auth = client.collection("users");
+      const response = google
+        ? auth.authWithOAuth2({
+          provider: "google", requestKey: googleRequestKey,
+          urlCallback(url) {
+            if (ended) throw new Error("Sign-in ended");
+            const destination = new URL(url);
+            if (destination.origin !== "https://accounts.google.com" || destination.username || destination.password)
+              throw new Error("Unexpected Google authorization configuration.");
+            popup!.location.href = destination.href;
+          },
+        })
+        : auth.authWithPassword(email!, password!);
+      response.then(resolve, reject);
+    });
+    if (ended || pendingSignIn !== attempt || generation !== sessionGeneration || token !== authStore.token) throw new Error("Session changed");
     if (result.record.collectionName !== "users") throw new Error("Invalid workspace identity");
     authStore.save(result.token, result.record);
-  } finally { await client.realtime.unsubscribe(); }
+  } finally {
+    ended = true;
+    clearTimeout(timeout);
+    popup?.close();
+    if (pendingSignIn === attempt) pendingSignIn = null;
+    await client.realtime.unsubscribe();
+  }
 }
 export async function loginGoogle(): Promise<void> { await signIn(); }
+/** Cancel discovery, the realtime wait or exchange and fence late responses. */
+export function cancelGoogleLogin(): void { pendingSignIn?.cancel(); }
 export async function loginPassword(email: string, password: string): Promise<void> { await signIn(email, password); }
 let refreshedAt = 0;
 let refreshedToken = "";
@@ -433,6 +533,7 @@ export async function refreshSession(): Promise<void> {
   }
 }
 export function logout(): void {
+  cancelGoogleLogin();
   pb.authStore.clear();
 }
 export async function originalURL(source: Source): Promise<string> {
@@ -491,7 +592,11 @@ export async function watchPublications(
 }
 
 export const api = {
+  listSpaces,
+  createPersonalSpace,
+  evidenceSpace,
   loginGoogle,
+  cancelGoogleLogin,
   loginPassword,
   refreshSession,
   logout,

@@ -6,7 +6,7 @@ const pages: PageSummary[] = [
   { id: "revision-a", page: "page-a", slug: "alpha", kind: "concept", title: "Zulu", summary: "" },
   { id: "revision-b", page: "page-b", slug: "beta", kind: "concept", title: "Alpha", summary: "" },
 ];
-const publication: Publication = { id: "publication", sequence: 1, run: "run", home: "page-b", created: "" };
+const publication: Publication = { id: "publication", space: "companyspace001", sequence: 1, run: "run", home: "page-b", created: "" };
 
 test("home uses the stable page identity and selected publication", () => {
   expect(homePageSlug(publication, pages)).toBe("beta");

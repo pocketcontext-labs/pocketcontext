@@ -114,7 +114,8 @@ def render(cfg, sequence=None):
         if key not in cache:
             cache[key] = one(cfg, table, columns, record)
         return cache[key]
-    where = '' if sequence is None else 'WHERE sequence = ' + str(int(sequence))
+    space = wc.space_id(cfg)
+    where = 'WHERE space = ' + literal(space) + ('' if sequence is None else ' AND sequence = ' + str(int(sequence)))
     pubs = query(cfg, 'SELECT id,run,sequence,manifest,created FROM publications ' + where + ' ORDER BY sequence DESC LIMIT 1')
     if not pubs:
         raise wc.Fail(1, 'No matching publication exists')
@@ -177,7 +178,7 @@ def render(cfg, sequence=None):
         if path in files or page['slug'] in ('index', 'log'):
             raise wc.Fail(1, 'Published slug collides with an export path')
         files[path] = body.encode()
-    history = rows(cfg, 'publications', 'id,run,sequence,created', f'sequence <= {int(publication["sequence"])}')
+    history = rows(cfg, 'publications', 'id,run,sequence,created', f'space = {literal(space)} AND sequence <= {int(publication["sequence"])}')
     log = '# Publication log\n\n'
     for pub in sorted(history, key=lambda p: p['sequence']):
         run = get(cfg, 'ingestion_runs', 'id,description,sources', pub['run'])
@@ -190,7 +191,7 @@ def render(cfg, sequence=None):
     files['wiki/index.md'] = index.encode()
     for source in sources.values():
         files[source_path(source)] = download(cfg, source)
-    return files, {'version': 1, 'server': cfg['url'], 'publication': publication['id'], 'sequence': publication['sequence']}
+    return files, {'version': 1, 'server': cfg['url'], 'space': space, 'publication': publication['id'], 'sequence': publication['sequence']}
 
 
 def safe_path(root, name):
@@ -255,6 +256,10 @@ def publish(root, files, metadata):
         validate_manifest(old)
         if old.get('server') and old['server'] != metadata['server']:
             raise wc.Fail(1, 'Destination belongs to a different WikiContext server')
+        if old.get('space') and old['space'] != metadata.get('space'):
+            raise wc.Fail(1, 'Destination belongs to a different WikiContext space')
+        if manifest_path.exists() and not old.get('space') and metadata.get('space') != wc.COMPANY_SPACE:
+            raise wc.Fail(1, 'Legacy export can only be adopted by the company space')
         previous = old['files']
         for name, expected in previous.items():
             target = safe_path(root, name)
@@ -286,7 +291,7 @@ def publish(root, files, metadata):
             journal_path.unlink()
             raise
         journal_path.unlink()
-        return {'destination': str(root), 'sequence': metadata['sequence'], 'files': len(files)}
+        return {'destination': str(root), 'space': metadata.get('space'), 'sequence': metadata['sequence'], 'files': len(files)}
 
 
 def recover(root, journal):

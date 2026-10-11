@@ -14,9 +14,10 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+SEARCH = 'search' in json.loads((ROOT / 'pocketcontext.json').read_text())
 
 @contextlib.contextmanager
-def server(binary):
+def server(binary, fixtures=''):
     with tempfile.TemporaryDirectory(prefix='wikicontext-test-') as tmp:
         hooks=Path(tmp)/'pb_hooks'
         shutil.copytree(ROOT/'pb_hooks',hooks)
@@ -29,7 +30,7 @@ onRecordCreateExecute((e) => {
   if(e.record.id === 'dirfailure00001') throw new Error('Synthetic directory failure');
   e.next();
 }, 'user_directory');
-''')
+''' + fixtures)
         common = [str(Path(binary).resolve()), '--dir', str(Path(tmp)/'pb_data'), '--migrationsDir', str(ROOT/'pb_migrations'), '--hooksDir', str(hooks)]
         result = subprocess.run(common+['superuser','upsert','admin@example.com','SyntheticAdminPassword123!'],cwd=ROOT,capture_output=True,text=True)
         assert result.returncode == 0, result.stdout+result.stderr

@@ -61,10 +61,10 @@ def main():
             assert call('GET', path, auth=admin)[0] in (401, 403)
             assert token not in json.dumps(trace)
         # REST traces exclude response values and query strings.
-        status, headers, body = call('GET', '/api/collections/user_directory/records?perPage=1', extra={'X-Context-Trace': '1'})
-        assert status == 200
+        status, headers, body = call('GET', '/api/collections/spaces/records?perPage=1', extra={'X-Context-Trace': '1'})
+        assert status == 200 and body['items'][0]['name'] == 'Company'
         trace = call('GET', '/api/context/traces/' + headers['X-Context-Request-Id'])[2]
-        assert '?' not in trace['route'] and 'Trace user' not in json.dumps(trace)
+        assert '?' not in trace['route'] and 'Company' not in json.dumps(trace)
         # Application revocation also revokes trace retrieval.
         path = '/api/context/traces/' + headers['X-Context-Request-Id']
         request('PATCH', '/api/collections/users/records/' + user['id'], {'disabled': True}, admin)

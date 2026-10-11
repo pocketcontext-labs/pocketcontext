@@ -63,9 +63,11 @@ def select_publication(cfg, publication_id=None, sequence=None):
         raise wc.Fail(2, 'Publication sequence must be positive')
     if publication_id is not None and sequence is not None:
         raise wc.Fail(2, 'Choose a publication ID or sequence, not both')
-    condition = (' WHERE id=' + literal(publication_id) if publication_id is not None else
-                 f' WHERE sequence={sequence}' if sequence is not None else '')
-    result = rows(cfg, "SELECT id, sequence, CASE WHEN json_valid(manifest) "
+    # Sequences and the latest publication are per space.
+    condition = ' WHERE space=' + literal(wc.space_id(cfg)) + (
+        ' AND id=' + literal(publication_id) if publication_id is not None else
+        f' AND sequence={sequence}' if sequence is not None else '')
+    result = rows(cfg, "SELECT id, space, sequence, CASE WHEN json_valid(manifest) "
                   "THEN json_type(manifest) ELSE 'invalid' END AS manifest_type "
                   "FROM publications" + condition + " ORDER BY sequence DESC LIMIT 1")
     if not result:
@@ -132,7 +134,7 @@ def search(cfg, term, *, publication_id=None, sequence=None, limit=20, offset=0,
         raise wc.Fail(2, 'Continuation requires --publication (or --sequence) and --generation')
     publication = select_publication(cfg, publication_id, sequence)
     if publication is None:
-        return {'publication': None, 'generation': None, 'pages': [], 'hasMore': False, 'nextOffset': None}
+        return {'space': wc.space_id(cfg), 'publication': None, 'generation': None, 'pages': [], 'hasMore': False, 'nextOffset': None}
     validate_manifest(cfg, publication)
     body = {'index': 'pages', 'query': term, 'scope': publication['id'], 'limit': limit, 'offset': offset}
     if generation is not None:
@@ -173,7 +175,7 @@ def search(cfg, term, *, publication_id=None, sequence=None, limit=20, offset=0,
         if set(metadata) != set(ids):
             raise wc.Fail(1, 'Search hit is absent from the selected publication')
     pages = [dict(metadata[hit['id']], score=hit['score'], excerpt=hit['excerpt']) for hit in hits]
-    return {'publication': publication['id'], 'generation': returned_generation, 'pages': pages,
+    return {'space': publication['space'], 'publication': publication['id'], 'generation': returned_generation, 'pages': pages,
             'hasMore': result['hasMore'], 'nextOffset': offset + len(pages) if result['hasMore'] else None}
 
 
@@ -213,5 +215,5 @@ def lint(cfg):
     for page in pages:
         if not incoming[page['page']]:
             findings.append({'page': page['slug'], 'kind': 'orphan'})
-    return {'publication': publication['id'] if publication else None, 'findings': findings,
+    return {'space': wc.space_id(cfg), 'publication': publication['id'] if publication else None, 'findings': findings,
             'semantic_review': 'Contradictions, claim support and outdated evidence require agent review of source passages.'}
