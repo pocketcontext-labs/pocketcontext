@@ -191,6 +191,13 @@ def main():
             for record in image_sources:
                 assert (destination / exporter.source_path(record)).read_bytes() == originals[record['id']]
                 assert record['original_name'] in rendered
+            personal = real_must(cfg, 'POST', '/api/wiki/spaces/personal', {})['id']
+            private_cfg = dict(cfg, space=personal, space_checked=False)
+            private = ingest.ingest(private_cfg, source)
+            assert private['source'] != result['source'] and private['space'] == personal
+            assert private['sha256'] == result['sha256']
+            assert ingest.ingest(cfg, source)['source'] == result['source']
+            assert ingest.ingest(private_cfg, source)['source'] == private['source']
     print('PASS: original/hash/dedup/retry, protected downloads, cited publication/export, normalized audio recovery, PNG/JPEG/WebP reviewed evidence and conflicts')
 
 

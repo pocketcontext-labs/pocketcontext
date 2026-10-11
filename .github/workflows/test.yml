@@ -2,6 +2,12 @@ name: Wiki integration
 on:
   # Release publication requires this complete application test suite.
   workflow_call:
+    inputs:
+      verify_published_launcher:
+        description: Resolve and test the unchanged launcher against its published Git commit
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -15,6 +21,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: wikicontext
+          # The populated migration fixture archives its immutable pre-spaces baseline.
+          fetch-depth: 0
           persist-credentials: false
       - name: Install packaged CLI
         run: |
@@ -25,6 +33,10 @@ jobs:
         run: python3 wikicontext/tests/launcher.py
       - name: Test deployment orchestration
         run: python3 wikicontext/tests/deploy_workflow.py
+      - name: Test candidate publication isolation
+        run: python3 wikicontext/tests/candidate_workflow.py
+      - name: Test isolated rehearsal configuration and packaging
+        run: python3 -B -m unittest discover -s wikicontext/deploy/rehearsal/tests
       - name: Test immutable-file migration tooling
         run: python3 wikicontext/tests/migrate_files.py
       - name: Test retired bootstrap refusal
@@ -34,7 +46,14 @@ jobs:
       - name: Install audio and image ingestion test tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg python3-pil
+          sudo apt-get install -y --no-install-recommends ffmpeg python3-pil iproute2 age
+      - name: Test encrypted checkpoint capture and recovery
+        run: |
+          python3 wikicontext/tests/checkpoint.py
+          python3 wikicontext/tests/capture_checkpoint.py
+          python3 wikicontext/tests/verify_checkpoint_replica.py
+          python3 wikicontext/tests/mint_maintenance_token.py
+          python3 wikicontext/tests/activate_checkpoint.py
       - name: Read server revision
         id: server
         shell: bash
@@ -72,6 +91,12 @@ jobs:
         run: python3 wikicontext/tests/ui_browser.py --binary pocketcontext/bin/pocketcontext
       - name: Test wiki
         run: python3 wikicontext/tests/integration.py --binary pocketcontext/bin/pocketcontext
+      - name: Test space privacy and populated company migration
+        run: |
+          python3 wikicontext/tests/spaces.py --binary pocketcontext/bin/pocketcontext
+          python3 wikicontext/tests/spaces_migration.py --binary pocketcontext/bin/pocketcontext
+      - name: Test isolated frozen clone preparation
+        run: python3 wikicontext/tests/clone_preparation.py --binary pocketcontext/bin/pocketcontext
       - name: Test Google OAuth claims and Workspace signup
         run: python3 wikicontext/tests/oauth_integration.py --binary pocketcontext/bin/pocketcontext
       - name: Test first-start deployment settings
@@ -80,6 +105,13 @@ jobs:
         run: python3 wikicontext/tests/maintenance.py --binary pocketcontext/bin/pocketcontext
       - name: Test installable skill
         run: python3 wikicontext/tests/skill.py --binary pocketcontext/bin/pocketcontext
+      - name: Verify published portable package
+        if: inputs.verify_published_launcher
+        run: |
+          mkdir -p "$RUNNER_TEMP/published-skill"
+          cp wikicontext/skills/wikicontext/wikicontext "$RUNNER_TEMP/published-skill/wikicontext"
+          chmod +x "$RUNNER_TEMP/published-skill/wikicontext"
+          python3 wikicontext/tests/skill.py --binary pocketcontext/bin/pocketcontext --client "$RUNNER_TEMP/published-skill/wikicontext"
       - name: Test instrumented uploads and commands
         run: python3 wikicontext/tests/skill.py --binary pocketcontext/bin/pocketcontext --trace
       - name: Test access, publication and evidence workflows

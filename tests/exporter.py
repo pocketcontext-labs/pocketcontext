@@ -15,14 +15,32 @@ from wikicontext_client import cli as wc
 
 class ExportTests(unittest.TestCase):
     def setUp(self):
+        patcher = patch.object(wc, 'space_id', return_value='companyspace001')
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / 'vault'
-        self.metadata = {'version': 1, 'server': 'https://wiki.invalid', 'publication': 'p' * 15, 'sequence': 1}
+        self.metadata = {'version': 1, 'server': 'https://wiki.invalid', 'space': wc.COMPANY_SPACE, 'publication': 'p' * 15, 'sequence': 1}
         self.files = {'wiki/a.md': b'alpha', 'raw/source.txt': b'original'}
 
     def publish(self, files=None):
         return exp.publish(self.root, files or self.files, self.metadata)
+
+    def test_legacy_export_adopts_company_once(self):
+        self.publish()
+        manifest = self.root / exp.MANIFEST
+        legacy = json.loads(manifest.read_text())
+        del legacy['space']
+        manifest.write_text(json.dumps(legacy))
+        with self.assertRaisesRegex(wc.Fail, 'Legacy export'):
+            exp.publish(self.root, self.files, dict(self.metadata, space='personal0000001'))
+        self.assertEqual(json.loads(manifest.read_text()), legacy)
+        self.publish()
+        self.assertEqual(json.loads(manifest.read_text())['space'], wc.COMPANY_SPACE)
+        with self.assertRaisesRegex(wc.Fail, 'different WikiContext space'):
+            exp.publish(self.root, self.files, dict(self.metadata, space='personal0000001'))
+        self.assertEqual((self.root / 'wiki/a.md').read_bytes(), b'alpha')
 
     def test_repeatable_preserves_unrelated_and_cleans_owned(self):
         self.publish()
@@ -83,7 +101,7 @@ class ExportTests(unittest.TestCase):
         db = sqlite3.connect(':memory:')
         self.addCleanup(db.close)
         schemas = {
-            'publications': 'id,run,sequence INTEGER,manifest,created',
+            'publications': "id,run,sequence INTEGER,manifest,created,space DEFAULT 'companyspace001'",
             'pages': 'id,slug,kind',
             'page_revisions': 'id,page,run,title,summary,body,archived INTEGER,created,properties,property_evidence',
             'citations': 'id,page_revision,passage,marker,note',
@@ -96,7 +114,8 @@ class ExportTests(unittest.TestCase):
         for name, schema in schemas.items():
             db.execute(f'CREATE TABLE {name} ({schema})')
         def put(table, values):
-            db.execute(f'INSERT INTO {table} VALUES ({",".join("?" for _ in values)})', values)
+            columns = [column.split()[0] for column in schemas[table].split(',')][:len(values)]
+            db.execute(f'INSERT INTO {table} ({",".join(columns)}) VALUES ({",".join("?" for _ in values)})', values)
         pid, rid, run, sid = 'a'*15, 'b'*15, 'c'*15, 'd'*15
         put('publications', ('p'*15, run, 1, json.dumps({pid: rid, 'h'*15: 'i'*15, 'j'*15: 'k'*15}), '2026-01-01'))
         put('publications', ('q'*15, 'z'*15, 2, '{}', '2026-01-02'))

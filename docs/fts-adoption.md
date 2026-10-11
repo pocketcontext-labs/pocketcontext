@@ -1,116 +1,38 @@
-# Publication-scoped full-text search
+# Private published-page search
 
-WikiContext uses PocketContext's separate authenticated `/api/context/search`
-endpoint. Browser and portable client search published revision title, summary and
-body with the same publication scope, ranking and generation checks. FTS indexes
-are derived data; immutable revisions, publication manifests and evidence remain
-authoritative. Ordinary SQL cannot read FTS or shadow tables.
+WikiContext uses space membership and requester-filtered snapshots. Migration
+1791500000 removes the old `published_pages_fts` and `search_state`; their shared
+index and rebuild hook must not remain an alternate access path. The pinned server
+`dc1dc6b0e88bbc46f36fa8441c8f6959bada4732` supports private search.
 
-## Contract
+The `pages` index derives an in-memory FTS5 index from authorized revisions in the
+selected publication, with title/summary/body weights 8/3/1 and body snippets.
+`where: archived = 0` excludes archived revisions; `members: visible` allows their
+IDs to remain in immutable historical manifests without indexing them. Application
+publication validation independently guarantees same-space reference integrity.
+Draft revisions cannot enter a selected publication's manifest.
 
-```json
-{
-  "index": "pages",
-  "query": "deployment safety",
-  "scope": "publication0001",
-  "limit": 20,
-  "offset": 0
-}
-```
+Requests use `POST /api/context/search` with `index: pages`, `scope` as a publication
+ID, literal token query, limit and offset. Another space's inaccessible publication
+and an absent publication both return 404. Queries do not search raw passages,
+provide semantic retrieval or accept caller-supplied FTS expressions.
 
-Use a real publication record ID for `scope`. Results contain `scope`,
-`generation`, `hits`, `hasMore` and `truncated`; hits contain revision `id`, BM25
-`score` and plain-text `excerpt`. Lower scores rank first, with revision ID as the
-stable tie-breaker within one index generation. Clients hydrate page identity,
-slug, kind, title and summary through the same immutable manifest and fail if a
-hit is absent or archived. Scope membership is filtered before the result limit.
+The response includes plain untrusted excerpts and a generation fingerprint of the
+index configuration, selected scope and included authorized content. Continuations
+send the same query/scope and `expectedGeneration`. A mismatched generation returns
+409: discard accumulated results and restart. Adding another publication, draft or
+another space's content does not invalidate an unchanged historical scope.
 
-The first request may omit `expectedGeneration`. Later pages send the returned
-generation, the same scope and query, and an increased offset. HTTP 409 means the
-index changed: discard accumulated pages and restart at zero without the old
-generation. Browser results expose a restart action rather than silently mixing
-pages; the portable client exits with code 4 and prints restart instructions.
+Authorization is checked before cache reuse. The application allows at most 8 MiB
+of indexed values per request and a 64 MiB index cache. SQL snapshots are bounded
+by 100,000 rows, 32 MiB and five seconds, with four concurrent slots. Search has its
+own two-second build/query deadline. These are failure bounds, not a capacity SLA;
+oversized authorized content returns 413, never partial or shared results.
+The reader reports unavailable/oversized search while allowing ordinary navigation.
 
-The returned generation is an opaque digest of the application state token, index
-configuration, ranking contract, SQLite identity, selected scope and validated
-membership. Replay the API response token; the raw SQL `search_state.generation`
-value is not a pagination token. Configuration or membership changes invalidate
-continuation even when the application state token stays unchanged.
-
-Limits are 1–100 results per request (default 20), 0–10,000 offset, 10,000 scope
-members, 4096 query UTF-8 bytes and 16 whitespace-separated terms. Every term is
-encoded as a literal FTS phrase joined with AND. There is no raw FTS expression,
-prefix, arbitrary substring, typo correction or semantic search. This deliberately
-changes the old substring search behavior. Slugs and page kinds are display
-metadata, not indexed text. Empty browser input returns to browsing.
-
-Excerpts are untrusted plain text. Clients render them without source HTML or
-fabricated highlighting. They are navigation aids, not passage citations. Source
-passages and originals remain available through the evidence viewer and SQL/file
-APIs; they are not part of this search index.
-
-## Publication and history
-
-`published_pages_fts` is one canonical content-storing `unicode61` index over
-`page_revisions`. `record_id` is the immutable revision ID. Initial
-title/summary/body weights are 8/3/1; see [measurements](search-benchmark.md) for
-the synthetic evaluation and its limits.
-
-The migration backfills each distinct nonarchived revision selected by any
-committed publication. Publication hooks insert newly published nonarchived
-revisions and rotate `search_state/pagesindexstate.generation` in the same
-transaction as the publication, run transition and audit. Failed publication
-rolls back both derived and canonical changes. Staged revisions are never indexed.
-
-Archiving later does not delete an earlier nonarchived revision: historical
-publications must still find it. An archive revision itself is not indexed. The
-selected publication's manifest controls which historical revision can match.
-
-An all-history index uses global BM25 statistics. Additional publications may
-change the scores/order of an older publication's results. Generation checking
-prevents inconsistent pagination; it does not provide historically reproducible
-rankings. Continuous publication can require repeated restarts. A restart with
-changed ranking configuration also invalidates existing pagination tokens.
-
-## Maintenance and recovery
-
-The `search_state` collection is SQL-readable but server-maintained. Record API
-creation, update and deletion are rejected even for superusers. Ordinary users
-cannot write FTS tables or rotate the generation.
-
-An operator with an existing superuser maintenance session may call
-`POST /api/wiki/search/rebuild` with no request body. The route validates all
-publication manifests, atomically rebuilds the derived index from canonical
-records, and rotates the application state token. Its `stateGeneration` response
-is the raw maintenance token, not the opaque search pagination token. Failure preserves the previous complete
-index and token. A rebuild holds the writer transaction and can delay publication;
-use a maintenance window for large histories. It repopulates a valid index, not
-a dropped or noncanonical FTS schema; restore trusted schema or a verified backup
-before rebuilding such an index. Do not expose maintenance credentials to knowledge clients or
-use this endpoint as part of ordinary search. Search never repairs indexes.
-
-Litestream database replicas include the index and generation. After
-restore, validate historical/live membership and protected originals. Rebuild can
-repair derived contents from valid canonical data; it cannot repair invalid
-publication manifests. Preserve the single-writer deployment procedure.
-
-## Validation and resource limits
-
-The server validates canonical FTS/shadow DDL and every indexed ID on each search,
-then reads the scope, generation and ranked matches in the same read transaction.
-It rejects malformed, missing or duplicate scope keys and missing source records.
-Archived revisions may legitimately have no index entry; application tests and
-maintenance establish index coverage. Scope is a result filter, not a separate
-permission model: all admitted workspace users share search access.
-
-Whole-index validation is O(N), where N includes historical indexed revisions.
-A result limit does not cap ranking/validation work. The configured two-second
-deadline, one-MiB response cap, shared SQLite heap bound and four-connection search
-pool still apply. Timeouts or unavailable indexes produce explicit failures;
-clients do not silently fall back to a different retrieval model.
-
-Run the README's full validation suite, including `tests/search_integration.py`,
-portable client pagination/conflicts, UI browser checks and complete populated
-container restore gates. `tests/search_benchmark.py` measures synthetic relevance,
-latency, publication cost and storage across revision history; it is not a live
-WikiContext performance guarantee.
+`tests/search_integration.py` covers history, archive/draft exclusion, stable
+pagination, stale generations, private-space denial, publication rollback and
+populated recovery. `tests/search_benchmark.py` measures a synthetic corpus through
+ordinary REST and authenticated reads, including four distinct concurrent users.
+The old shared-index measurements in `search-benchmark.md` are historical; new
+measurements must identify the private-search implementation and dataset.

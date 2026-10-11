@@ -215,10 +215,10 @@ class Client:
 EVIDENCE = b'Synthetic knowledge source. No real wiki data.\n'
 
 
-def write_record(client, user_id):
+def write_record(client, user_id, space='companyspace001'):
     boundary = 'wikicontext-' + secrets.token_hex(12)
     body = bytearray()
-    for name, value in {'title': 'Synthetic knowledge source', 'original_name': 'source.txt', 'media_type': 'text/plain'}.items():
+    for name, value in {'space': space, 'title': 'Synthetic knowledge source', 'original_name': 'source.txt', 'media_type': 'text/plain'}.items():
         body.extend(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
     body.extend(f'--{boundary}\r\nContent-Disposition: form-data; name="original"; filename="source.txt"\r\nContent-Type: text/plain\r\n\r\n'.encode())
     evidence = EVIDENCE + secrets.token_hex(12).encode()
@@ -231,9 +231,9 @@ def write_record(client, user_id):
     # Persist searchable knowledge too so every populated restore gate verifies FTS.
     def create(table, data):
         return json.loads(client.run('create', table, json.dumps(data)))
-    run = create('ingestion_runs', {'key': 'restore-' + record['id'], 'status': 'staging',
+    run = create('ingestion_runs', {'space': space, 'key': 'restore-' + record['id'], 'status': 'staging',
         'description': 'Synthetic search recovery fixture'})
-    page = create('pages', {'slug': 'restore-' + record['id'], 'kind': 'concept'})
+    page = create('pages', {'space': space, 'slug': 'restore-' + record['id'], 'kind': 'concept'})
     create('page_revisions', {'run': run['id'], 'page': page['id'],
         'title': 'Synthetic searchable recovery', 'summary': 'Synthetic restoration check',
         'body': 'recoverycheck' + record['id'] + ' [needs verification]'})
@@ -243,20 +243,18 @@ def write_record(client, user_id):
     return record['id'], (record['collectionId'], record['original'], evidence)
 
 
-def check_records(client, document, metadata):
+def check_records(client, document, metadata, space='companyspace001'):
     rows = client.sql(f"SELECT title FROM sources WHERE id = '{document}'")
     check(rows == [['Synthetic knowledge source']], 'synthetic source survives persistence and restore')
     selected = client.sql(f"""SELECT pub.id,r.id FROM publications pub
         JOIN json_each(pub.manifest) member
         JOIN pages p ON p.id=member.key
         JOIN page_revisions r ON r.id=member.value AND r.page=p.id
-        WHERE p.slug='restore-{document}' AND r.archived=false ORDER BY pub.sequence DESC LIMIT 1""")
+        WHERE pub.space='{space}' AND p.slug='restore-{document}' AND r.archived=false ORDER BY pub.sequence DESC LIMIT 1""")
     check(len(selected) == 1, 'published revision survives persistence and restore')
-    generation = client.sql("SELECT generation FROM search_state WHERE id='pagesindexstate'")
-    check(len(generation) == 1 and bool(generation[0][0]), 'search generation survives persistence and restore')
     status, headers, results = http('POST', client.base + '/api/context/search',
         {'index': 'pages', 'scope': selected[0][0], 'query': 'recoverycheck' + document}, token=client.token)
-    check(status == 200 and bool(results.get('generation'))
+    check(status == 200 and bool(re.fullmatch(r'[0-9a-f]{64}', results.get('generation', '')))
           and results.get('scope') == selected[0][0]
           and [hit['id'] for hit in results.get('hits', [])] == [selected[0][1]]
           and not results.get('hasMore'), 'scoped FTS result and generation recovered')

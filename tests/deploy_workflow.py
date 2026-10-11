@@ -121,6 +121,9 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotIn('  push:', triggers)
         self.assertNotIn('  pull_request:', triggers)
         self.assertIn('ubuntu-24.04-arm', application)
+        self.assertIn('tests/spaces.py --binary pocketcontext/bin/pocketcontext', application)
+        self.assertIn('tests/spaces_migration.py --binary pocketcontext/bin/pocketcontext', application)
+        self.assertIn('fetch-depth: 0', application)
         check = PUBLICATION.split('  check:', 1)[1].split('  tests:', 1)[0]
         self.assertIn('runner: ubuntu-24.04-arm', check)
         self.assertIn('runner: ubuntu-24.04', check)

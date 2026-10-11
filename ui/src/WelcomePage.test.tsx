@@ -25,6 +25,7 @@ const pages = [
   page("unusual-topic", "A surprising subject", "A needle in the catalog"),
 ];
 const publication: Publication = {
+  space: "companyspace001",
   id: "publication0001",
   sequence: 8,
   home: "",

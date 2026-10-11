@@ -35,6 +35,24 @@ try:
   password=s.secret(secrets.token_urlsafe(24));user=s.provision_user(base,admin,'restore@example.test',password)
   client=s.Client(base,'restore@example.test',password,tmp/'home-a')
   doc,meta=s.write_record(client,user);s.check_records(client,doc,meta)
+  status,_,personal=s.http('POST',base+'/api/wiki/spaces/personal',{},token=client.token)
+  s.check(status==200,'explicit personal space created for recovery fixture')
+  private_space=personal['id']
+  private_doc,private_meta=s.write_record(client,user,space=private_space)
+  s.check_records(client,private_doc,private_meta,space=private_space)
+  outsider_password=s.secret(secrets.token_urlsafe(24))
+  s.provision_user(base,admin,'outsider@example.test',outsider_password)
+  def check_private_recovery(owner,endpoint,label):
+   s.check_records(owner,private_doc,private_meta,space=private_space)
+   outsider=s.Client(endpoint,'outsider@example.test',outsider_password,tmp/label)
+   s.check(outsider.sql(f"SELECT id FROM sources WHERE id='{private_doc}'")==[], 'recovered private source stays absent from company peer SQL')
+   status,_,_=s.http('GET',endpoint+'/api/collections/sources/records/'+private_doc,token=outsider.token)
+   s.check(status==404,'recovered private source retains independent record access')
+   status,_,file_token=s.http('POST',endpoint+'/api/files/token',{},token=outsider.token)
+   s.check(status==200,'company peer can request only its own file token')
+   path='/api/files/'+private_meta[0]+'/'+private_doc+'/'+private_meta[1]+'?token='+file_token['token']
+   status,_,_=s.http('GET',endpoint+path)
+   s.check(status==404,'recovered private original rejects company peer file token')
   s.check(s.docker('exec',first,'sh','-c','find /storage/pb_data/storage -type f 2>/dev/null || true')[1].strip()=='','no local originals')
   s.check('initial replica synchronization complete' in s.logs(first),'HTTP starts only after initial remote synchronization')
   base=s.maintenance_roundtrip(first,base,admin,client,doc,meta)
@@ -58,6 +76,7 @@ try:
   # Leave the comparison restore untouched: default startup must itself recover an empty volume.
   s.run_app(args.image,recovered,recovered,env,network);base=s.wait_up(recovered)
   client=s.Client(base,'restore@example.test',password,tmp/'home-b');s.check_records(client,doc,meta)
+  check_private_recovery(client,base,'outsider-restored')
   restored_admin=s.superuser_token(base,env['WIKICONTEXT_SUPERUSER_EMAIL'],env['WIKICONTEXT_SUPERUSER_PASSWORD'])
   status,_,maintenance=s.http('GET',base+'/api/context/maintenance',token=restored_admin)
   s.check(status==200 and maintenance.get('generation')==0 and maintenance.get('state')=='writable',
@@ -74,6 +93,7 @@ try:
   s.run_app(args.image,crashed,crashed,env,network);base=s.wait_up(crashed)
   client=s.Client(base,'restore@example.test',password,tmp/'home-crash')
   s.check_records(client,doc,meta);s.check_records(client,late,late_meta)
+  check_private_recovery(client,base,'outsider-crash')
   s.stop(crashed);s.check_logs(crashed)
   s.check('litestream shut down' in s.logs(crashed),'Litestream supervises graceful server shutdown')
   # Each rejected startup uses an empty volume, so S3 verification occurs after restore.

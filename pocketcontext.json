@@ -1,8 +1,29 @@
 {
   "authCollection": "users",
   "tables": {
+    "spaces": [
+      "id",
+      "kind",
+      "name",
+      "created_by",
+      "revision",
+      "created",
+      "updated"
+    ],
+    "space_members": [
+      "id",
+      "space",
+      "account",
+      "role",
+      "active",
+      "created_by",
+      "revision",
+      "created",
+      "updated"
+    ],
     "sources": [
       "id",
+      "space",
       "title",
       "original_name",
       "media_type",
@@ -18,6 +39,7 @@
     ],
     "renditions": [
       "id",
+      "space",
       "source",
       "kind",
       "processor",
@@ -31,6 +53,7 @@
     ],
     "passages": [
       "id",
+      "space",
       "rendition",
       "ordinal",
       "locator",
@@ -43,6 +66,7 @@
     ],
     "ingestion_runs": [
       "id",
+      "space",
       "key",
       "status",
       "description",
@@ -59,6 +83,7 @@
     ],
     "pages": [
       "id",
+      "space",
       "slug",
       "kind",
       "created_by",
@@ -69,6 +94,7 @@
     ],
     "page_revisions": [
       "id",
+      "space",
       "run",
       "page",
       "base_revision",
@@ -86,6 +112,7 @@
     ],
     "citations": [
       "id",
+      "space",
       "page_revision",
       "passage",
       "marker",
@@ -98,6 +125,7 @@
     ],
     "page_links": [
       "id",
+      "space",
       "page_revision",
       "target",
       "created_by",
@@ -112,6 +140,7 @@
     ],
     "publications": [
       "id",
+      "space",
       "run",
       "sequence",
       "manifest",
@@ -120,6 +149,7 @@
     ],
     "audit_log": [
       "id",
+      "space",
       "action",
       "collection",
       "record",
@@ -127,10 +157,6 @@
       "actor_type",
       "changes",
       "created"
-    ],
-    "search_state": [
-      "id",
-      "generation"
     ]
   },
   "timeoutMs": 2000,
@@ -143,10 +169,33 @@
     "captureSql": true,
     "maxBytes": 16777216
   },
+  "snapshot": {
+    "filters": {
+      "spaces": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = spaces.id AND m.account = :requester AND m.active = 1)",
+      "space_members": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = space_members.space AND m.account = :requester AND m.active = 1)",
+      "sources": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = sources.space AND m.account = :requester AND m.active = 1)",
+      "renditions": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = renditions.space AND m.account = :requester AND m.active = 1)",
+      "passages": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = passages.space AND m.account = :requester AND m.active = 1)",
+      "ingestion_runs": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = ingestion_runs.space AND m.account = :requester AND m.active = 1)",
+      "pages": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = pages.space AND m.account = :requester AND m.active = 1)",
+      "page_revisions": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = page_revisions.space AND m.account = :requester AND m.active = 1)",
+      "citations": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = citations.space AND m.account = :requester AND m.active = 1)",
+      "page_links": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = page_links.space AND m.account = :requester AND m.active = 1)",
+      "user_directory": "user_directory.id = :requester OR EXISTS (SELECT 1 FROM space_members mine JOIN space_members other ON other.space = mine.space WHERE mine.account = :requester AND mine.active = 1 AND other.account = user_directory.id AND other.active = 1)",
+      "publications": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = publications.space AND m.account = :requester AND m.active = 1)",
+      "audit_log": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = audit_log.space AND m.account = :requester AND m.active = 1)"
+    },
+    "timeoutMs": 5000,
+    "maxRows": 100000,
+    "maxBytes": 33554432,
+    "maxConcurrent": 4
+  },
   "search": {
+    "maxIndexBytes": 8388608,
+    "cacheBytes": 67108864,
     "indexes": {
       "pages": {
-        "table": "published_pages_fts",
+        "isolation": "private",
         "collection": "page_revisions",
         "columns": [
           "title",
@@ -163,11 +212,8 @@
           "collection": "publications",
           "field": "manifest"
         },
-        "generation": {
-          "collection": "search_state",
-          "record": "pagesindexstate",
-          "field": "generation"
-        }
+        "members": "visible",
+        "where": "archived = 0"
       }
     }
   }

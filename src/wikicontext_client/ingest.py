@@ -51,7 +51,7 @@ def upload_source(cfg, path, content, digest, title):
     session = wc.load_session(cfg)
     if not session:
         session = wc.login(cfg)
-    fields = {'title': title or path.stem, 'original_name': path.name,
+    fields = {'space': wc.space_id(cfg), 'title': title or path.stem, 'original_name': path.name,
               'media_type': mimetypes.guess_type(path.name)[0] or 'application/octet-stream'}
     suffix = path.suffix.lower() if path.suffix.lower().lstrip('.').isalnum() else '.bin'
     body, media = multipart(fields, 'original', digest + suffix, content)
@@ -63,7 +63,7 @@ def upload_source(cfg, path, content, digest, title):
             return json.load(response)
     except (OSError, ValueError) as error:
         # A concurrent upload or lost response can already have persisted this exact original.
-        found = rows(cfg, 'SELECT id, sha256 FROM sources WHERE sha256 = ' + literal(digest) + ' LIMIT 1')
+        found = rows(cfg, 'SELECT id, sha256 FROM sources WHERE sha256 = ' + literal(digest) + ' AND space = ' + literal(wc.space_id(cfg)) + ' LIMIT 1')
         if found:
             return found[0]
         status = getattr(error, 'code', None)
@@ -272,9 +272,10 @@ def ingest(cfg, path, title=None, version='v1', audio_storage='normalized', imag
         if len(json.dumps(image_manifest, sort_keys=True, ensure_ascii=False)) > 10000:
             raise wc.Fail(2, 'Rendition provenance exceeds the 10000-character notes limit; no upload attempted.')
         related = image_data.get('related_source')
-        if related and not rows(cfg, 'SELECT id FROM sources WHERE id = ' + literal(related) + ' LIMIT 1'):
+        if related and not rows(cfg, 'SELECT id FROM sources WHERE id = ' + literal(related) + ' AND space = ' + literal(wc.space_id(cfg)) + ' LIMIT 1'):
             raise wc.Fail(2, 'Image related_source does not exist; no upload attempted.')
-    found = rows(cfg, 'SELECT id, sha256 FROM sources WHERE sha256 = ' + literal(digest) + ' LIMIT 1')
+    # Deduplication is per space: the same bytes in another space are a separate source.
+    found = rows(cfg, 'SELECT id, sha256 FROM sources WHERE sha256 = ' + literal(digest) + ' AND space = ' + literal(wc.space_id(cfg)) + ' LIMIT 1')
     source = found[0] if found else upload_source(cfg, path, content, digest, title)
     if source.get('sha256') != digest:
         raise wc.Fail(1, 'Server original checksum differs; stop and investigate before extraction.')
@@ -289,7 +290,7 @@ def ingest(cfg, path, title=None, version='v1', audio_storage='normalized', imag
         if type(expected) is int and expected > 0:
             counts = rows(cfg, 'SELECT COUNT(*) AS count, MIN(ordinal) AS first, MAX(ordinal) AS last FROM passages WHERE rendition = ' + literal(completed[0]['id']))[0]
             if counts == {'count': expected, 'first': 1, 'last': expected}:
-                return {'source': source['id'], 'rendition': completed[0]['id'], 'passages': expected, 'sha256': digest, 'status': 'extracted', 'next': 'Synthesize cited page revisions in a staging ingestion run, then publish.'}
+                return {'space': wc.space_id(cfg), 'source': source['id'], 'rendition': completed[0]['id'], 'passages': expected, 'sha256': digest, 'status': 'extracted', 'next': 'Synthesize cited page revisions in a staging ingestion run, then publish.'}
     # Cache only extraction output, with a restrictive mode. Identity and server scope prevent cross-workspace reuse.
     key = hashlib.sha256((cfg['url'] + '\n' + cfg['email'] + '\n' + digest + '\n' + version + '\n' + path.suffix.lower() + ('\nimage-review\n' + image_data['review_sha256'] if image_data else '')).encode()).hexdigest()
     base = Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'wikicontext' / 'extractions'
@@ -367,4 +368,4 @@ def ingest(cfg, path, title=None, version='v1', audio_storage='normalized', imag
         counts = rows(cfg, 'SELECT COUNT(*) AS count, MIN(ordinal) AS first, MAX(ordinal) AS last FROM passages WHERE rendition = ' + literal(rendition['id']))[0]
         if counts != {'count': len(passages), 'first': 1, 'last': len(passages)}:
             raise wc.Fail(4, 'Existing image rendition contains unexpected passages; select a new rendition version.')
-    return {'source': source['id'], 'rendition': rendition['id'], 'passages': len(passages), 'sha256': digest, 'status': 'extracted', 'next': 'Synthesize cited page revisions in a staging ingestion run, then publish.'}
+    return {'space': wc.space_id(cfg), 'source': source['id'], 'rendition': rendition['id'], 'passages': len(passages), 'sha256': digest, 'status': 'extracted', 'next': 'Synthesize cited page revisions in a staging ingestion run, then publish.'}

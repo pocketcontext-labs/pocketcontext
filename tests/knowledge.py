@@ -11,6 +11,9 @@ from wikicontext_client import knowledge
 from wikicontext_client import cli as wc
 
 
+SPACE = 'space0000000001'
+
+
 def ident(number):
     return f'{number:015d}'
 
@@ -20,7 +23,8 @@ class Knowledge(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.addCleanup(self.db.close)
         self.db.executescript('''
-            CREATE TABLE publications(id TEXT PRIMARY KEY, sequence INTEGER, manifest TEXT);
+            CREATE TABLE publications(id TEXT PRIMARY KEY, sequence INTEGER, manifest TEXT,
+                space TEXT DEFAULT 'space0000000001');
             CREATE TABLE pages(id TEXT PRIMARY KEY, slug TEXT, kind TEXT);
             CREATE TABLE page_revisions(id TEXT PRIMARY KEY, page TEXT, title TEXT,
                 summary TEXT, body TEXT, archived INTEGER);
@@ -30,9 +34,10 @@ class Knowledge(unittest.TestCase):
         self.calls, self.byte_limit, self.row_limit = [], 1024 * 1024, 500
         self.http413 = False
         self.search_response, self.search_requests = None, []
-        patcher = patch.object(wc, 'must', side_effect=self.query)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for patcher in (patch.object(wc, 'must', side_effect=self.query),
+                        patch.object(wc, 'space_id', return_value=SPACE)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def query(self, cfg, method, path, body):
         if path == '/api/context/search':
@@ -64,11 +69,11 @@ class Knowledge(unittest.TestCase):
             self.db.execute('INSERT INTO page_revisions VALUES (?,?,?,?,?,?)',
                             (revision, page, f'Title {index}', 'Summary', body, 0))
             manifest[page] = revision
-        self.db.execute('INSERT INTO publications VALUES (?,1,?)', (ident(90000), json.dumps(manifest)))
+        self.db.execute('INSERT INTO publications(id, sequence, manifest) VALUES (?,1,?)', (ident(90000), json.dumps(manifest)))
         return manifest
 
     def test_empty(self):
-        self.assertEqual(knowledge.search({}, 'anything'), {'publication': None, 'generation': None, 'pages': [], 'hasMore': False, 'nextOffset': None})
+        self.assertEqual(knowledge.search({}, 'anything'), {'space': SPACE, 'publication': None, 'generation': None, 'pages': [], 'hasMore': False, 'nextOffset': None})
         self.assertEqual(knowledge.lint({})['findings'], [])
 
     def test_bounded_pages_and_large_manifest(self):
@@ -162,13 +167,22 @@ class Knowledge(unittest.TestCase):
         self.assertIn({'page': 'page-0000', 'kind': 'broken-link', 'target': ident(2)},
                       knowledge.lint({})['findings'])
 
+    def test_publication_selection_is_per_space(self):
+        self.fixture(1)
+        self.db.execute("INSERT INTO publications VALUES (?,7,'{}','other000000001')", (ident(90009),))
+        self.assertEqual(knowledge.select_publication({})['id'], ident(90000))
+        with self.assertRaises(wc.Fail):
+            knowledge.select_publication({}, sequence=7)
+        with self.assertRaises(wc.Fail):
+            knowledge.select_publication({}, publication_id=ident(90009))
+
     def test_new_publication_during_reads_does_not_change_pin(self):
         self.fixture(2)
         query = self.query
         def advancing(*args):
             result = query(*args)
             if len(self.calls) == 1:
-                self.db.execute('INSERT INTO publications VALUES (?,2,?)', (ident(90001), '{}'))
+                self.db.execute('INSERT INTO publications(id, sequence, manifest) VALUES (?,2,?)', (ident(90001), '{}'))
             return result
         with patch.object(wc, 'must', side_effect=advancing):
             publication, pages = knowledge.published({})

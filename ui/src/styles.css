@@ -741,6 +741,7 @@ select {
 .login-shell {
   min-height: 100dvh;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 35px 24px;
   background: radial-gradient(

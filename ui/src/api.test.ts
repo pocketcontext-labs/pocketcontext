@@ -7,6 +7,7 @@ import {
   query,
   refreshSession,
   searchPages,
+  SearchUnavailableError,
   watchPublications,
   TruncatedQueryError,
 } from "./api";
@@ -219,6 +220,11 @@ describe("published knowledge reads", () => {
     await expect(
       searchPages(publication, "word", 20, 20, "old"),
     ).rejects.toThrow("Search changed");
+  });
+
+  it.each([[404, "not-found"], [413, "too-large"], [503, "unavailable"]])("describes private search availability failures (%s)", async (status, reason) => {
+    vi.spyOn(pb, "send").mockResolvedValueOnce(validManifest()).mockRejectedValueOnce({ status });
+    await expect(searchPages(publication, "word")).rejects.toMatchObject({ constructor: SearchUnavailableError, reason });
   });
 
   it.each([

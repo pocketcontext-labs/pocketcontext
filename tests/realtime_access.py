@@ -48,7 +48,7 @@ def main():
         client_id = data['clientId']
         subscriptions = {'clientId': client_id, 'subscriptions': ['ingestion_runs/*']}
         request('POST', '/api/realtime', subscriptions, token, expected=204)
-        project = request('POST', '/api/collections/ingestion_runs/records', {'key': 'live', 'description': 'Before disable', 'status': 'staging'}, admin)
+        project = request('POST', '/api/collections/ingestion_runs/records', {'space': 'companyspace001', 'key': 'live', 'description': 'Before disable', 'status': 'staging'}, admin)
         event, data = messages.get(timeout=5)
         assert event.startswith('ingestion_runs/') and data['record']['id'] == project['id'], (event, data)
         project_path = '/api/collections/ingestion_runs/records/' + project['id']

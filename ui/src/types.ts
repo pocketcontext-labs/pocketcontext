@@ -1,4 +1,5 @@
 export interface Publication {
+  space: string;
   id: string;
   sequence: number;
   run: string;

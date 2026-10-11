@@ -10,7 +10,8 @@ from . import properties
 def render(cfg, destination_id, sequence):
     if type(sequence) is not int or sequence < 1:
         raise wc.Fail(1, 'A positive publication sequence is required')
-    pubs = exp.query(cfg, f'SELECT id,sequence,manifest FROM publications WHERE sequence = {sequence} LIMIT 1')
+    space = wc.space_id(cfg)
+    pubs = exp.query(cfg, f'SELECT id,sequence,manifest FROM publications WHERE space = {exp.literal(space)} AND sequence = {sequence} LIMIT 1')
     if len(pubs) != 1:
         raise wc.Fail(1, 'No matching publication exists')
     pub = pubs[0]
@@ -40,7 +41,7 @@ def render(cfg, destination_id, sequence):
         if any(marker in body for marker in ('[[', '[^', '[needs verification]')) or re.search(r'^\s*>\s*\[!', body, re.MULTILINE):
             raise wc.Fail(1, 'Markdown contains wiki links, citations or wiki-only markers; publish reviewed portable Markdown or use exact_copy')
         content = body.encode('utf-8')
-    return content, {'publication': pub['id'], 'sequence': sequence,
+    return content, {'space': space, 'publication': pub['id'], 'sequence': sequence,
         'destination': destination_id, 'destination_revision': destination['id'],
         'document_revision': document['id'], 'rendered_sha256': exp.digest(content),
         'github_repository': target['github_repository'], 'github_branch': target['github_branch'],

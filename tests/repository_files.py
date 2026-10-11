@@ -9,6 +9,9 @@ from wikicontext_client import repository_files as rf, properties, cli
 
 class RepositoryFiles(unittest.TestCase):
     def setUp(self):
+        patcher = patch.object(cli, 'space_id', return_value='space0000000001')
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.destination = 'd' * 15
         self.document = 'a' * 15
         self.manifest = {self.destination: 'e' * 15, self.document: 'b' * 15}

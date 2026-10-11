@@ -34,7 +34,16 @@ def main():
             assert env['WIKICONTEXT_USER_PASSWORD'] not in result.stdout+result.stderr and token not in result.stdout+result.stderr
             assert result.returncode==expected,(argv,result.stdout,result.stderr)
             return json.loads(result.stdout) if result.stdout.startswith(('{','[')) else result.stdout
-        cli('whoami');cli('check')
+        me=cli('whoami');cli('check')
+        assert me['space']=='companyspace001'
+        listed=cli('spaces')
+        assert len(listed)==1 and listed[0]['id']==me['space'] and listed[0]['selected']
+        assert listed[0]['kind']=='group' and listed[0]['role']=='editor'
+        personal=cli('create-personal-space')['id']
+        assert cli('create-personal-space')['id']==personal
+        assert cli('whoami')['space']==me['space']
+        assert cli('whoami','--space',personal)['space']==personal
+        cli('--space','missing00000000','whoami',expected=2)
         assert cli('search','anything')['pages']==[]
         source=Path(tmp)/'source.md';source.write_text('The synthetic launch is on Tuesday.\n')
         ingested=cli('ingest',str(source));cli('ingest',str(source))
@@ -60,7 +69,9 @@ def main():
         assert len(tail['pages'])==1 and not tail['hasMore'] and tail['nextOffset'] is None
         assert tail['pages'][0]['id']!=ranked['pages'][0]['id']
         assert cli('search','Tuesday','--sequence','1')['pages'][0]['id']==revision['id']
-        cli('search','Tuesday','--publication',initial_search['publication'],'--generation',initial_search['generation'],'--offset','1',expected=4)
+        pinned=cli('search','Tuesday','--publication',initial_search['publication'],'--generation',initial_search['generation'],'--offset','1')
+        assert pinned['generation']==initial_search['generation'] and pinned['pages']==[]
+        cli('search','Tuesday','--publication',initial_search['publication'],'--generation','0'*64,'--offset','1',expected=4)
         cli('search','Tuesday','--offset','1',expected=2)
         cli('publish',run['id'],'--expected-revision','1',expected=4)
         cli('update','ingestion_runs',run['id'],'{"status":"cancelled"}',expected=2)
@@ -88,6 +99,11 @@ def main():
         assert latest['rows']==[['']]
         cache=list((Path(tmp)/'cache/wikicontext').glob('*.json'))
         assert cache and all(p.stat().st_mode & 0o077 == 0 for p in cache)
+        assert cli('get','pages',page['id'])['space']==me['space']
+        same_slug=cli('create','pages',json.dumps({'slug':page['slug'],'kind':'concept'}),'--space',personal)
+        assert same_slug['space']==personal and same_slug['id']!=page['id']
+        assert cli('search','Tuesday','--space',personal)['pages']==[]
+        cli('create','pages',json.dumps({'slug':'elsewhere','kind':'concept'}),'--space','missing00000000',expected=2)
         cli('logout')
         if args.trace:
             events = [json.loads(line) for line in trace_output.read_text().splitlines()]

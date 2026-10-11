@@ -4,7 +4,7 @@ Current release controls and platform coverage: [common CI and deployment contra
 
 An agent-maintained knowledge base on PocketContext. Sources, extracted passages, versioned pages, citations, links and publication history live in WikiContext. The browser reader renders published pages and updates when agents publish. Obsidian consumes a reproducible Markdown export. Ingestion and agent questions use the portable skill and authenticated APIs.
 
-All admitted Workspace users share read/write access. PocketBase's existing default `users` collection supplies identities, with verified Workspace Google JIT and public signup blocked. New logins gain shared content access, never account administration. Operators disable accounts to revoke application sessions; Google suspension alone does not revoke an existing session. Re-enabling requires fresh login. Seven-day tokens renew during active Google client use.
+Existing knowledge lives in the Company space. Admitted Workspace users receive company editor membership when their account is created; operators manage subsequent membership changes, and login never restores a revoked membership. Personal spaces are optional and created explicitly. SQL, REST, realtime and protected files independently enforce active space membership. PocketBase's existing default `users` collection supplies identities, with verified Workspace Google JIT and public signup blocked. New accounts never receive account administration. Operators disable accounts to revoke application sessions; Google suspension alone does not revoke an existing session. Re-enabling requires fresh login. Seven-day tokens renew during active Google client use.
 
 ## Run locally
 
@@ -19,8 +19,8 @@ make build
 
 The pinned build includes `sqlite_math_functions,sqlite_percentile,sqlite_fts5`.
 Authenticated SQL supports `json_each`/`json_tree` and median/percentile aggregates.
-Published-page search uses the authenticated FTS5 endpoint with immutable
-publication scopes and generation-checked pagination. See the
+Published-page search uses authenticated private FTS5 indexes derived from a
+requester-visible publication, with generation-checked pagination. See the
 [search contract and maintenance guide](docs/fts-adoption.md).
 
 Keep data outside Git. Provision users through operator maintenance, or configure a separate Google Web client with `WIKICONTEXT_GOOGLE_CLIENT_ID`, `WIKICONTEXT_GOOGLE_CLIENT_SECRET` and `WIKICONTEXT_GOOGLE_WORKSPACE_DOMAIN`. Register `http://127.0.0.1:8765/callback` and the approved origin's `/api/oauth2-redirect`. Use ordinary user credentials for knowledge operations. Production runs at https://wiki.pocketcontext.com. See [release verification](DEPLOYMENT.md) and [deployment procedures](docs/deployment.md).
@@ -31,7 +31,7 @@ Open the application origin and sign in with your Workspace Google identity.
 Existing password accounts can use the secondary password form. The reader is
 read-only; agents continue to ingest, synthesize and publish through the skill.
 Search opens ranked published-page results with plain excerpts and Load more.
-The sidebar collection selector browses Pages, Sources and Passages. Source/passage text filtering searches all shared evidence, including evidence not yet cited in a publication, with paginated URL state. Permanent `/#/sources/<id>` and `/#/passages/<id>` links support authenticated evidence navigation and protected original downloads; source pages link to their passages. Copy record/search links exclude temporary file tokens. Page controls copy live or publication-pinned historical links. The sidebar remains available for browsing. `/` or Ctrl/Cmd+K focuses search; query
+The sidebar collection selector browses Pages, Sources and Passages. Source/passage text filtering searches evidence in the selected space, including evidence not yet cited in a publication, with paginated URL state. Permanent `/#/sources/<id>` and `/#/passages/<id>` links support authenticated evidence navigation and protected original downloads; source pages link to their passages. Copy record/search links exclude temporary file tokens. Page controls copy live or publication-pinned historical links. The sidebar remains available for browsing. `/` or Ctrl/Cmd+K focuses search; query
 and publication are preserved in navigation. Wiki links, backlinks, an outline and
 source citations support navigation. A citation opens its original passage and
 offers an authenticated original-file download.
@@ -60,15 +60,29 @@ accountability, grants no permissions and sends no notifications. Nested groups
 and automatic CRM synchronization are outside scope. Agents maintain these
 relationships through cited revisions; properties are read-only in the browser.
 
+The reader defaults to Company. Choose **Create personal space** to opt in, then
+use the Space selector to switch. New personal spaces are empty until an agent
+publishes there. Existing unscoped page links keep opening company knowledge;
+new personal-space links retain their space. Publication and evidence IDs resolve
+within their own authorized space. See [spaces and migration](docs/spaces.md).
+
 Frontend source is in `ui/`: React, TypeScript and Vite, with bundled Markdown
 rendering and the PocketBase SDK. Content reads use authenticated SQL; the SDK
 handles ordinary user authentication, protected file tokens and SSE notifications.
 The official PocketBase SDK LocalAuthStore keeps the application token in local
 storage under `wikicontext.reader.auth`, shared across tabs and browser restarts.
+If browser storage is blocked, login uses memory only and reloading requires
+sign-in again. Clearing site storage in another tab also clears the active session.
 Logout synchronizes across tabs and clears reader state and subscriptions; account
 changes discard pending responses and private views. Tokens remain accessible to
 same-origin JavaScript. Active sessions renew at most every five minutes. Legacy
 per-tab credentials are discarded, so the first visit after upgrading requires login. No provider secret is shipped to the browser.
+
+Google login opens a popup directly from the sign-in button, preserves the SDK's
+state and PKCE checks, and expires after three minutes. Blocked popups show retry
+guidance; users can cancel a pending attempt. Cancelled or expired attempts cannot
+save a late session. The browser callback remains `/api/oauth2-redirect`; CLI
+login uses the separately registered loopback callback.
 
 With Node.js 24 and pnpm 10.33.2:
 
@@ -96,6 +110,9 @@ Install with `npx skills add pocketcontext/wikicontext --skill wikicontext`, or 
 ```sh
 wikicontext login --google
 wikicontext check
+wikicontext spaces
+wikicontext create-personal-space
+wikicontext --space SPACE_ID ingest /path/to/private-source.md
 wikicontext ingest /path/to/source.md
 wikicontext search 'launch date'
 wikicontext lint
@@ -103,6 +120,14 @@ wikicontext export-obsidian /path/to/vault
 ```
 
 Over SSH, forward the CLI loopback port from your browser computer with `ssh -L 8765:127.0.0.1:8765 user@host`. The authentication cache contains only the application token with private permissions. `logout` removes that token cache; it does not revoke copies elsewhere or remove the separate private audio and extraction caches.
+
+Commands default to Company unless `--space ID` or `WIKICONTEXT_SPACE` explicitly
+selects another readable space. Creating a personal space does not change that
+default. Use separate Obsidian destinations for different spaces. Legacy exports
+without space metadata can be adopted only by Company after ordinary ownership
+checks. SQL returns all spaces you can read; add a `space` filter for one space.
+Older installed clients must be upgraded before using personal spaces; the new
+package must be published and its portable launcher pinned before release.
 
 The `ingest` command uploads an immutable source and extracts passages; audio is normalized before upload by default. The agent then follows the skill to synthesize summaries/concepts, create citations/links, and publish a staging run. Uploading/extracting alone is not a completed knowledge-ingestion workflow. The server validates publication and rejects stale synthesis with 409. Use `wikicontext stage-home RUN_ID --home SLUG --expected-revision N` (or `--clear-home`) to stage the home choice and capture its expected base. Publish using the returned run revision without home flags. Home-only runs are supported; concurrent home changes return 409 and require reassessment. Direct `publish --home`/`--clear-home` requires an explicit `--home-base` page ID or empty string. No LLM runs inside the server or Markdown exporter.
 
@@ -174,7 +199,7 @@ SELECT count(*) AS pages,
 FROM publications AS pub
 JOIN json_each(pub.manifest) AS selected
 JOIN page_revisions AS r ON r.id = selected.value AND r.page = selected.key
-WHERE pub.sequence = 1 AND r.archived = false;
+WHERE pub.space = 'companyspace001' AND pub.sequence = 1 AND r.archived = false;
 ```
 
 Replace `1` with the selected publication sequence. This excludes drafts and
@@ -189,6 +214,8 @@ Use synthetic isolated databases only. From this repository, with the pinned ser
 ```sh
 python3 tests/launcher.py
 python3 tests/integration.py --binary /absolute/path/to/pinned/pocketcontext
+python3 tests/spaces.py --binary /absolute/path/to/pinned/pocketcontext
+python3 tests/spaces_migration.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/tracing.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/publication_review.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/home.py --binary /absolute/path/to/pinned/pocketcontext
@@ -256,7 +283,7 @@ The existing `wiki/` checkout has not been modified or migrated. Import original
 
 ## Infrastructure provenance
 
-Authentication and portable OAuth client adapted from RaiseContext `44f8f10537388f9a934a2bc1800d3df6a046c580`; revision/concurrency and realtime test patterns from TaskContext `5bb214ef32fcffa9a42bb1de2d13cfd4052dc80f`; protected originals, complete backups and container/deployment patterns from AccountContext `2b78c0f38680381376b0ce485312ff659037a13f`. WikiContext's domain schema and publication/export model are independent. Server pin: `976ddf71a4734530adefe4a56633658a0894b449`.
+Authentication and portable OAuth client adapted from RaiseContext `44f8f10537388f9a934a2bc1800d3df6a046c580`; revision/concurrency and realtime test patterns from TaskContext `5bb214ef32fcffa9a42bb1de2d13cfd4052dc80f`; protected originals, complete backups and container/deployment patterns from AccountContext `2b78c0f38680381376b0ce485312ff659037a13f`. WikiContext's domain schema and publication/export model are independent. Server pin: `dc1dc6b0e88bbc46f36fa8441c8f6959bada4732`.
 
 ## Request observability
 
@@ -322,6 +349,16 @@ one line. The test uploads synthetic evidence, proves protected downloads and
 remote hashing, restores a database with no local files, then deliberately corrupts
 and deletes its own object to prove verification fails closed.
 
+Before the spaces release, follow the [recovery checkpoint and disposable-clone
+assessment](docs/predeployment-recovery.md). A production migration requires a
+verified pre-migration checkpoint and an isolated restore rehearsal. No production
+backup or migration is performed by the source changes.
+
+The [production spaces cutover](docs/production-spaces-cutover.md) records the
+authorized checkpoint destination, key recovery, delivery fences and migration
+sequence. The [encrypted checkpoint helper](tools/CHECKPOINT.md) packages and
+verifies complete off-host recovery independently of Litestream replication.
+
 ## Historical object-storage experiment
 
 The separate experiment workflow has been removed. Production uses only the
@@ -383,3 +420,11 @@ writes after the initial handshake. It strictly restores the replica into a
 separate volume, compares every logical database record with the stopped source,
 and only then destroys the source volume and starts the recovered writer. It also
 checks missing-IPC startup refusal and fresh Google-only database initialization.
+
+### Spaces release rehearsal
+
+Use the [candidate publication procedure](docs/release-candidate.md) for a tested
+image that does not promote production `latest`. The [rehearsal status](docs/rehearsal-status.md)
+tracks clone preparation and the limits of reusing the shared demo host. Keep
+candidate publication, copied-data preparation and live deployment as distinct
+verified steps.
