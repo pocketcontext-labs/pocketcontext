@@ -27,6 +27,29 @@ raw ONCE settings, content or file tokens in the receipt.
 | Basecamp ONCE backup | Gzip tar of persistent application volume plus application/legacy volume settings | External originals and the image itself are excluded. Archive is unencrypted and contains credentials. Useful as a stopped-volume/configuration checkpoint, retained off-host with private access. |
 | PocketDeploy `vault-save` | Controller state, private bindings and SSH authority | Does not back up application databases or originals. Needed separately to recover deployment control. |
 
+### Litestream retention and recovery precision
+
+`docker/litestream.yml` does not override retention. In the exact 0.5.17 source,
+snapshot interval and retention default to 24 hours. Level-zero files default to
+five minutes of retention after compaction, checked every 15 seconds; compaction
+levels run at 30 seconds, five minutes and one hour. These configuration defaults
+do **not** guarantee an exact 24-hour history at arbitrary transaction boundaries.
+See the pinned [configuration defaults](https://github.com/benbjohnson/litestream/blob/v0.5.17/cmd/litestream/main.go),
+[retention implementation](https://github.com/benbjohnson/litestream/blob/v0.5.17/store.go)
+and [compaction levels](https://github.com/benbjohnson/litestream/blob/v0.5.17/compaction_level.go).
+
+The [0.5.17 restore planner](https://github.com/benbjohnson/litestream/blob/v0.5.17/replica.go)
+selects complete available LTX files with maximum TXID at or below the requested
+ID, or with creation timestamps strictly before the requested timestamp. It does
+not reconstruct an arbitrary SQL transaction inside a compacted file. Validate
+the actual plan and restored records on both sides of the intended boundary.
+
+Agree and configure an explicit production history window and acceptable restore
+precision as a follow-up, then test retention and compaction against that policy.
+This assessment has not changed the deployed configuration. Independently retain
+the verified full pre-deployment checkpoint, originals and exact old image until
+rollback is explicitly released; rolling replica retention is not that checkpoint.
+
 ### PocketBase findings
 
 The pinned PocketBase source uses `VACUUM INTO` for each database and copies other

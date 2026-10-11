@@ -1,5 +1,13 @@
 # Private WikiContext migration rehearsal
 
+For the completed **local, synthetic Basecamp ONCE test**, use
+[LOCAL_ONCE.md](LOCAL_ONCE.md). It runs an isolated Docker-in-Docker engine with
+loopback-only outer ports and exercises actual ONCE restore, backup, stop-first
+update, rollback, and repeat migration. The recorded result is in
+[the local rehearsal receipt](../../docs/local-once-rehearsal.md).
+The shared-host preparation below is a separate option and was not run on OCI.
+
+
 These are preparation tools, not a record of a cloud deployment or production-data
 copy. [The recovery assessment](../../docs/predeployment-recovery.md) defines the
 checkpoint, original-file and old-image requirements. The existing

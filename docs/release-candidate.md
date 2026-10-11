@@ -82,8 +82,20 @@ tracing. Initial package CI run
 [38152851034](https://github.com/pocketcontext/wikicontext/actions/runs/38152851034)
 passed both native ARM64 and AMD64 container jobs but both application jobs stopped at deployment
 workflow validation: A intentionally excluded the in-flight workflow changes while
-including their new assertions. B must include the matching workflow changes and
-pass all native gates; B and its candidate digest remain to be recorded.
+including their new assertions. Candidate B includes the matching workflow changes.
+
+Candidate B `dc62cfef69702a86ebbd7a4045d2aa05bea8805d` passed every native AMD64/ARM64
+application, published-launcher and container/recovery gate in
+[run 38153600045](https://github.com/pocketcontext/wikicontext/actions/runs/38153600045).
+The completed candidate index is:
+
+```text
+ghcr.io/pocketcontext/wikicontext@sha256:4173b30442993ffaec5388e2774af5bec729103e72553d5f695cbbb7d1102412
+```
+
+The later rehearsal-tooling commit also passed all native checks in
+[run 38153989824](https://github.com/pocketcontext/wikicontext/actions/runs/38153989824).
+These runs did not promote `latest` or deploy production.
 
 The reviewed application source was validated against server
 `dc1dc6b0e88bbc46f36fa8441c8f6959bada4732`; the pre-spaces production source is
@@ -113,10 +125,6 @@ These checks do not publish an image.
 
 Record completion rather than assuming it from the plan:
 
-- Exact B passes remote native AMD64/ARM64 application and container gates,
-  including optional-personal-space recovery and published-launcher verification.
-- A candidate manifest and immutable digest receipt exist for B. Registry write
-  permission and first-run workflow execution have not been proven by local tests.
 - The old production image/checkpoint, live-provider original retention and isolated
   restore comparison meet the predeployment recovery plan.
 - The private rehearsal's configuration, maintenance-authentication/bootstrap,
