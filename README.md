@@ -354,6 +354,11 @@ assessment](docs/predeployment-recovery.md). A production migration requires a
 verified pre-migration checkpoint and an isolated restore rehearsal. No production
 backup or migration is performed by the source changes.
 
+The [production spaces cutover](docs/production-spaces-cutover.md) records the
+authorized checkpoint destination, key recovery, delivery fences and migration
+sequence. The [encrypted checkpoint helper](tools/CHECKPOINT.md) packages and
+verifies complete off-host recovery independently of Litestream replication.
+
 ## Historical object-storage experiment
 
 The separate experiment workflow has been removed. Production uses only the
