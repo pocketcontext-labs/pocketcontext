@@ -415,3 +415,11 @@ writes after the initial handshake. It strictly restores the replica into a
 separate volume, compares every logical database record with the stopped source,
 and only then destroys the source volume and starts the recovered writer. It also
 checks missing-IPC startup refusal and fresh Google-only database initialization.
+
+### Spaces release rehearsal
+
+Use the [candidate publication procedure](docs/release-candidate.md) for a tested
+image that does not promote production `latest`. The [rehearsal status](docs/rehearsal-status.md)
+tracks clone preparation and the limits of reusing the shared demo host. Keep
+candidate publication, copied-data preparation and live deployment as distinct
+verified steps.

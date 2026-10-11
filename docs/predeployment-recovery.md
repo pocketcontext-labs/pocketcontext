@@ -98,9 +98,9 @@ it is not automatically invoked by PocketDeploy.
 1. Record the actual old image digest, release/server pins and maintenance support.
    Disable/drain competing delivery and automated updates. Keep an existing private
    operator session for maintenance; interactive login is unavailable while frozen.
-   A durable restore also needs a reviewed fresh maintenance-authentication path:
-   saved bearer tokens can expire. That bootstrap remains a prerequisite, not a
-   reason to delete the maintenance marker or retain an indefinitely valid token.
+   Saved bearer tokens can expire. The [isolated clone preparation tool](../tools/CLONE_PREPARATION.md)
+   now supplies tested fresh local maintenance authentication for a copied checkpoint;
+   it does not authorize deleting the marker or alter the live instance.
 2. Freeze through the authenticated maintenance API and wait for `read_only`.
    Gracefully stop the sole application/replica publisher and prevent restart.
 3. Retain the stopped volume. Capture both SQLite databases, their recovery-relevant
@@ -169,9 +169,10 @@ access restriction and teardown deadline explicitly before provisioning.
    production settings. Before normal startup, the bootstrap must run the old
    server in an isolated maintenance context with production egress and replica
    publication blocked, obtain authorized maintenance authentication, explicitly
-   thaw, and rebind persisted settings to clone services. This bootstrap and its
-   fresh-authentication path must be implemented and tested; changing environment
-   variables alone does not satisfy them. Preserve the original frozen checkpoint.
+   thaw, and rebind persisted settings to clone services. The isolated preparation
+   tool implements and synthetically tests that step with both old and current
+   server pins. Live checkpoint/storage verification remains required; changing
+   environment variables alone does not satisfy it. Preserve the frozen checkpoint.
 4. Start the old image with clone-only services and verify the checkpoint and existing
    links/authentication. Deliberate clone-only security/settings changes are recorded
    separately from immutable domain-data comparison.
@@ -192,3 +193,13 @@ No infrastructure or production-data transfer has been authorized or performed b
 this assessment. The next deployment approval should name the provider/network,
 resource/cost bound, clone hostname/access, storage/OAuth scope, data-copy permission
 and lifetime after a concrete configuration and restore plan are prepared.
+
+## Implementation follow-up
+
+The subsequent [rehearsal status](rehearsal-status.md) records client publication,
+candidate delivery preparation and the user's proposed reuse of the existing
+`pocketdeploy-v1` host. That shared host already serves public demos. Its standalone
+loopback-container option preserves existing deployment authority and tests data
+migration/recovery; it must not be confused with provisioning a new PocketDeploy
+identity or testing ONCE application adoption. No raw production ONCE archive is
+used as a clone configuration.

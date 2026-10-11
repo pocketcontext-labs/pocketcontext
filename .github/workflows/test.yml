@@ -35,6 +35,8 @@ jobs:
         run: python3 wikicontext/tests/deploy_workflow.py
       - name: Test candidate publication isolation
         run: python3 wikicontext/tests/candidate_workflow.py
+      - name: Test isolated rehearsal configuration and packaging
+        run: python3 -B -m unittest discover -s wikicontext/deploy/rehearsal/tests
       - name: Test immutable-file migration tooling
         run: python3 wikicontext/tests/migrate_files.py
       - name: Test retired bootstrap refusal
@@ -86,6 +88,8 @@ jobs:
         run: |
           python3 wikicontext/tests/spaces.py --binary pocketcontext/bin/pocketcontext
           python3 wikicontext/tests/spaces_migration.py --binary pocketcontext/bin/pocketcontext
+      - name: Test isolated frozen clone preparation
+        run: python3 wikicontext/tests/clone_preparation.py --binary pocketcontext/bin/pocketcontext
       - name: Test Google OAuth claims and Workspace signup
         run: python3 wikicontext/tests/oauth_integration.py --binary pocketcontext/bin/pocketcontext
       - name: Test first-start deployment settings
