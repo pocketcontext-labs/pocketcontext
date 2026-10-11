@@ -12,6 +12,7 @@ import fcntl
 import hashlib
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import shutil
@@ -98,6 +99,62 @@ def validate(cfg):
     require(cfg.output.is_absolute() and '..' not in cfg.output.parts, 'invalid_output')
     trusted(cfg.output.parent, directory=True, private=True)
     require(not cfg.output.exists() and not cfg.output.is_symlink(), 'output_exists')
+    archive, config_digest = getattr(cfg, 'image_archive', None), getattr(cfg, 'image_config_digest', None)
+    require(bool(archive) == bool(config_digest), 'image_archive_requires_config_digest')
+    if archive:
+        trusted(archive, private=True)
+        require(re.fullmatch(r'sha256:[0-9a-f]{64}', config_digest), 'invalid_image_config_digest')
+
+
+def verify_image_archive(cfg, path):
+    """Bind an operator-provided registry config digest to the running image.
+
+    Never extract image members. Hash the uncompressed Docker-archive layers
+    against both the saved config and Docker's actual root filesystem identity.
+    """
+    trusted(path, private=True)
+    image, = json.loads(run(['docker', 'image', 'inspect', cfg.image]))
+    require(cfg.image in image.get('RepoDigests', []), 'image_mismatch')
+    with tarfile.open(path) as archive:
+        members = {}
+        for member in archive:
+            name = Path(member.name)
+            require(not name.is_absolute() and '..' not in name.parts and member.name not in members, 'unsafe_image_member')
+            require(member.isfile() or member.isdir() or member.issym(), 'unsafe_image_member')
+            members[member.name] = member
+        # Skopeo adds legacy layer aliases. Accept only aliases to existing
+        # regular members within this archive; never extract or follow on disk.
+        for member in members.values():
+            if member.issym():
+                require(not member.linkname.startswith('/'), 'unsafe_image_alias')
+                target = posixpath.normpath(posixpath.join(posixpath.dirname(member.name), member.linkname))
+                require(target in members and members[target].isfile(), 'unsafe_image_alias')
+        def read_json(name):
+            member = members.get(name)
+            require(member is not None and member.isfile() and member.size <= 4 * 1024 * 1024, 'image_metadata_invalid')
+            with archive.extractfile(member) as stream:
+                data = stream.read()
+            return data, json.loads(data)
+        _, manifests = read_json('manifest.json')
+        require(isinstance(manifests, list) and len(manifests) == 1, 'image_archive_manifest')
+        manifest = manifests[0]
+        config_bytes, config = read_json(manifest['Config'])
+        config_digest = 'sha256:' + hashlib.sha256(config_bytes).hexdigest()
+        require(config_digest == cfg.image_config_digest, 'image_archive_config_mismatch')
+        require(config.get('os') == image.get('Os') and config.get('architecture') == image.get('Architecture'), 'image_archive_platform_mismatch')
+        require(config.get('config', {}).get('Labels', {}).get('org.opencontainers.image.revision') == cfg.revision
+                and image.get('Config', {}).get('Labels', {}).get('org.opencontainers.image.revision') == cfg.revision, 'image_archive_revision_mismatch')
+        expected = config.get('rootfs', {}).get('diff_ids')
+        require(isinstance(expected, list) and expected == image.get('RootFS', {}).get('Layers')
+                and len(expected) == len(manifest.get('Layers', [])), 'image_archive_layers_mismatch')
+        for name, expected_hash in zip(manifest['Layers'], expected):
+            member = members.get(name)
+            require(member is not None and member.isfile(), 'image_layer_missing')
+            with archive.extractfile(member) as stream:
+                actual = 'sha256:' + hashlib.file_digest(stream, 'sha256').hexdigest()
+            require(actual == expected_hash, 'image_layer_hash_mismatch')
+    return {'sha256': digest(path), 'bytes': path.stat().st_size, 'image_config_digest': config_digest,
+            'image_platform': config['os'] + '/' + config['architecture']}
 
 
 def inspect_source(cfg):
@@ -207,6 +264,8 @@ def preflight(cfg):
     validate(cfg)
     require(os.geteuid() == 0, 'root_required')
     source, volume, image_id = inspect_source(cfg)
+    if getattr(cfg, 'image_archive', None):
+        verify_image_archive(cfg, cfg.image_archive)
     require(run(['once', 'version']).decode().strip() == 'v0.3.3', 'once_version_mismatch')
     for marker in (PENDING,):
         require(not marker.exists() and not marker.is_symlink(), 'existing_fence')
@@ -221,6 +280,8 @@ def capture(cfg):
     os.umask(0o077)
     with locks():
         source, volume, image_id = inspect_source(cfg)
+        image_archive = getattr(cfg, 'image_archive', None)
+        archive_identity = verify_image_archive(cfg, image_archive) if image_archive else None
         require(run(['once', 'version']).decode().strip() == 'v0.3.3', 'once_version_mismatch')
         for marker in (PENDING,):
             require(not marker.exists() and not marker.is_symlink(), 'existing_fence')
@@ -244,19 +305,31 @@ def capture(cfg):
                 copy_tree(cfg.output / 'pb_data', copied)
                 check_databases(copied)
             run(['once', 'backup', HOST, str(cfg.output / 'once.tar.gz')])
-            run(['docker', 'image', 'save', '--output', str(cfg.output / 'old-image.tar'), cfg.image])
+            if image_archive:
+                with image_archive.open('rb') as src, (cfg.output / 'old-image.tar').open('xb') as dst:
+                    os.chmod(dst.name, 0o600)
+                    shutil.copyfileobj(src, dst, 1024 * 1024)
+                    dst.flush(); os.fsync(dst.fileno())
+                require(verify_image_archive(cfg, cfg.output / 'old-image.tar') == archive_identity, 'image_archive_changed')
+            else:
+                image, = json.loads(run(['docker', 'image', 'inspect', cfg.image]))
+                platform = image.get('Os', '') + '/' + image.get('Architecture', '')
+                require(platform in ('linux/arm64', 'linux/amd64'), 'unsupported_image_platform')
+                run(['docker', 'image', 'save', '--platform', platform, '--output', str(cfg.output / 'old-image.tar'), cfg.image])
             stop(cfg.container_id)
             with tarfile.open(cfg.output / 'old-image.tar') as archive:
                 manifests = json.load(archive.extractfile('manifest.json'))
                 require(len(manifests) == 1, 'image_archive_manifest')
                 config_bytes = archive.extractfile(manifests[0]['Config']).read()
                 image_config_digest = 'sha256:' + hashlib.sha256(config_bytes).hexdigest()
+                config = json.loads(config_bytes)
+                image_platform = config['os'] + '/' + config['architecture']
             artifacts = {}
             for p in cfg.output.rglob('*'):
                 if p.is_file():
                     trusted(p, private=True)
                     artifacts[str(p.relative_to(cfg.output))] = {'sha256': digest(p), 'bytes': p.stat().st_size}
-            receipt = {'status': 'captured_source_stopped_not_offhost_verified', 'captured_at': datetime.now(timezone.utc).isoformat(), 'container_id': cfg.container_id, 'image': cfg.image, 'image_id': image_id, 'image_config_digest': image_config_digest, 'revision': cfg.revision, 'volume': volume, 'maintenance_generation': frozen['generation'], 'artifacts': artifacts}
+            receipt = {'status': 'captured_source_stopped_not_offhost_verified', 'captured_at': datetime.now(timezone.utc).isoformat(), 'container_id': cfg.container_id, 'image': cfg.image, 'image_id': image_id, 'image_config_digest': image_config_digest, 'image_platform': image_platform, 'revision': cfg.revision, 'volume': volume, 'maintenance_generation': frozen['generation'], 'artifacts': artifacts}
             save(cfg.output / 'receipt.json', receipt)
             return {'status': receipt['status'], 'artifact_count': len(artifacts), 'generation': frozen['generation']}
         except BaseException:
@@ -280,6 +353,8 @@ def main():
     parser.add_argument('--image', required=True)
     parser.add_argument('--revision', required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--image-archive', type=Path, help='prebuilt private Docker archive, verified before freeze')
+    parser.add_argument('--image-config-digest', help='registry-verified configuration SHA-256 required with --image-archive')
     cfg = parser.parse_args()
     try:
         if cfg.operator_stdin:

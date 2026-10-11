@@ -18,6 +18,10 @@ make build
 ```
 
 The pinned build includes `sqlite_math_functions,sqlite_percentile,sqlite_fts5`.
+Filtered SQL reuses bounded per-user snapshots until the database changes.
+Authentication is checked on every request; committed writes invalidate cached
+snapshots, including membership changes. The first read after a write rebuilds
+the snapshot. Search and ingestion keep their existing APIs and conflict checks.
 Authenticated SQL supports `json_each`/`json_tree` and median/percentile aggregates.
 Published-page search uses authenticated private FTS5 indexes derived from a
 requester-visible publication, with generation-checked pagination. See the
@@ -229,6 +233,7 @@ python3 tests/skill.py --binary /absolute/path/to/pinned/pocketcontext --trace
 python3 tests/knowledge_integration.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/search_integration.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/ingest_integration.py --binary /absolute/path/to/pinned/pocketcontext
+python3 tests/ingest_concurrency.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/export_integration.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/deploy.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/maintenance.py --binary /absolute/path/to/pinned/pocketcontext

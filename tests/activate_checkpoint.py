@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic migration invariants and fences. No Docker, network or production data."""
 import copy
+from contextlib import closing
 import importlib.util
 import json
 import os
@@ -39,7 +40,8 @@ class ActivationTests(unittest.TestCase):
             db.commit(); db.close()
 
     def mutate(self, sql, args=()):
-        with sqlite3.connect(self.new) as db: db.execute(sql,args)
+        with closing(sqlite3.connect(self.new)) as db:
+            db.execute(sql,args); db.commit()
 
     def test_all_legacy_columns_and_memberships_preserved(self):
         result=a.compare_databases(self.old,self.new)
@@ -68,6 +70,63 @@ class ActivationTests(unittest.TestCase):
     def test_no_new_legacy_column_silently_ignored(self):
         self.mutate('ALTER TABLE sources ADD COLUMN unexpected TEXT')
         with self.assertRaisesRegex(a.c.CaptureError,'candidate_schema_mismatch'): a.compare_databases(self.old,self.new)
+
+    def same_schema_baseline(self):
+        self.mutate("INSERT INTO spaces VALUES ('personal','personal','Private')")
+        self.mutate("UPDATE space_members SET active=0 WHERE account='active'")
+        self.mutate("INSERT INTO space_members VALUES ('personal','active','owner',1)")
+        with closing(sqlite3.connect(self.new)) as source, closing(sqlite3.connect(self.old)) as target:
+            source.backup(target)
+
+    def test_same_schema_preserves_personal_spaces_and_revoked_memberships(self):
+        self.same_schema_baseline()
+        self.assertEqual(a.compare_databases(self.old,self.new,True), {table:1 for table in a.DOMAIN})
+
+    def test_same_schema_rejects_domain_auth_membership_and_schema_changes(self):
+        self.same_schema_baseline()
+        for sql in ("UPDATE sources SET body='changed'", "UPDATE users SET disabled=0",
+                    "UPDATE space_members SET active=1", "DELETE FROM spaces WHERE id='personal'",
+                    "CREATE TABLE unexpected(value TEXT)", "PRAGMA user_version=42"):
+            with self.subTest(sql=sql):
+                with closing(sqlite3.connect(self.old)) as source, closing(sqlite3.connect(self.new)) as target:
+                    source.backup(target)
+                self.mutate(sql)
+                with self.assertRaisesRegex(a.c.CaptureError, 'same_schema_database_changed'):
+                    a.compare_databases(self.old,self.new,True)
+
+    def test_same_schema_temporary_never_thaws(self):
+        cfg=SimpleNamespace(same_schema=True)
+        row={'Id':'a'*64,'Image':'id','Config':{'Labels':{a.LABEL:'run'}},'Mounts':[{'Name':'v'}]}
+        def run(args, *unused, **kwargs):
+            return ('a'*64).encode() if args[:2]==['docker','run'] else b''
+        for startup in ('read_only','writable'):
+            with self.subTest(startup=startup), patch.object(a,'no_writers'), patch.object(a.c,'run',side_effect=run), patch.object(a,'inspect',return_value=row), patch.object(a,'verify_temporary'), patch.object(a,'ready',return_value={'state':startup,'generation':7}), patch.object(a,'api') as api, patch.object(a.c,'stop'):
+                if startup=='read_only':
+                    self.assertEqual(a.temporary(cfg,{'volume':'v'},{'HostConfig':{}},'image','id','net','run',self.root/'env','token',False),7)
+                else:
+                    with self.assertRaisesRegex(a.c.CaptureError,'same_schema_requires_frozen_startup'):
+                        a.temporary(cfg,{'volume':'v'},{'HostConfig':{}},'image','id','net','run',self.root/'env','token',False)
+                api.assert_not_called()
+
+    def test_same_schema_migrate_starts_only_frozen_candidate(self):
+        cfg=SimpleNamespace(same_schema=True,capture=self.root/'capture',candidate='candidate',revision='a'*40)
+        cfg.capture.mkdir()
+        receipt={'volume':'v','image':'old','image_id':'old-id'}
+        original={'Config':{'Env':[]}}
+        def run(args,*unused,**kwargs):
+            if args[:3]==['docker','network','inspect']:
+                # Read the run id the helper persisted rather than patch UUIDs.
+                started=json.loads((cfg.capture/'activation/started.json').read_text())
+                return json.dumps([{'Driver':'bridge','Labels':{a.LABEL:started['run_id']},'Containers':{}}]).encode()
+            return b''
+        with patch.object(a,'original_source',return_value=original), patch.object(a,'no_writers'), patch.object(a,'marker',return_value=9), patch.object(a,'baseline_matches'), patch.object(a,'pending'), patch.object(a.c,'run',side_effect=run), patch.object(a,'temporary',return_value=9) as temporary, patch.object(a,'compare_snapshot',return_value={'sources':1}):
+            a.migrate(cfg,receipt,'token',self.root,'candidate-id')
+        self.assertEqual(temporary.call_count,1)
+        self.assertEqual(temporary.call_args.args[3],'candidate')
+        self.assertIs(temporary.call_args.args[-1],False)
+        receipt=json.loads((cfg.capture/'activation/migrated.json').read_text())
+        self.assertIs(receipt['same_schema'],True)
+        self.assertFalse((cfg.capture/'activation/candidate.env').exists())
 
     def test_environment_private_preserved_and_not_overwritten(self):
         path=self.root/'env'

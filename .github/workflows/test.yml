@@ -125,6 +125,7 @@ jobs:
           python3 wikicontext/tests/knowledge_integration.py --binary pocketcontext/bin/pocketcontext
           python3 wikicontext/tests/search_integration.py --binary pocketcontext/bin/pocketcontext
           python3 wikicontext/tests/ingest_integration.py --binary pocketcontext/bin/pocketcontext
+          python3 wikicontext/tests/ingest_concurrency.py --binary pocketcontext/bin/pocketcontext
           python3 wikicontext/tests/export_integration.py --binary pocketcontext/bin/pocketcontext
       - name: Test clients, exports and deployment preparation
         run: |

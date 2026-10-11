@@ -5,6 +5,7 @@ Use only after complete off-host recovery verification. Keep pending marker unti
 operator acceptance; this tool never removes it. Diagnostics never contain data.
 """
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -18,6 +19,7 @@ import time
 import uuid
 
 import capture_checkpoint as c
+from verify_checkpoint_replica import database_digest
 
 DOMAIN = ('sources', 'renditions', 'passages', 'ingestion_runs', 'pages',
           'page_revisions', 'citations', 'page_links', 'publications', 'audit_log')
@@ -131,8 +133,14 @@ def quote(name):
     return '"' + name.replace('"', '""') + '"'
 
 
-def compare_databases(before, after):
+def compare_databases(before, after, same_schema=False):
     """Read-only, bounded row streaming; never log a row or private identifier."""
+    if same_schema:
+        c.require(database_digest(before) == database_digest(after), 'same_schema_database_changed')
+        # Full schema and every persisted row, including auth, memberships and
+        # private spaces, must match. Only counts leave this private comparison.
+        with closing(sqlite3.connect(after.as_uri() + '?mode=ro', uri=True)) as db:
+            return {table: db.execute('SELECT count(*) FROM ' + quote(table)).fetchone()[0] for table in DOMAIN}
     old = sqlite3.connect(before.as_uri() + '?mode=ro', uri=True)
     new = sqlite3.connect(after.as_uri() + '?mode=ro', uri=True)
     counts = {}
@@ -181,7 +189,7 @@ def compare_snapshot(cfg, receipt, source):
                         c.require(c.digest(p) == receipt['artifacts']['pb_data/' + leaf]['sha256'], 'baseline_changed')
                     shutil.copyfile(p, target / leaf)
                     (target / leaf).chmod(0o600)
-        return compare_databases(root / 'before/data.db', root / 'after/data.db')
+        return compare_databases(root / 'before/data.db', root / 'after/data.db', getattr(cfg, 'same_schema', False))
 
 
 def env_file(path, original, revision=None):
@@ -230,9 +238,12 @@ def temporary(cfg, receipt, original, image, image_id, network, run_id, env, tok
         verify_temporary(inspect(container), image_id, receipt['volume'], network, run_id)
         no_writers(receipt['volume'], container)
         state = ready(container, token)
-        c.require(state['state'] == ('read_only' if thaw else 'writable'), 'unexpected_startup_maintenance')
-        state = api(container, token, not thaw)
-        c.require(state['state'] == ('writable' if thaw else 'read_only'), 'maintenance_transition_failed')
+        if getattr(cfg, 'same_schema', False):
+            c.require(not thaw and state['state'] == 'read_only', 'same_schema_requires_frozen_startup')
+        else:
+            c.require(state['state'] == ('read_only' if thaw else 'writable'), 'unexpected_startup_maintenance')
+            state = api(container, token, not thaw)
+            c.require(state['state'] == ('writable' if thaw else 'read_only'), 'maintenance_transition_failed')
         c.stop(container)
         return state['generation']
     finally:
@@ -286,14 +297,14 @@ def baseline_matches(receipt, directory, source):
 def migrate(cfg, receipt, token, source, image_id):
     original = original_source(receipt)
     no_writers(receipt['volume'])
-    marker(source, True)
+    initial_generation = marker(source, True)
     baseline_matches(receipt, cfg.capture, source)
     state = cfg.capture / 'activation'
     c.require(not state.exists(), 'migration_already_started_reconcile')
     state.mkdir(mode=0o700); c.sync_dir(cfg.capture)
     run_id = uuid.uuid4().hex
     network = 'wiki-checkpoint-' + run_id
-    c.save(state / 'started.json', {'candidate': cfg.candidate, 'revision': cfg.revision, 'run_id': run_id, 'network': network})
+    c.save(state / 'started.json', {'candidate': cfg.candidate, 'revision': cfg.revision, 'run_id': run_id, 'network': network, 'same_schema': getattr(cfg, 'same_schema', False)})
     c.run(['docker', 'network', 'create', '--driver', 'bridge', '--label', LABEL + '=' + run_id, network])
     net, = json.loads(c.run(['docker', 'network', 'inspect', network]))
     c.require(net['Driver'] == 'bridge' and net.get('Labels', {}).get(LABEL) == run_id and not net.get('Containers'), 'network_isolation_mismatch')
@@ -302,13 +313,16 @@ def migrate(cfg, receipt, token, source, image_id):
     env_file(env, original)
     env_file(candidate_env, original, cfg.revision)
     try:
-        temporary(cfg, receipt, original, receipt['image'], receipt['image_id'], network, run_id, env, token, True)
-        original_source(receipt); pending(receipt, cfg.capture); marker(source, False)
+        if not getattr(cfg, 'same_schema', False):
+            temporary(cfg, receipt, original, receipt['image'], receipt['image_id'], network, run_id, env, token, True)
+        original_source(receipt); pending(receipt, cfg.capture); marker(source, getattr(cfg, 'same_schema', False))
         generation = temporary(cfg, receipt, original, cfg.candidate, image_id, network, run_id, candidate_env, token, False)
-        no_writers(receipt['volume']); marker(source, True)
+        no_writers(receipt['volume']); final_generation = marker(source, True)
+        if getattr(cfg, 'same_schema', False):
+            c.require(generation == final_generation == initial_generation, 'same_schema_maintenance_changed')
         counts = compare_snapshot(cfg, receipt, source)
         c.save(state / 'migrated.json', {'candidate': cfg.candidate, 'revision': cfg.revision,
-                                       'generation': generation, 'legacy_counts': counts})
+                                       'generation': generation, 'legacy_counts': counts, 'same_schema': getattr(cfg, 'same_schema', False)})
     finally:
         env.unlink(missing_ok=True)
         candidate_env.unlink(missing_ok=True)
@@ -348,6 +362,7 @@ def phase(cfg):
         c.trusted(state, directory=True, private=True)
         migrated = read(state / 'migrated.json')
         c.require(migrated['candidate'] == cfg.candidate and migrated['revision'] == cfg.revision, 'migration_identity_mismatch')
+        c.require(migrated.get('same_schema', False) == getattr(cfg, 'same_schema', False), 'activation_mode_mismatch')
         marker(source, True)
         if cfg.phase == 'activate':
             original_source(receipt); no_writers(receipt['volume'])
@@ -395,10 +410,11 @@ def main():
     parser.add_argument('--recovery-verification', type=Path, required=True)
     parser.add_argument('--candidate', required=True)
     parser.add_argument('--revision', required=True)
+    parser.add_argument('--same-schema', action='store_true', help='Keep candidate frozen and require exact logical database equality; no migration thaw')
     cfg = parser.parse_args()
     try:
         if cfg.phase == 'plan':
-            print(json.dumps({'status': 'plan_no_changes', 'phases': ['preflight','migrate','activate','thaw'], 'pending_fence_removed': False}))
+            print(json.dumps({'status': 'plan_no_changes', 'phases': ['preflight','migrate','activate','thaw'], 'pending_fence_removed': False, 'same_schema': cfg.same_schema}))
         else:
             print(json.dumps(phase(cfg)))
         return 0
