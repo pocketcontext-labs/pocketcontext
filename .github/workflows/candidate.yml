@@ -1,0 +1,153 @@
+name: Candidate image
+on:
+  push:
+    branches: ["release-candidates/**"]
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full commit SHA of the selected non-main branch
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: candidate-${{ github.sha }}
+  cancel-in-progress: false
+env:
+  IMAGE: ghcr.io/pocketcontext/wikicontext
+jobs:
+  revision:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.verify.outputs.sha }}
+    steps:
+      - name: Verify candidate revision
+        id: verify
+        env:
+          REQUESTED_REVISION: ${{ inputs.revision || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = branch
+          [[ "$GITHUB_REF" == refs/heads/release-candidates/* ]]
+          [[ "$REQUESTED_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$REQUESTED_REVISION" = "$GITHUB_SHA"
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+  tests:
+    needs: revision
+    uses: ./.github/workflows/test.yml
+    with:
+      verify_published_launcher: true
+    permissions:
+      contents: read
+  image:
+    needs: [revision, tests]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.revision.outputs.sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build native candidate
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: wikicontext:candidate-ci
+          build-args: REVISION=${{ needs.revision.outputs.sha }}
+          provenance: false
+          cache-from: type=gha,scope=candidate-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=candidate-${{ matrix.arch }}
+      - name: Validate exact native image
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          REVISION: ${{ needs.revision.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect wikicontext:candidate-ci --format '{{.Architecture}}')" = "$EXPECTED_ARCH"
+          test "$(docker image inspect wikicontext:candidate-ci --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$REVISION"
+          python3 docker/smoke.py config --image wikicontext:candidate-ci
+          python3 docker/smoke.py smoke --image wikicontext:candidate-ci
+          python3 docker/object_storage_smoke.py --image wikicontext:candidate-ci --minio-image wikicontext-minio-fixture:9e49d5e-7394ce0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested native image
+        env:
+          REVISION: ${{ needs.revision.outputs.sha }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          tag="$IMAGE:candidate-$REVISION-$ARCH"
+          docker tag wikicontext:candidate-ci "$tag"
+          docker push "$tag"
+          source=$(docker image inspect "$tag" --format '{{index .RepoDigests 0}}')
+          [[ "$source" == "$IMAGE@sha256:"* ]]
+          digest=${source#"$IMAGE@sha256:"}
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          mkdir -p "$RUNNER_TEMP/candidate-digests"
+          printf '%s\n' "$source" > "$RUNNER_TEMP/candidate-digests/$ARCH.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-digest-${{ matrix.arch }}-${{ needs.revision.outputs.sha }}
+          path: ${{ runner.temp }}/candidate-digests/*.txt
+          if-no-files-found: error
+          retention-days: 7
+  manifest:
+    needs: [revision, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ runner.temp }}/candidate-digests
+          pattern: candidate-digest-*-${{ needs.revision.outputs.sha }}
+          merge-multiple: true
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Assemble candidate and record immutable digest
+        env:
+          REVISION: ${{ needs.revision.outputs.sha }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate-digests"
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 2
+          sources=()
+          for arch in amd64 arm64; do
+            read -r source < "$arch.txt"
+            [[ "$source" == "$IMAGE@sha256:"* ]]
+            digest=${source#"$IMAGE@sha256:"}
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+            sources+=("$source")
+          done
+          candidate="$IMAGE:candidate-$REVISION"
+          docker buildx imagetools create --tag "$candidate" "${sources[@]}"
+          docker buildx imagetools inspect "$candidate" > "$RUNNER_TEMP/candidate-receipt.txt"
+          cat "$RUNNER_TEMP/candidate-receipt.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-receipt-${{ needs.revision.outputs.sha }}
+          path: ${{ runner.temp }}/candidate-receipt.txt
+          if-no-files-found: error
+          retention-days: 30

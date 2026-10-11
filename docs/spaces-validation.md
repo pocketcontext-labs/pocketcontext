@@ -39,11 +39,19 @@ checks use isolated synthetic storage and do not establish live-provider recover
 
 ## Release gates still outstanding
 
-The production client package and portable launcher have not been published or
-repinned. New source commands must not be confused with the currently published
-launcher. Install the matching new client before using personal spaces.
+Client source commit `69082e24ed83d8df11a5d34a734f336283aa9bee` is published on
+`feature/wiki-spaces-rehearsal`. The local portable launcher now pins that commit;
+an unchanged copied uv launcher passed the isolated skill integration both normally
+and with tracing. The launcher/rehearsal/workflow commit and candidate image digest
+remain to be published and verified as described in
+[the candidate release procedure](release-candidate.md).
 
 Native local ARM64 container checks are distinct from required remote AMD64/ARM64
-release CI. No actual Google browser sign-in, production checkpoint, live R2
+release CI. Initial package-commit CI run
+[38152851034](https://github.com/pocketcontext/wikicontext/actions/runs/38152851034)
+passed both native ARM64 and AMD64 container jobs. Both application jobs stopped at deployment
+workflow validation: package commit A contains the new CI assertions but intentionally
+excludes the in-flight workflow changes. The final candidate commit must include
+those changes and pass both complete suites; A is not a passing release candidate. No actual Google browser sign-in, production checkpoint, live R2
 recovery, disposable PocketDeploy clone or production rollout has been performed.
 Follow [the recovery and clone assessment](predeployment-recovery.md) before release.
