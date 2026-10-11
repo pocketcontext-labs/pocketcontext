@@ -51,6 +51,22 @@ Docker-format archives do not reliably retain registry RepoDigests; the packagin
 helper does not independently establish this chain, so retain its verification
 receipt. Do not print raw Docker metadata or ONCE settings.
 
+Prepare and verify the old-image archive before taking the service offline.
+The root-side `capture_checkpoint.py` accepts `--image-archive /private/old-image.tar`
+with `--image-config-digest sha256:VERIFIED_CONFIG_DIGEST`. Preflight and capture
+check its configuration digest, platform, revision and every layer against the
+actual image before freezing. Capture copies the archive into its new private
+directory and verifies it again. The supplied configuration digest must come
+from the registry verification above. Omitting these options uses Docker's
+platform-specific export, which can still fail on a containerd image store.
+
+For releases with no database migration, pass `--same-schema` to every phase of
+`activate_checkpoint.py`. Its preparation phase starts the candidate frozen,
+without the old-image thaw sequence, and requires identical database schema and
+all persisted rows, including private spaces, memberships and authentication.
+The candidate remains frozen through ONCE activation; thaw is still explicit.
+Omitting the flag retains the original Company-space migration checks.
+
 Generate/use an age recipient under operator-controlled recovery key custody.
 Only the public recipient is needed for capture. Retain the private identity
 independently of the application host and backup bucket; verify it can decrypt

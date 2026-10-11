@@ -18,7 +18,8 @@
     "timeoutMs": 5000,
     "maxRows": 100000,
     "maxBytes": 33554432,
-    "maxConcurrent": 4
+    "maxConcurrent": 4,
+    "maxConcurrentPerRequester": 0
   },
   "tables": [
     {
