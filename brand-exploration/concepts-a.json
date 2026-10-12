@@ -1,0 +1,240 @@
+[
+  {
+    "id": 1,
+    "name": "Open chapter",
+    "family": "Books & pages",
+    "description": "Two open pages meet at a confident central spine.",
+    "body": "<path d=\"M18 28Q42 24 64 39Q86 24 110 28V95Q86 91 64 106Q42 91 18 95Z M64 39V106\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 2,
+    "name": "Page wings",
+    "family": "Books & pages",
+    "description": "Two folded leaves turn knowledge into an open, rising form.",
+    "body": "<path d=\"M16 25 58 45V106L16 84Z M70 45 112 25V84L70 106Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 3,
+    "name": "Living volume",
+    "family": "Books & pages",
+    "description": "A rounded bound volume with a bookmark cut into the cover.",
+    "body": "<path d=\"M36 18H103V104H36Q22 104 22 90V33Q22 18 36 18Z M23 88Q23 76 38 76H102 M76 19V54L65 46 54 54V19\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 4,
+    "name": "Page turn",
+    "family": "Books & pages",
+    "description": "An oversized folded corner makes one memorable source page.",
+    "body": "<path d=\"M29 17H76L105 46V111H29Z M76 17V46H105 M46 69H85 M46 87H73\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 5,
+    "name": "Collected leaves",
+    "family": "Books & pages",
+    "description": "Three parallel leaves share a grounding spine.",
+    "body": "<path d=\"M22 24V99H106 M43 24V83 M66 24V83 M89 24V83\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 6,
+    "name": "Reading room",
+    "family": "Books & pages",
+    "description": "A book and arch combine into a welcoming home for knowledge.",
+    "body": "<path d=\"M20 104V53Q20 17 64 17Q108 17 108 53V104 M37 62Q51 62 64 73Q77 62 91 62V96Q77 96 64 107Q51 96 37 96Z M64 73V107\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 7,
+    "name": "Book ribbon",
+    "family": "Books & pages",
+    "description": "A compact book whose central ribbon continues beyond the page.",
+    "body": "<path d=\"M19 27Q42 23 58 34V99Q39 88 19 91Z M70 34Q87 23 109 27V91Q89 88 70 99Z M58 17H70V114L64 108 58 114Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 8,
+    "name": "Indexed",
+    "family": "Books & pages",
+    "description": "Staggered tabs give the knowledge collection a distinctive silhouette.",
+    "body": "<path d=\"M28 20H75V35H94V50H109V108H28Z M46 47H64 M46 68H87 M46 88H75\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 9,
+    "name": "Source fold",
+    "family": "Books & pages",
+    "description": "Two interlocking folded pages show a source becoming a publication.",
+    "body": "<path d=\"M23 23H68V85H23Z M60 43H105V105H60 M68 23 85 40 M43 43V64\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 10,
+    "name": "Knowledge fan",
+    "family": "Books & pages",
+    "description": "A radial arrangement of three pages evokes discovery and collection.",
+    "body": "<path d=\"M64 108 19 80 42 24 65 38 M64 108 109 80 86 24 63 38 M64 108V37\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 11,
+    "name": "Continuous reading",
+    "family": "Books & pages",
+    "description": "A single sweeping line connects two open pages.",
+    "body": "<path d=\"M19 94V29Q42 22 64 40Q86 22 109 29V94Q86 87 64 105Q42 87 19 94 M64 40V81\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 12,
+    "name": "Published chapter",
+    "family": "Books & pages",
+    "description": "A book-shaped seal with a bold central chapter opening.",
+    "body": "<path d=\"M19 20H109V93L64 115 19 93Z\" fill=\"currentColor\"/><path d=\"M38 42V79L64 92 90 79V42L64 55Z M64 55V92\" fill=\"none\" stroke=\"#e9ede2\" stroke-width=\"8\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 13,
+    "name": "Pocket reader",
+    "family": "Pocket & knowledge",
+    "description": "The PocketContext shield holds a concise open-book mark.",
+    "body": "<path d=\"M19 19H109V82L64 113 19 82Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M37 39 64 51 91 39V69L64 83 37 69Z M64 51V83\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 14,
+    "name": "Knowledge slip",
+    "family": "Pocket & knowledge",
+    "description": "A source note rises above the familiar pocket silhouette.",
+    "body": "<path d=\"M20 48H108V85L64 114 20 85Z M38 48V17H90V48 M53 31H75\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 15,
+    "name": "Pocket bookmark",
+    "family": "Pocket & knowledge",
+    "description": "A deep bookmark notch brings a literary signal to the family shield.",
+    "body": "<path d=\"M19 19H52V64L64 54 76 64V19H109V84L64 115 19 84Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 16,
+    "name": "Pocket aperture",
+    "family": "Pocket & knowledge",
+    "description": "A diamond of negative space suggests a clear point of understanding.",
+    "body": "<path fill-rule=\"evenodd\" d=\"M18 19H110V83L64 114 18 83Z M64 39 39 64 64 89 89 64Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 17,
+    "name": "Pocket chapters",
+    "family": "Pocket & knowledge",
+    "description": "A wide pocket supports three emerging page spines.",
+    "body": "<path d=\"M20 54V86L64 112 108 86V54 M36 54V20 M64 54V14 M92 54V20 M20 54H108\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 18,
+    "name": "Pocket passage",
+    "family": "Pocket & knowledge",
+    "description": "An offset open mouth turns the pocket into a reading passage.",
+    "body": "<path d=\"M22 22H106V82L64 113 22 82V51H83 M45 71H83\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 19,
+    "name": "Pocket spark",
+    "family": "Pocket & knowledge",
+    "description": "A single four-point insight sits inside the family pocket.",
+    "body": "<path d=\"M20 20H108V83L64 113 20 83Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M64 35 71 56 92 63 71 70 64 91 57 70 36 63 57 56Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 20,
+    "name": "Pocket anthology",
+    "family": "Pocket & knowledge",
+    "description": "Three small source leaves become a shared pocket collection.",
+    "body": "<path d=\"M20 57H108V87L64 112 20 87Z M33 57V25H53V57 M53 57V16H75V57 M75 57V31H96V57\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 21,
+    "name": "Pocket link",
+    "family": "Pocket & knowledge",
+    "description": "A pair of interlocking brackets puts relationships inside the pocket.",
+    "body": "<path d=\"M20 20H108V83L64 112 20 83Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M59 43H43V75H59 M69 43H85V75H69 M54 59H74\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 22,
+    "name": "Pocket leaf",
+    "family": "Pocket & knowledge",
+    "description": "A single organic page grows from a protective pocket.",
+    "body": "<path d=\"M20 56V84L64 113 108 84V56 M20 56H48 M81 56H108\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M48 67Q36 22 91 16Q101 68 48 67Z\" fill=\"currentColor\"/><path d=\"M46 76 77 34\" fill=\"none\" stroke=\"#e9ede2\" stroke-width=\"7\" stroke-linecap=\"round\"/>"
+  },
+  {
+    "id": 23,
+    "name": "Pocket vault",
+    "family": "Pocket & knowledge",
+    "description": "An inner archive door mirrors the outer pocket geometry.",
+    "body": "<path d=\"M20 19H108V84L64 114 20 84Z M43 41H85V72L64 87 43 72Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 24,
+    "name": "Pocket horizon",
+    "family": "Pocket & knowledge",
+    "description": "Three calm lines of evidence converge on one shared foundation.",
+    "body": "<path d=\"M20 25H108 M20 46H108 M20 67H108V86L64 114 20 86Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 25,
+    "name": "Opening quote",
+    "family": "Citations",
+    "description": "A bold pair of quotation marks makes evidence the identity.",
+    "body": "<path d=\"M20 61Q20 25 52 24V38Q36 39 36 57H55V96H20Z M73 61Q73 25 105 24V38Q89 39 89 57H108V96H73Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 26,
+    "name": "Citation brackets",
+    "family": "Citations",
+    "description": "Open brackets surround the precise point supported by a source.",
+    "body": "<path d=\"M43 22H23V106H43 M85 22H105V106H85\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"64\" r=\"12\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 27,
+    "name": "Source anchor",
+    "family": "Citations",
+    "description": "A page is connected to a distinct immutable source point.",
+    "body": "<path d=\"M24 18H94V83H24Z M41 38H76 M41 56H66 M59 84V99\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"59\" cy=\"109\" r=\"9\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 28,
+    "name": "Linked passage",
+    "family": "Citations",
+    "description": "Two strong paragraph blocks are joined by one clear citation.",
+    "body": "<path d=\"M22 25H57V61H22Z M71 67H106V103H71Z M57 43H88V67 M39 61V85H71\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 29,
+    "name": "Quoted book",
+    "family": "Citations",
+    "description": "Quotation marks float above a low open-book silhouette.",
+    "body": "<path d=\"M20 72Q42 70 64 84Q86 70 108 72V98Q86 96 64 110Q42 96 20 98Z M64 84V110\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M34 49Q34 24 54 22V33Q44 35 44 44H56V61H34Z M72 49Q72 24 92 22V33Q82 35 82 44H94V61H72Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 30,
+    "name": "Evidence chain",
+    "family": "Citations",
+    "description": "Two angular loops bind a published statement to its source.",
+    "body": "<path d=\"M67 36 80 23Q89 14 98 23L108 33Q117 42 108 51L83 76Q74 85 65 76 M61 92 48 105Q39 114 30 105L20 95Q11 86 20 77L45 52Q54 43 63 52 M45 83 83 45\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 31,
+    "name": "Footnote",
+    "family": "Citations",
+    "description": "A simple page and raised asterisk evoke traceable statements.",
+    "body": "<path d=\"M25 24H70 M25 24V106H103V70 M43 53H67 M43 76H83\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M93 17V49 M79 25 107 41 M79 41 107 25\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 32,
+    "name": "Reference window",
+    "family": "Citations",
+    "description": "An inset page appears between oversized source brackets.",
+    "body": "<path d=\"M35 20H19V108H35 M93 20H109V108H93\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M47 35H81V93H47Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 33,
+    "name": "Source constellation",
+    "family": "Citations",
+    "description": "One central passage draws confidence from three linked sources.",
+    "body": "<path d=\"M64 64 29 29 M64 64 101 34 M64 64 79 104\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"29\" cy=\"29\" r=\"12\" fill=\"currentColor\"/><circle cx=\"101\" cy=\"34\" r=\"12\" fill=\"currentColor\"/><circle cx=\"79\" cy=\"104\" r=\"12\" fill=\"currentColor\"/><path d=\"M48 48H80V80H48Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 34,
+    "name": "Grounded quote",
+    "family": "Citations",
+    "description": "One bold quotation mark rests on a stable evidence baseline.",
+    "body": "<path d=\"M36 61Q36 20 85 19V37Q57 38 57 58H88V91H36Z\" fill=\"currentColor\"/><path d=\"M22 109H106\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  }
+]

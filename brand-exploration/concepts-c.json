@@ -1,0 +1,233 @@
+[
+  {
+    "id": 68,
+    "name": "True north",
+    "family": "Wayfinding",
+    "description": "A quiet compass needle points toward dependable knowledge.",
+    "body": "<path d=\"M64 14 99 108 64 88 29 108Z\" fill=\"currentColor\"/><path d=\"M64 37V88L41 99Z\" fill=\"#e9ede2\"/>"
+  },
+  {
+    "id": 69,
+    "name": "Field guide",
+    "family": "Wayfinding",
+    "description": "A folded map turns a center seam into a clear path.",
+    "body": "<path d=\"M18 31 47 20 81 32 110 21V96L81 107 47 95 18 106Z M47 20V95 M81 32V107\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 70,
+    "name": "One source",
+    "family": "Wayfinding",
+    "description": "Three research routes converge on one shared reference.",
+    "body": "<path d=\"M24 26V48Q24 64 44 64H64 M104 26V48Q104 64 84 64H64 M64 25V102\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"24\" cy=\"23\" r=\"9\" fill=\"currentColor\"/><circle cx=\"104\" cy=\"23\" r=\"9\" fill=\"currentColor\"/><circle cx=\"64\" cy=\"23\" r=\"9\" fill=\"currentColor\"/><circle cx=\"64\" cy=\"104\" r=\"11\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 71,
+    "name": "Beacon",
+    "family": "Wayfinding",
+    "description": "A small lighthouse gives a stable point in an expanding knowledge base.",
+    "body": "<path d=\"M52 50H76L88 108H40Z\" fill=\"currentColor\"/><path d=\"M46 46V28L64 16 82 28V46Z M24 35H12 M104 35H116\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M58 63H70L73 81H55Z\" fill=\"#e9ede2\"/>"
+  },
+  {
+    "id": 72,
+    "name": "Trailhead",
+    "family": "Wayfinding",
+    "description": "A rounded trail ends in a precise direction of travel.",
+    "body": "<path d=\"M20 104V84Q20 66 40 66H78Q98 66 98 45V22 M79 40 98 21 117 40\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"104\" r=\"8\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 73,
+    "name": "Indexed place",
+    "family": "Wayfinding",
+    "description": "A bookmark cut into a location marker joins place and reference.",
+    "body": "<path d=\"M64 12C39 12 22 29 22 51 22 78 64 116 64 116S106 78 106 51C106 29 89 12 64 12Z\" fill=\"currentColor\"/><path d=\"M49 34H79V74L64 63 49 74Z\" fill=\"#e9ede2\"/>"
+  },
+  {
+    "id": 74,
+    "name": "Reading steps",
+    "family": "Wayfinding",
+    "description": "A bold rising staircase signals progress through accumulated understanding.",
+    "body": "<path d=\"M16 86H39V63H62V40H85V17H109V110H16Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 75,
+    "name": "Open passage",
+    "family": "Wayfinding",
+    "description": "An open arch suggests a welcoming entrance to the company manual.",
+    "body": "<path d=\"M24 110V56A40 40 0 0 1 80 19 M104 40V110 M44 110V58A20 20 0 0 1 84 58V110\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M96 14 113 31 96 48 79 31Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 76,
+    "name": "Cross reference",
+    "family": "Wayfinding",
+    "description": "Two bold angled paths meet at a diamond-shaped center.",
+    "body": "<path d=\"M22 24 62 64 22 104 M106 24 66 64 106 104\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"11\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M64 44 84 64 64 84 44 64Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 77,
+    "name": "Orientation",
+    "family": "Wayfinding",
+    "description": "A generous compass ring surrounds an offset reading pointer.",
+    "body": "<path d=\"M104 44A44 44 0 1 1 84 25\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M104 14 82 72 58 48Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 78,
+    "name": "Common path",
+    "family": "Wayfinding",
+    "description": "An angular route resolves into a continuous, distinctive W.",
+    "body": "<path d=\"M16 24V89L40 106 64 72 88 106 112 89V24 M40 106V45 M88 106V45\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 79,
+    "name": "Source stack",
+    "family": "Evidence & layers",
+    "description": "Three overlapping planes express preserved source material and synthesis.",
+    "body": "<path d=\"M16 48 64 20 112 48 64 76Z M16 68 64 96 112 68 M16 88 64 116 112 88\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 80,
+    "name": "Living index",
+    "family": "Evidence & layers",
+    "description": "A page with three substantial index tabs stays legible at small sizes.",
+    "body": "<path d=\"M24 16H85V112H24Z M85 22H104V43H85 M85 53H104V74H85 M85 84H104V105H85 M41 38H66 M41 58H66 M41 78H57\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 81,
+    "name": "Version window",
+    "family": "Evidence & layers",
+    "description": "Nested corners frame a published page without hiding its history.",
+    "body": "<path d=\"M17 91V17H91 M34 108V34H108 M52 52H110V110H52Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 82,
+    "name": "Cited leaf",
+    "family": "Evidence & layers",
+    "description": "A quotation-shaped cutout grounds a page silhouette in evidence.",
+    "body": "<path d=\"M27 14H76L101 39V114H27Z\" fill=\"currentColor\"/><path d=\"M43 52H59V72L47 84H39L49 70H43ZM68 52H84V72L72 84H64L74 70H68Z\" fill=\"#e9ede2\"/>"
+  },
+  {
+    "id": 83,
+    "name": "Bound evidence",
+    "family": "Evidence & layers",
+    "description": "Two substantial bands hold a complete set of original pages together.",
+    "body": "<path d=\"M25 20H103V108H25Z M17 43H38 M17 83H38 M50 43H82 M50 64H88 M50 85H72\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 84,
+    "name": "Publication seal",
+    "family": "Evidence & layers",
+    "description": "A single approved page rests inside an open protective circle.",
+    "body": "<path d=\"M97 32A46 46 0 1 0 110 66 M44 32H77V92H44Z M55 50H67 M55 66H67\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M85 42 96 53 116 29\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 85,
+    "name": "Reference rails",
+    "family": "Evidence & layers",
+    "description": "Three strong reference bars are anchored by a shared vertical spine.",
+    "body": "<path d=\"M29 17V111 M29 27H101 M29 64H85 M29 101H101\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"12\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"99\" cy=\"27\" r=\"9\" fill=\"currentColor\"/><circle cx=\"85\" cy=\"64\" r=\"9\" fill=\"currentColor\"/><circle cx=\"99\" cy=\"101\" r=\"9\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 86,
+    "name": "Revision weave",
+    "family": "Evidence & layers",
+    "description": "Offset page corners interlock to suggest knowledge built across revisions.",
+    "body": "<path d=\"M19 76V19H76V47 M52 19V76H19 M52 109V52H109V109Z M76 52V109\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 87,
+    "name": "Original and insight",
+    "family": "Evidence & layers",
+    "description": "A source square supports a lighter diamond of synthesized understanding.",
+    "body": "<path d=\"M20 55H73V108H20Z\" fill=\"currentColor\"/><path d=\"M79 15 113 49 79 83 45 49Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 88,
+    "name": "Evidence bracket",
+    "family": "Evidence & layers",
+    "description": "Broad brackets protect a central immutable source point.",
+    "body": "<path d=\"M44 20H22V108H44 M84 20H106V108H84\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"11\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"64\" r=\"18\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 89,
+    "name": "Publication horizon",
+    "family": "Evidence & layers",
+    "description": "A closed source layer and open upper layer distinguish evidence from interpretation.",
+    "body": "<path d=\"M17 82 64 108 111 82V98L64 124 17 98Z\" fill=\"currentColor\"/><path d=\"M17 55 64 29 111 55 64 81Z M64 29V10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 90,
+    "name": "Shared center",
+    "family": "Abstract knowledge",
+    "description": "Four generous lobes gather around one common body of knowledge.",
+    "body": "<path d=\"M64 48C36 2 3 37 48 64 2 92 37 125 64 80 92 125 125 92 80 64 125 37 92 2 64 48Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 91,
+    "name": "Insight aperture",
+    "family": "Abstract knowledge",
+    "description": "An open circular form uses a triangular gap as an entry to understanding.",
+    "body": "<path d=\"M108 84A49 49 0 1 1 108 44L88 55A26 26 0 1 0 88 73Z M76 51 101 64 76 77Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 92,
+    "name": "Knowledge loom",
+    "family": "Abstract knowledge",
+    "description": "Three ascending slats cross a single steady baseline.",
+    "body": "<path d=\"M26 95 50 23 M52 105 79 23 M81 105 106 33 M17 83H109\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"11\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 93,
+    "name": "Common orbit",
+    "family": "Abstract knowledge",
+    "description": "A central source and two open arcs express knowledge shared across a team.",
+    "body": "<circle cx=\"64\" cy=\"64\" r=\"14\" fill=\"currentColor\"/><path d=\"M38 29A44 44 0 0 1 102 84 M90 99A44 44 0 0 1 26 44\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"36\" cy=\"29\" r=\"7\" fill=\"currentColor\"/><circle cx=\"92\" cy=\"99\" r=\"7\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 94,
+    "name": "Facet",
+    "family": "Abstract knowledge",
+    "description": "A split hexagon resolves several perspectives into one strong silhouette.",
+    "body": "<path d=\"M64 12 109 38V90L64 116 19 90V38Z\" fill=\"currentColor\"/><path d=\"M31 44 58 60V99L67 104V60L98 42 89 37 64 51 40 37Z\" fill=\"#e9ede2\"/>"
+  },
+  {
+    "id": 95,
+    "name": "Knowledge seed",
+    "family": "Abstract knowledge",
+    "description": "A paired leaf and stem suggest a continuously cultivated reference.",
+    "body": "<path d=\"M62 65C18 68 15 39 20 17 48 18 68 31 62 65Z M72 84C66 44 90 25 114 29 119 58 101 82 72 84Z\" fill=\"currentColor\"/><path d=\"M44 49 67 78V111 M67 92 92 57\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 96,
+    "name": "Resolved question",
+    "family": "Abstract knowledge",
+    "description": "An expressive curled stroke settles into a stable square reference.",
+    "body": "<path d=\"M25 46C25 13 103 11 103 47 103 69 70 67 64 84\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"12\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M55 100H74V119H55Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 97,
+    "name": "Context rings",
+    "family": "Abstract knowledge",
+    "description": "Two intersecting rings express shared understanding between distinct sources.",
+    "body": "<path d=\"M72 37A28 28 0 1 0 72 91 M56 37A28 28 0 1 1 56 91\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"11\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M64 43 80 64 64 85 48 64Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 98,
+    "name": "Central archive",
+    "family": "Abstract knowledge",
+    "description": "An ordered grid steps outward from a clear central reference.",
+    "body": "<path d=\"M15 15H44V44H15Z M50 15H79V44H50Z M85 15H114V44H85Z M15 50H44V79H15Z M50 50H79V79H50Z M85 50H114V79H85Z M15 85H44V114H15Z M50 85H79V114H50Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 99,
+    "name": "Synthesis",
+    "family": "Abstract knowledge",
+    "description": "Three independent strands combine into one broad, confident stem.",
+    "body": "<path d=\"M22 19V42Q22 65 64 76 M64 19V110 M106 19V42Q106 65 64 76\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"12\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 100,
+    "name": "Open knowledge",
+    "family": "Abstract knowledge",
+    "description": "A rounded diamond frames an open corner and one clear focal point.",
+    "body": "<path d=\"M80 24 70 14Q64 8 58 14L14 58Q8 64 14 70L58 114Q64 120 70 114L114 70Q120 64 114 58L105 49\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"64\" r=\"15\" fill=\"currentColor\"/><path d=\"M91 10H118V37H91Z\" fill=\"currentColor\"/>"
+  }
+]

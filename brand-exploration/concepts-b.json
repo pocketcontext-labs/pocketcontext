@@ -1,0 +1,233 @@
+[
+  {
+    "id": 35,
+    "name": "Source constellation",
+    "family": "Connections",
+    "description": "Three sources connect to one grounded point of knowledge.",
+    "body": "<path d=\"M27 34 64 85 101 34 M64 85V108\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"27\" cy=\"29\" r=\"13\" fill=\"currentColor\"/><circle cx=\"101\" cy=\"29\" r=\"13\" fill=\"currentColor\"/><circle cx=\"64\" cy=\"85\" r=\"16\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 36,
+    "name": "Linked margins",
+    "family": "Connections",
+    "description": "Two open brackets hold a single shared citation.",
+    "body": "<path d=\"M43 23H24V105H43 M85 23H104V105H85 M42 64H86\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"64\" r=\"12\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 37,
+    "name": "Knowledge weave",
+    "family": "Connections",
+    "description": "A horizontal citation path intersects a pair of vertical sources.",
+    "body": "<path d=\"M39 23V78Q39 101 63 101H92 M89 105V50Q89 27 65 27H36 M21 64H107\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 38,
+    "name": "Citation junction",
+    "family": "Connections",
+    "description": "A crisp branching route leads evidence into a shared page.",
+    "body": "<path d=\"M25 27V56Q25 68 37 68H91 M25 101V79Q25 68 37 68 M91 68V27\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"25\" cy=\"24\" r=\"11\" fill=\"currentColor\"/><circle cx=\"25\" cy=\"104\" r=\"11\" fill=\"currentColor\"/><rect x=\"76\" y=\"20\" width=\"31\" height=\"42\" rx=\"5\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 39,
+    "name": "Orbit index",
+    "family": "Connections",
+    "description": "An incomplete orbit makes room for an independent evidence point.",
+    "body": "<path d=\"M95 91A43 43 0 1 1 99 43\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"102\" cy=\"63\" r=\"12\" fill=\"currentColor\"/><path d=\"M44 75 64 53 83 72\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 40,
+    "name": "Cross-reference",
+    "family": "Connections",
+    "description": "Two interlocking angular links express bidirectional citations.",
+    "body": "<path d=\"M57 38 70 25Q82 13 94 25L103 34Q115 46 103 58L87 74 M71 90 58 103Q46 115 34 103L25 94Q13 82 25 70L41 54 M45 83 83 45\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 41,
+    "name": "Evidence tree",
+    "family": "Connections",
+    "description": "A square crown of sources converges on one stable root.",
+    "body": "<path d=\"M30 35V62H98V35 M64 62V101\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"18\" y=\"17\" width=\"24\" height=\"24\" rx=\"4\" fill=\"currentColor\"/><rect x=\"86\" y=\"17\" width=\"24\" height=\"24\" rx=\"4\" fill=\"currentColor\"/><rect x=\"52\" y=\"88\" width=\"24\" height=\"24\" rx=\"4\" fill=\"currentColor\"/><circle cx=\"64\" cy=\"62\" r=\"10\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 42,
+    "name": "Shared centre",
+    "family": "Connections",
+    "description": "Four separate sources link around a clear central space.",
+    "body": "<path d=\"M39 28H89 M100 39V89 M89 100H39 M28 89V39\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"28\" cy=\"28\" r=\"13\" fill=\"currentColor\"/><circle cx=\"100\" cy=\"28\" r=\"13\" fill=\"currentColor\"/><circle cx=\"100\" cy=\"100\" r=\"13\" fill=\"currentColor\"/><circle cx=\"28\" cy=\"100\" r=\"13\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 43,
+    "name": "Citation trail",
+    "family": "Connections",
+    "description": "Three source points follow a confident stepped path.",
+    "body": "<path d=\"M24 93H64V35H104\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"11\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"24\" cy=\"93\" r=\"12\" fill=\"currentColor\"/><circle cx=\"64\" cy=\"64\" r=\"12\" fill=\"currentColor\"/><circle cx=\"104\" cy=\"35\" r=\"12\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 44,
+    "name": "Page bridge",
+    "family": "Connections",
+    "description": "Two upright pages meet through a spanning knowledge arch.",
+    "body": "<path d=\"M23 99V58A41 41 0 0 1 105 58V99\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"14\" y=\"70\" width=\"24\" height=\"39\" rx=\"4\" fill=\"currentColor\"/><rect x=\"90\" y=\"70\" width=\"24\" height=\"39\" rx=\"4\" fill=\"currentColor\"/><path d=\"M49 60H79 M49 76H79\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 45,
+    "name": "Context loop",
+    "family": "Connections",
+    "description": "A continuous rounded square connects four editorial corners.",
+    "body": "<path d=\"M48 22H86Q106 22 106 42V86Q106 106 86 106H42Q22 106 22 86V48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M13 15H46V48H35V27H13Z\" fill=\"currentColor\"/><circle cx=\"65\" cy=\"65\" r=\"11\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 46,
+    "name": "Steadfast W",
+    "family": "W monograms",
+    "description": "A broad geometric W gives the knowledge base a confident initial.",
+    "body": "<path d=\"M15 28H32L44 82L58 43H71L85 82L97 28H114L94 102H78L64 65L50 102H34Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 47,
+    "name": "Double valley",
+    "family": "W monograms",
+    "description": "Two smooth valleys make a welcoming continuous monogram.",
+    "body": "<path d=\"M20 29 36 94Q39 105 47 94L64 53 81 94Q89 105 92 94L108 29\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"12\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 48,
+    "name": "Editorial W",
+    "family": "W monograms",
+    "description": "A serif-inspired silhouette brings a quietly scholarly character.",
+    "body": "<path d=\"M11 26H47V36H38L48 79L59 44H70L82 79L93 36H84V26H117V36H106L88 102H76L64 68L52 102H40L22 36H11Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 49,
+    "name": "W in the pocket",
+    "family": "W monograms",
+    "description": "A spare W sits inside the familiar PocketContext pocket outline.",
+    "body": "<path d=\"M20 19H108V79L64 112L20 79Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M37 43 46 79 64 57 82 79 91 43\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 50,
+    "name": "Folded W",
+    "family": "W monograms",
+    "description": "Four folded facets create a monogram with the rhythm of pages.",
+    "body": "<path d=\"M13 31H31L46 76V108L31 94Z M46 76 62 40H77L60 89 46 108Z M65 61 77 40 90 77V108L75 90Z M90 77 105 31H122L105 94 90 108Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 51,
+    "name": "Open W",
+    "family": "W monograms",
+    "description": "A monoline W ends in two distinctly open page corners.",
+    "body": "<path d=\"M15 24H30L44 100 64 56 84 100 98 24H113\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 52,
+    "name": "W ligature",
+    "family": "W monograms",
+    "description": "A central upright joins two curves into a compact letterform.",
+    "body": "<path d=\"M24 27V77Q24 102 44 102T64 77V40 M64 77Q64 102 84 102T104 77V27\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"11\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 53,
+    "name": "Twin leaves",
+    "family": "W monograms",
+    "description": "Two chevrons echo both a W and the meeting of open leaves.",
+    "body": "<path d=\"M14 29H31L48 78L59 49L68 73L48 108Z M61 29H78L95 78L106 49H123L95 108Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 54,
+    "name": "Cut-paper W",
+    "family": "W monograms",
+    "description": "A solid block is cut into a compact, architectural W.",
+    "body": "<path d=\"M19 24H39V75L54 53H74L89 75V24H109V106H88L64 77L40 106H19Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 55,
+    "name": "W manuscript",
+    "family": "W monograms",
+    "description": "A flowing W has the irregular warmth of a handwritten flourish.",
+    "body": "<path d=\"M20 38Q27 30 30 43L40 90Q43 105 52 87L65 52 79 91Q84 104 90 89L108 27\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"11\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 56,
+    "name": "Crowned W",
+    "family": "W monograms",
+    "description": "A low, wide W supports a floating square source marker.",
+    "body": "<path d=\"M15 45H32L45 87L57 62H71L83 87L96 45H113L93 107H77L64 82L51 107H35Z\" fill=\"currentColor\"/><rect x=\"53\" y=\"18\" width=\"22\" height=\"22\" rx=\"3\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 57,
+    "name": "Archive pocket",
+    "family": "Archives",
+    "description": "The family pocket encloses two simple lines of retained knowledge.",
+    "body": "<path d=\"M21 22H107V83L64 110L21 83Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M43 46H85 M43 65H73\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 58,
+    "name": "Catalog drawer",
+    "family": "Archives",
+    "description": "A single library drawer places an index handle at the centre.",
+    "body": "<path d=\"M20 36H108V105H20Z M16 23H112\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M49 59V71H79V59\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 59,
+    "name": "Layered editions",
+    "family": "Archives",
+    "description": "Three offset corners express retained publication history.",
+    "body": "<path d=\"M38 20H107V88H38Z M27 34V100H94 M15 47V112H80\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M56 42H88 M56 61H80\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 60,
+    "name": "Repository arch",
+    "family": "Archives",
+    "description": "A strong arch shelters the pages of a lasting library.",
+    "body": "<path d=\"M20 107V60A44 44 0 0 1 108 60V107\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"36\" y=\"57\" width=\"14\" height=\"47\" rx=\"2\" fill=\"currentColor\"/><rect x=\"57\" y=\"46\" width=\"14\" height=\"58\" rx=\"2\" fill=\"currentColor\"/><path d=\"M80 52 94 49 108 101 94 104Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 61,
+    "name": "Indexed folio",
+    "family": "Archives",
+    "description": "A folio silhouette carries a clearly visible index tab.",
+    "body": "<path d=\"M27 22H76L102 48V106H27Z M76 22V48H102\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M42 22H59V70L50.5 63L42 70Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 62,
+    "name": "Immutable stack",
+    "family": "Archives",
+    "description": "A diamond source layer rests above two preserved editions.",
+    "body": "<path d=\"M17 42 64 18 111 42 64 66Z M17 66 64 90 111 66 M17 90 64 114 111 90\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 63,
+    "name": "Knowledge cabinet",
+    "family": "Archives",
+    "description": "Two well-proportioned drawers evoke a dependable source archive.",
+    "body": "<path d=\"M25 19H103V109H25Z M25 64H103\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M53 40H75 M53 87H75\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 64,
+    "name": "Reference shelf",
+    "family": "Archives",
+    "description": "Three distinctive volumes rest on a simple shared baseline.",
+    "body": "<rect x=\"19\" y=\"31\" width=\"20\" height=\"62\" rx=\"3\" fill=\"currentColor\"/><rect x=\"47\" y=\"20\" width=\"20\" height=\"73\" rx=\"3\" fill=\"currentColor\"/><path d=\"M76 32 95 26 114 88 95 94Z\" fill=\"currentColor\"/><path d=\"M14 106H114\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 65,
+    "name": "Pocket dossier",
+    "family": "Archives",
+    "description": "An offset document enters a clean angular folder.",
+    "body": "<path d=\"M32 50V21H90V50\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M16 44H51L63 56H112L101 104H28Z\" fill=\"currentColor\"/><path d=\"M48 34H74\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 66,
+    "name": "Publication seal",
+    "family": "Archives",
+    "description": "A square source is framed by four independent archival corners.",
+    "body": "<path d=\"M42 20H20V42 M86 20H108V42 M108 86V108H86 M42 108H20V86\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"43\" y=\"43\" width=\"42\" height=\"42\" rx=\"3\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 67,
+    "name": "Memory spine",
+    "family": "Archives",
+    "description": "Three tapered spines form a spare architectural archive.",
+    "body": "<path d=\"M20 27H41V105H20Z M52 18H73V105H52Z M84 35H105V105H84Z\" fill=\"currentColor\"/><path d=\"M24 116H101\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  }
+]
