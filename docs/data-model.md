@@ -10,7 +10,7 @@ Reviewed image ingestion preserves original static PNG/JPEG/WebP bytes. An `imag
 
 External transcript ingestion (`--transcript-bundle MANIFEST --audio-storage original`)
 preserves the exact original recording, manifest and all declared artifact bytes as
-protected sources. The v1 Gemini Transcribe bundle binds source and artifacts by
+protected sources. The v2 Gemini Transcribe bundle binds source and artifacts by
 SHA-256/size and records extraction provenance. Complete validation precedes writes;
 no transcription provider or conversion is invoked. Local `ffprobe` independently
 verifies the duration of the preserved audio snapshot. Transcript passages belong to
@@ -26,6 +26,19 @@ retain provenance links, not `supersedes`. Identical bundle/version retries resu
 immutable writes; corrections require a new extraction version. Space boundaries
 and ordinary file access apply independently. This uses existing schema records;
 extraction does not create or publish knowledge pages.
+
+V2 bundles require `gemini-transcribe.speaker-names/v1` and display supported names
+as `Alice (SPEAKER_01)` in native transcript passages. A single consistent name
+with at least one explicit model mapping is eligible; tentative, conflicting,
+unsafe or duplicate names retain speaker IDs. Reviewed overrides in manifest
+`speaker_names` take precedence and retain their reasons separately from model
+analysis. Canonical speaker IDs, segment IDs and timestamps remain unchanged.
+The protected manifest and analysis preserve naming evidence and origin, linked
+by the transcript-bundle rendition. Names are extraction claims, not verified
+account identities. Older bundles and missing naming metadata are rejected.
+Regenerate presentations from a v2 bundle locally with Gemini Transcribe's offline
+export command, then import corrections with a new `--version`; existing passages,
+citations and publications remain immutable. Publishing revised pages is explicit.
 
 Pages have immutable stable slugs and kinds. Each immutable page revision belongs to one staging ingestion run and records its expected previously published revision ID, title, summary, prose, archive flag, flat `properties` and `property_evidence`. Citations connect numbered inline markers to immutable source passages. Page links connect a revision to stable page IDs. Sources and relationships are authoritative in the database; Markdown is generated presentation. Factual synthesis remains agent work; structural validation does not establish factual truth.
 

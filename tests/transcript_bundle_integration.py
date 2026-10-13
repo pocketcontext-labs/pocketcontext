@@ -67,6 +67,16 @@ def main():
             except wc.Fail as e: assert 'new --version' in str(e)
             else: raise AssertionError('Expected immutable conflict')
             assert len(ingest.rows(cfg, 'SELECT id FROM sources')) == 10
+            old_body = ingest.rows(cfg, "SELECT body FROM passages WHERE id = '" + result['segment_passages']['seg000001'][0] + "'")[0]['body']
+            m['speaker_names'] = {'schema_version': 'gemini-transcribe.speaker-names/v1', 'policy': 'explicit-unambiguous/v1', 'overrides': [{'speaker': 'SPEAKER_01', 'name': 'Reviewed Alice', 'reason': 'Synthetic reviewed identity.'}]}
+            manifest.write_text(json.dumps(m))
+            named = ingest.ingest(cfg, audio, audio_storage='original', transcript_bundle=manifest, version='named-v2')
+            assert named == ingest.ingest(cfg, audio, audio_storage='original', transcript_bundle=manifest, version='named-v2')
+            assert named['source'] == result['source'] and named['rendition'] != result['rendition']
+            new_body = ingest.rows(cfg, "SELECT body FROM passages WHERE id = '" + named['segment_passages']['seg000001'][0] + "'")[0]['body']
+            assert new_body.startswith('Reviewed Alice (SPEAKER_01):')
+            assert ingest.rows(cfg, "SELECT body FROM passages WHERE id = '" + result['segment_passages']['seg000001'][0] + "'")[0]['body'] == old_body
+
     print('Transcript bundle integration passed')
 
 if __name__ == '__main__': main()

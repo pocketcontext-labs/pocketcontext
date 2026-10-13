@@ -37,7 +37,7 @@ analysis = {'summary':[{'text':'The speakers discuss delivering a report.','segm
     'topics':[{'title':'Report','text':'Report delivery timing.','segment_ids':['seg000001']}],
     'decisions':[{'text':'Deliver on Monday.','segment_ids':['seg000001']}],
     'action_items':[{'task':'Send the report.','owner':'SPEAKER_02','deadline':'Monday','segment_ids':['seg000001','seg000002']}],
-    'questions':[], 'speaker_mappings':[]}
+    'questions':[], 'speaker_mappings':[{'speaker':'SPEAKER_01','name':'Alice','status':'explicit','segment_ids':['seg000001']},{'speaker':'SPEAKER_02','name':'Bob','status':'tentative','segment_ids':['seg000002']}]}
 translation = {'target_language':'Italian','segments':[
     {'segment_id':'seg000001','text':'Abbiamo concordato di consegnare il rapporto lunedì.'},
     {'segment_id':'seg000002','text':'Lo invierò io.'}]}
@@ -78,6 +78,15 @@ def main():
                 result=ingest.ingest(cfg,audio,audio_storage='original',transcript_bundle=manifest_path,version='gemini-v1')
                 assert result==ingest.ingest(cfg,audio,audio_storage='original',transcript_bundle=manifest_path,version='gemini-v1')
             assert result['status']=='extracted'
+            first=ingest.rows(cfg,"SELECT body, locator FROM passages WHERE id = '"+result['segment_passages']['seg000001'][0]+"'")[0]
+            second=ingest.rows(cfg,"SELECT body FROM passages WHERE id = '"+result['segment_passages']['seg000002'][0]+"'")[0]
+            assert first['body'].startswith('Alice (SPEAKER_01):')
+            assert 'segment seg000001; seconds 0.000-0.900' in first['locator']
+            assert second['body'].startswith('SPEAKER_02:')
+            assert b'Alice (SPEAKER_01)' in originals['transcript_txt']
+            assert b'Alice (SPEAKER_01)' in originals['translation_txt']
+            canonical=json.loads(originals['transcript'])
+            assert canonical['segments'][0]['speaker']=='SPEAKER_01'
             assert set(result['segment_passages'])=={'seg000001','seg000002'}
             assert set(result['annotation_passages'])=={'ann000001'}
             assert set(result['observation_passages'])=={'tone000001'}
@@ -96,7 +105,7 @@ def main():
             def create(collection,data): return wc.must(cfg,'POST',wc.records(collection),data)
             run=create('ingestion_runs',{'key':'gemini-fixture','status':'staging','description':'Synthetic cross-package bundle','sources':list(set(ids.values()))})
             for slug,kind,body,segment in [
-                ('synthetic-transcript','transcript','SPEAKER_01: We agreed to deliver the report on Monday.[^1]','seg000001'),
+                ('synthetic-transcript','transcript','Alice (SPEAKER_01): We agreed to deliver the report on Monday.[^1]','seg000001'),
                 ('synthetic-summary','summary','The speakers agreed to deliver a report on Monday.[^1]','seg000001'),
                 ('synthetic-translation','transcript','Italian translation: Lo invierò io.[^1]','seg000002')]:
                 page=create('pages',{'slug':slug,'kind':kind})

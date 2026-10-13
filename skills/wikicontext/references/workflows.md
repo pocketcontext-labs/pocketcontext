@@ -49,7 +49,7 @@ wikicontext --space companyspace001 ingest /path/to/recording.m4a \
 The original audio must match the manifest's SHA-256 and size; the 100 MiB source
 limit applies. `--transcript-bundle` requires `--audio-storage original` and cannot
 be combined with `--image-review`. The importer accepts complete
-`gemini-transcribe.bundle/v1` bundles, validates every artifact hash, safe relative
+`gemini-transcribe.bundle/v2` bundles, validates every artifact hash, safe relative
 path, schema, timestamp and reference before uploads, and rejects partial or failed
 runs. Transcript-only bundles may explicitly skip analysis/translation; do not claim
 that they contain every enrichment. Do not repair hashes to hide modified evidence.
@@ -63,6 +63,19 @@ distinguish subjective inference or uncertainty from spoken text. Analysis and t
 derived artifacts; TXT/SRT/Markdown copies are presentations, not independent
 corroboration of speech. Metadata links identify this provenance without using
 `supersedes`.
+
+V2 bundles require `gemini-transcribe.speaker-names/v1` and display supported names
+as `Alice (SPEAKER_01)` in native transcript passages. A single consistent name
+with at least one explicit model mapping is eligible; tentative, conflicting,
+unsafe or duplicate names retain speaker IDs. Reviewed overrides in manifest
+`speaker_names` take precedence and retain their reasons separately from model
+analysis. Canonical speaker IDs, segment IDs and timestamps remain unchanged.
+The protected manifest and analysis preserve naming evidence and origin, linked
+by the transcript-bundle rendition. Names are extraction claims, not verified
+account identities. Older bundles and missing naming metadata are rejected.
+Regenerate presentations from a v2 bundle locally with Gemini Transcribe's offline
+export command, then import corrections with a new `--version`; existing passages,
+citations and publications remain immutable. Publishing revised pages is explicit.
 
 Read actual returned `segment_passages`, `annotation_passages` and
 `observation_passages` mappings; one

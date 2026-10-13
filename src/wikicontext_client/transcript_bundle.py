@@ -70,8 +70,8 @@ def _preflight(audio, manifest_path):
     audio, manifest_path = Path(audio), Path(manifest_path)
     raw = read(manifest_path, MAX_JSON)
     m = strict_json(raw)
-    require(isinstance(m, dict) and m.get('schema_version') == 'gemini-transcribe.bundle/v1', 'unsupported manifest version.')
-    require(set(m) <= {'schema_version', 'run_id', 'created_at', 'status', 'source', 'extraction', 'stages', 'artifacts', 'errors', 'configuration'}, 'unknown manifest fields.')
+    require(isinstance(m, dict) and m.get('schema_version') == 'gemini-transcribe.bundle/v2', 'unsupported manifest version.')
+    require(set(m) <= {'schema_version', 'run_id', 'created_at', 'status', 'source', 'extraction', 'stages', 'artifacts', 'errors', 'configuration', 'speaker_names', 'export_provenance'}, 'unknown manifest fields.')
     require(m.get('status') == 'complete', 'only complete bundles can be imported.')
     require(text(m.get('run_id'), 200), 'invalid run ID.')
     try:
@@ -174,6 +174,16 @@ def _preflight(audio, manifest_path):
         require(len(tr['segments']) == len(t['segments']), 'incomplete translation.')
         for translated, original in zip(tr['segments'], t['segments']):
             require(isinstance(translated, dict) and translated.get('segment_id') == original['id'] and text(translated.get('text')), 'invalid translated segment.')
+    require('speaker_names' in m, 'missing speaker name policy.')
+    from .speaker_names import resolve, validate
+    try:
+        validate(m['speaker_names'], t)
+        documents['resolved_speaker_names'] = resolve(t, documents.get('analysis'), m['speaker_names'])
+    except ValueError:
+        require(False, 'invalid speaker name policy or overrides.')
+    if 'export_provenance' in m:
+        provenance = m['export_provenance']
+        require(isinstance(provenance, dict) and set(provenance) == {'schema_version', 'source_manifest_sha256'} and provenance.get('schema_version') == 'gemini-transcribe.export/v1' and isinstance(provenance.get('source_manifest_sha256'), str) and re.fullmatch(r'[0-9a-f]{64}', provenance['source_manifest_sha256']) is not None, 'invalid export provenance.')
     return m, raw, source, files, documents
 
 
@@ -225,7 +235,7 @@ def import_bundle(cfg, audio, manifest_path, title, version):
         existing = ing.rows(cfg, query)
         if not existing:
             try:
-                record = wc.must(cfg, 'POST', wc.records('renditions'), {'source': source_id, 'kind': kind, 'processor': 'google/' + m['extraction']['model'] + ' / transcript-bundle-v1', 'version_label': version, 'notes': notes})
+                record = wc.must(cfg, 'POST', wc.records('renditions'), {'source': source_id, 'kind': kind, 'processor': 'google/' + m['extraction']['model'] + ' / transcript-bundle-v2', 'version_label': version, 'notes': notes})
             except wc.Fail:
                 existing = ing.rows(cfg, query)
                 if not existing: raise
@@ -250,9 +260,15 @@ def import_bundle(cfg, audio, manifest_path, title, version):
     passages, segment_ordinals = [], {}
     for seg in t['segments']:
         start = len(passages)
-        passages += ing.chunks(seg['speaker'] + ': ' + seg['text'], f"segment {seg['id']}; seconds {seg['start']:.3f}-{seg['end']:.3f}")
+        name = docs['resolved_speaker_names'].get(seg['speaker'])
+        label = f"{name} ({seg['speaker']})" if name else seg['speaker']
+        passages += ing.chunks(label + ': ' + seg['text'], f"segment {seg['id']}; seconds {seg['start']:.3f}-{seg['end']:.3f}")
         segment_ordinals[seg['id']] = list(range(start, len(passages)))
-    rid, passage_ids = rendition(source, 'transcript', passages)
+    # Full mapping evidence and review reasons stay in the protected manifest
+    # and analysis sources linked by the transcript-bundle rendition.
+    naming_notes = {'speaker_name_policy': m['speaker_names']['policy'],
+                    'speaker_name_provenance': 'manifest speaker_names overrides; analysis speaker_mappings (model-generated)'}
+    rid, passage_ids = rendition(source, 'transcript', passages, naming_notes)
     artifact_sources = {'manifest': get_source(Path('manifest.json'), raw)}
     for role, (path, data) in files.items(): artifact_sources[role] = get_source(Path(path.name), data)
     annotation_passages, acoustic = {}, []

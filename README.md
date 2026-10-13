@@ -145,7 +145,7 @@ wikicontext --space companyspace001 ingest recording.m4a \
   --audio-storage original --version gemini-v1
 ```
 
-This requires a complete v1 bundle and the exact original audio (up to 100 MiB).
+This requires a complete v2 bundle and the exact original audio (up to 100 MiB).
 It validates all source/artifact hashes, paths, references and timestamps before
 uploads, preserves every declared artifact and manifest, and creates timestamped
 native passages with segment-to-passage mappings. Tone and uncertainty receive
@@ -155,6 +155,19 @@ content under the same version conflicts. Analysis, translation and format varia
 are derived artifacts, not independent corroboration. The receipt means extracted,
 not published: follow the [external bundle workflow](skills/wikicontext/references/workflows.md#external-transcript-bundles)
 for review, citations and publication. No backend migration is required.
+
+V2 bundles require `gemini-transcribe.speaker-names/v1` and display supported names
+as `Alice (SPEAKER_01)` in native transcript passages. A single consistent name
+with at least one explicit model mapping is eligible; tentative, conflicting,
+unsafe or duplicate names retain speaker IDs. Reviewed overrides in manifest
+`speaker_names` take precedence and retain their reasons separately from model
+analysis. Canonical speaker IDs, segment IDs and timestamps remain unchanged.
+The protected manifest and analysis preserve naming evidence and origin, linked
+by the transcript-bundle rendition. Names are extraction claims, not verified
+account identities. Older bundles and missing naming metadata are rejected.
+Regenerate presentations from a v2 bundle locally with Gemini Transcribe's offline
+export command, then import corrections with a new `--version`; existing passages,
+citations and publications remain immutable. Publishing revised pages is explicit.
 
 Pillow is installed automatically with the client package for reviewed image ingestion. Run `wikicontext ingest IMAGE --image-review REVIEW.json` after viewing the original and preparing reviewed evidence. The client verifies and decodes static PNG/JPEG/WebP images, requires matching extensions, limits dimensions to 16,384 pixels per axis and 50 million total pixels, and preserves the exact original bytes. Review JSON must match the original SHA-256 and encoded dimensions before upload. It separates transcription, visual description and captions into region-addressable passages. A changed review requires a new `--version`; identical reviewed input resumes interrupted writes. Related audio source IDs and screenshot sequence are recorded in rendition notes, without replacing the audio. Image ingestion makes no external OCR or vision-service request. See the [review format](skills/wikicontext/references/examples.md#reviewed-image-evidence) and [image workflow](skills/wikicontext/references/workflows.md#images). The reader previews PNG/JPEG/WebP originals on source and passage pages and in citation dialogs, with an enlarged view, actual-size scrolling, retry controls and protected original downloads. Previews clear when the source or signed-in identity changes. Other image formats remain download-only; previews do not add extraction or OCR.
 
@@ -286,8 +299,8 @@ python3 tests/bootstrap.py
 python3 tests/deploy_workflow.py
 ```
 
-For the cross-package evidence contract, install Gemini Transcribe 0.2.0 or newer
-in a separate environment and run:
+For the cross-package evidence contract, install Gemini Transcribe 0.3.0 or newer
+(bundle v2) in a separate environment and run:
 
 ```sh
 python3 tests/gemini_handoff.py --binary /absolute/path/to/pinned/pocketcontext \
