@@ -199,3 +199,6 @@
 .repository-destinations li { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--border); }
 .repository-destinations p { margin: .4rem 0; }
 @media (max-width: 700px) { .repository-destinations li { grid-template-columns: 1fr; } }
+
+.prompt-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30rem; overflow: auto; padding: 1rem; border: 1px solid var(--border); }
+.repository-document dd { overflow-wrap: anywhere; }

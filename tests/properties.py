@@ -281,6 +281,45 @@ def main():
             latest = query('SELECT sequence FROM publications ORDER BY sequence DESC LIMIT 1')[0]['sequence']
             assert repository_files.render(cfg, markdown_destination['id'], latest)[0] == b'# Revised README\n'
 
+        # Reclassification adds a prompt view without replacing document identity,
+        # original bytes, destination mappings or earlier publication history.
+        prompt_props = {**document_props, 'document_type': 'prompt',
+                        'purpose': 'Synthetic setup instructions',
+                        'target_agents': ['codex', 'claude-code'],
+                        'required_skills': ['wikicontext'], 'inputs': ['Repository path'],
+                        'approval_boundaries': 'Ask before changing shell configuration.',
+                        'last_validated_at': '2026-10-13'}
+        staged = run('classify-existing-document-as-prompt')
+        prompt_rev = revision(staged, document, doc_rev['id'], prompt_props)
+        publish(staged)
+        assert json.loads(query("SELECT properties FROM page_revisions WHERE id='%s'" % doc_rev['id'])[0]['properties']) == document_props
+        latest = query('SELECT sequence FROM publications ORDER BY sequence DESC LIMIT 1')[0]['sequence']
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': folder}):
+            content, receipt = repository_files.render(cfg, destination['id'], latest)
+            assert content == source.read_bytes()
+            assert receipt['document_revision'] == prompt_rev['id']
+            assert receipt['destination_revision'] == remapped['id']
+            assert repository_files.render(cfg, destination['id'], export_sequence)[1]['document_revision'] == doc_rev['id']
+        staged = run('invalid-prompt-document')
+        for malformed in [
+            {**prompt_props, 'document_type': 'unknown'},
+            {**prompt_props, 'source_id': None},
+            {**prompt_props, 'output_mode': 'execute'},
+            {**prompt_props, 'inputs': [{'name': 'nested'}]},
+        ]:
+            revision(staged, document, prompt_rev['id'], malformed, expected=400)
+        # Markdown prompts retain metadata-only provenance and exact body output.
+        staged = run('markdown-prompt')
+        prompt_body = '# Synthetic prompt\n\nAsk before installing dependencies.\n'
+        md_prompt = revision(staged, markdown, clean_next['id'], properties={
+            'catalog_type': 'repository_document', 'document_type': 'prompt',
+            'output_mode': 'markdown'}, evidence={'document_type': ['1']}, body=prompt_body)
+        cite(md_prompt)
+        publish(staged)
+        latest = query('SELECT sequence FROM publications ORDER BY sequence DESC LIMIT 1')[0]['sequence']
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': folder}):
+            assert repository_files.render(cfg, markdown_destination['id'], latest)[0] == prompt_body.encode()
+
     print('PASS: revisioned properties, immutable history, conflict rollback, bounded metadata, property provenance and relationship graph')
 
 

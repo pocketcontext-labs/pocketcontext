@@ -114,6 +114,42 @@ def seed(request):
             request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'],
                 {'expected_revision': run['revision'], 'status': 'published'}, token)
             return request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
+        if action == '/prompts':
+            request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
+            exact_text = '# Exact setup\r\n\r\nUse the synthetic workspace.\r\n'
+            body, media = multipart({'title': 'Exact setup prompt original', 'original_name': 'setup.md', 'media_type': 'text/markdown'},
+                                    'original', 'setup.md', exact_text.encode(), 'text/markdown')
+            upload = urllib.request.Request(request.base_url + '/api/collections/sources/records', body,
+                                            {'Authorization': token, 'Content-Type': media})
+            with urllib.request.urlopen(upload) as response:
+                prompt_source = json.load(response)
+            run = create('ingestion_runs', {'key': 'browser-prompts', 'status': 'staging', 'description': 'Synthetic prompts', 'sources': [prompt_source['id']]})
+            markdown_text = '# Onboarding\n\nPrepare a synthetic workspace.\n'
+            pages = {}
+            for slug, title, mode, text in (
+                ('onboarding-prompt', 'Onboarding prompt', 'markdown', markdown_text),
+                ('exact-setup-prompt', 'Exact setup prompt', 'exact_copy', 'Description only; original contains prompt bytes. [needs verification]'),
+                ('ordinary-guide', 'Ordinary guide', 'markdown', 'Synthetic guide. [needs verification]'),
+            ):
+                page = create('pages', {'slug': slug, 'kind': 'entity'})
+                props = {'catalog_type': 'repository_document', 'document_type': 'other' if slug == 'ordinary-guide' else 'prompt',
+                         'output_mode': mode, 'lifecycle_status': 'active'}
+                if props['document_type'] == 'prompt':
+                    props.update(purpose='Set up a synthetic workspace', target_agents=['codex', 'claude-code'],
+                                 required_skills=['wikicontext'], inputs=['Workspace path'],
+                                 approval_boundaries='Ask before installing dependencies', last_validated_at='2026-10-13')
+                if mode == 'exact_copy':
+                    props['source_id'] = prompt_source['id']
+                revision = create('page_revisions', {'run': run['id'], 'page': page['id'], 'title': title,
+                    'summary': 'Synthetic reusable instructions.', 'body': text, 'properties': props,
+                    'property_evidence': {'purpose': ['1']} if slug == 'onboarding-prompt' else {}})
+                if slug == 'onboarding-prompt':
+                    create('citations', {'page_revision': revision['id'], 'passage': passage['id'], 'marker': '1'})
+                pages[slug] = page['id']
+            request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'], {'expected_revision': run['revision'], 'status': 'published'}, token)
+            publication = request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
+            return {'publication': publication, 'sequence': publication['sequence'], 'markdown': pages['onboarding-prompt'], 'exact': pages['exact-setup-prompt'],
+                    'markdown_text': markdown_text, 'exact_text': exact_text}
         if action == '/repository-files':
             request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
             run = create('ingestion_runs', {'key': 'browser-repository-files', 'status': 'staging', 'description': 'Synthetic repository files'})

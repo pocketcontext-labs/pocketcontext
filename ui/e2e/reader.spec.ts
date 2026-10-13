@@ -864,3 +864,36 @@ test("repository files group copies, filter, preserve history and expose stale c
   await page.goto(`/#/catalog/repository_document?publication=${publication.id}&repository=example%2Fone`);
   await expect(page.locator(".repository-destinations strong")).toHaveText("current");
 });
+
+test("prompts preserve exact originals, filter metadata, retain history and work on mobile", async ({ page, request, context }) => {
+  const seeded = await request.post(process.env.WIKICONTEXT_TEST_CONTROL + "/prompts");
+  expect(seeded.ok(), await seeded.text()).toBeTruthy();
+  const fixture = await seeded.json();
+  await login(page);
+  await page.goto(`/#/catalog/prompt?publication=${fixture.publication.id}`);
+  const catalog = page.getByRole("region", {name:"Prompts catalog"});
+  await expect(catalog.getByRole("status")).toHaveText("2 prompts · 1–2");
+  await page.getByLabel("Target agent", {exact:true}).selectOption("codex");
+  await page.getByLabel("Required skill", {exact:true}).selectOption("wikicontext");
+  await page.reload();
+  await expect(page.getByLabel("Target agent", {exact:true})).toHaveValue("codex");
+  await expect(page).toHaveURL(new RegExp(`publication=${fixture.publication.id}`));
+  const exact = catalog.locator("article").filter({has:page.getByRole("link", {name:"Exact setup prompt",exact:true})});
+  await exact.getByRole("button", {name:"Preview prompt"}).focus();
+  await page.keyboard.press("Enter");
+  await expect(exact.getByRole("button", {name:"Download prompt"})).toBeVisible();
+  const downloadEvent = page.waitForEvent("download");
+  await exact.getByRole("button", {name:"Download prompt"}).click();
+  const download = await downloadEvent;
+  expect((await readFile((await download.path())!)).toString("utf8")).toBe(fixture.exact_text);
+  const markdown = catalog.locator("article").filter({has:page.getByRole("link", {name:"Onboarding prompt",exact:true})});
+  await markdown.getByRole("button", {name:"Preview prompt"}).click();
+  await context.grantPermissions(["clipboard-read","clipboard-write"]);
+  await markdown.getByRole("button", {name:"Copy prompt"}).click();
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(fixture.markdown_text);
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.getByLabel("Search prompts", {exact:true}).fill("no such prompt");
+  await expect(catalog.getByRole("status")).toHaveText("0 prompts");
+  await expect(page.getByRole("button", {name:"Copy prompt"})).toHaveCount(0);
+});

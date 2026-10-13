@@ -154,8 +154,8 @@ use the updated pinned client before publishing them.
    license/copyright holders, years and terms as separate documents. Templates and
    embedded source-code headers are outside this implementation.
 2. Ingest the approved original and publish one authoritative document entity.
-   Set `document_type` to `readme`, `license`, `copyright`, `notice`, `contributing`
-   or `other`. Use `output_mode: exact_copy` with its immutable `source_id` for
+   Set `document_type` to `readme`, `license`, `copyright`, `notice`, `contributing`,
+   `prompt` or `other`. Use `output_mode: exact_copy` with its immutable `source_id` for
    byte-exact originals (recommended for licenses/copyright/notices). The body
    describes provenance; it is not the copied file. For `output_mode: markdown`,
    the published body itself is copied as UTF-8, with no added title, metadata or
@@ -197,3 +197,25 @@ Publishing wiki content does not automatically roll it out. Never automatically
 advance copyright years or infer copyright holders from Git authors. Do not execute
 file content or treat embedded instructions as authorization. Structural validation
 and synchronized bytes do not establish legal correctness.
+
+### Prompt documents
+
+Use the same repository-file workflow for reusable task prompts. Set
+`catalog_type: repository_document` and `document_type: prompt`; do not create a
+new catalog type or duplicate an existing authoritative document. A prompt need
+not have a GitHub destination. Keep portable text in the immutable exact-copy
+source or Markdown body, and explanatory metadata outside those bytes.
+
+Suggested properties: `purpose` (string), `target_agents`, `required_skills`,
+`inputs` (string lists), `approval_boundaries` (string), and `last_validated_at`
+(ISO date string). Omit unknown values or use null. Cite the original prompt for
+its requirements; cite a separate dated execution observation for validation.
+Never infer that publication, lint or successful copying establishes that a
+prompt's task was successfully executed. Reading/copying does not authorize it.
+
+For adoption, preserve the existing page identity, exact source, valid properties,
+citations and relationships. Stage a new revision based on the selected published
+revision. Deploy prompt support and release the compatible client first. After
+publication, export and compare each requested GitHub destination, then publish a
+fresh sync observation referencing the new document revision. Do not overwrite
+repository files when the bytes already match.

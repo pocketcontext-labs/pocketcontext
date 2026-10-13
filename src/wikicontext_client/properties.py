@@ -66,7 +66,7 @@ def validate_repository(p):
         if key in p and catalog != owner:
             raise ValueError()
     if catalog == 'repository_document':
-        if p.get('document_type') not in ('readme', 'license', 'copyright', 'notice', 'contributing', 'other') or p.get('output_mode') not in ('exact_copy', 'markdown'):
+        if p.get('document_type') not in ('readme', 'license', 'copyright', 'notice', 'contributing', 'prompt', 'other') or p.get('output_mode') not in ('exact_copy', 'markdown'):
             raise ValueError()
         if p['output_mode'] == 'exact_copy':
             required('source_id', '[a-z0-9]{15}')

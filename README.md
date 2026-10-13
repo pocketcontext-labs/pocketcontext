@@ -150,6 +150,23 @@ updated client for lint and export: older client validators reject the new catal
 types. Existing pages require no automatic classification or data migration when
 the preflight finds no conflicting properties; adopt them through reviewed revisions.
 
+### Prompts
+
+The Prompts catalog lists reusable task prompts with search and recorded metadata
+for purpose, target agents, required skills, inputs, approval boundaries and last
+validation. Prompts use `repository_document` with `document_type: prompt`; GitHub
+destinations are optional. The selected publication determines both metadata and
+content. Preview, copy and download retain the prompt text, without adding wiki
+commentary or executing it. Exact-copy originals require ordinary protected-file
+access and hash/UTF-8 verification. Reader preview/copy/download is limited to
+8 MiB of UTF-8 text. Markdown uses the repository export rules.
+
+Existing documents become prompts only through a reviewed new revision. Publish
+the updated client and deploy the backend/reader before classifying live content;
+older validators do not accept `document_type: prompt`. Keep existing source,
+identity, destinations and valid evidence when reclassifying. A metadata revision
+requires a fresh sync observation even when the distributed bytes are unchanged.
+
 ### Repository files
 
 The Repository files catalog keeps one authoritative document and separate GitHub

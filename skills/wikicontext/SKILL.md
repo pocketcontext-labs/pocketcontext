@@ -56,3 +56,8 @@ When reporting a page or evidence record, include a reader link using the config
 ## Repository files
 
 For README, LICENSE, COPYRIGHT, NOTICE and shared contribution files, follow [repository files](references/workflows.md#repository-files). Maintain one authoritative document per intentionally shared content and one destination per GitHub repository/branch/path. Export a pinned publication to a new staging file with `export-repository-file`; review and update GitHub only within the user’s requested scope. Independent edits require reconciliation into WikiContext. Never infer copyright holders, advance years automatically or silently apply license changes.
+
+Reusable prompts use the same repository-document workflow with
+`document_type: prompt`. Keep exact prompt content separate from descriptive
+metadata and provenance. Prompts can have optional GitHub destinations; reading,
+previewing, copying or downloading a prompt never authorizes its execution.

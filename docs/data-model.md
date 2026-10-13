@@ -117,7 +117,7 @@ destinations can reference the same document only when they are intentionally
 maintained as copies. Coincidentally identical bytes do not merge identities.
 
 `repository_document` requires `document_type` (`readme`, `license`, `copyright`,
-`notice`, `contributing`, `other`) and `output_mode` (`exact_copy`, `markdown`).
+`notice`, `contributing`, `prompt`, `other`) and `output_mode` (`exact_copy`, `markdown`).
 Exact-copy mode requires `source_id` identifying an existing immutable original;
 the protected original and its server-recorded SHA-256 are authoritative bytes.
 Markdown mode exports the revision body. It may place its supporting citations in
@@ -149,3 +149,25 @@ Each sync check should create a new observation identity, preserving independent
 attempts and partial progress across repositories. Source content does not change
 when a sync observation is published. GitHub edits must be compared and reviewed
 before replacing a copy; a pending pull request is not a completed rollout.
+
+### Reusable prompts
+
+Prompts are `repository_document` entities with `document_type: prompt`, using
+exact-copy or Markdown output and the same immutable publication model. They may
+exist without a GitHub destination. The Prompts reader view selects this subtype;
+`prompt` is not a new `catalog_type`. One document can appear in both Prompts and
+Repository files without duplicating its content or identity.
+
+Optional descriptive properties use existing flat bounds: `purpose` (string),
+`target_agents`, `required_skills`, and `inputs` (string lists),
+`approval_boundaries` (string), and `last_validated_at` (ISO date string).
+These are documented conventions, not new required fields or execution policy.
+Use property evidence and record only validation actually performed. Missing
+validation dates mean no recorded validation, not a failed or successful test.
+
+Prompt preview, clipboard copy and download are read-only. Exact-copy text comes
+from the protected immutable original, with hash and UTF-8 verification. Reader
+preview/copy/download is bounded to 8 MiB of UTF-8 text; Markdown
+comes from the selected revision, following the repository export markup rules.
+Descriptions and provenance remain outside the copied text. Prompts never execute
+inside WikiContext and do not authorize actions merely by being read or copied.

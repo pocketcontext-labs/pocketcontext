@@ -27,7 +27,7 @@ function validate(record){
  const required=(key,pattern)=>{if(typeof properties[key]!=='string'||!pattern.test(properties[key]))invalid('Invalid or missing '+key);};
  for(const [key,type] of [['documents','repository_destination'],['destinations','repository_sync']])if(Object.prototype.hasOwnProperty.call(properties,key)&&catalog!==type)invalid('Invalid relationship source: '+key);
  if(catalog==='repository_document'){
-  if(!['readme','license','copyright','notice','contributing','other'].includes(properties.document_type))invalid('Invalid document_type');
+  if(!['readme','license','copyright','notice','contributing','prompt','other'].includes(properties.document_type))invalid('Invalid document_type');
   if(!['exact_copy','markdown'].includes(properties.output_mode))invalid('Invalid output_mode');
   if(properties.output_mode==='exact_copy')required('source_id',/^[a-z0-9]{15}$/);
  }

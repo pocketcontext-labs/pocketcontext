@@ -47,3 +47,8 @@ relative `github_path`. Sync observations pin `synced_document_revision` and
 `synced_destination_revision`, with intended-byte `rendered_sha256`, `checked_at`,
 `sync_status` and a Git commit (optional for pending/unknown). Exact-copy hashes
 must match the original source. See [repository files](workflows.md#repository-files).
+
+Prompt catalog entries are repository documents with `document_type: prompt`, not
+an additional catalog type. Optional prompt metadata follows the flat property
+contract; see the prompt workflow. Destinations remain optional and copy/export
+never executes the prompt.

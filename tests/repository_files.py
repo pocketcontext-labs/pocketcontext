@@ -45,6 +45,22 @@ class RepositoryFiles(unittest.TestCase):
             with self.assertRaises(cli.Fail):
                 self.render(body)
 
+    def test_prompt_preserves_content_and_metadata_stays_outside_output(self):
+        self.props.update(document_type='prompt', purpose='Install synthetic skills',
+                          target_agents=['codex', 'claude-code'], required_skills=['example'],
+                          inputs=['workspace path'], approval_boundaries='Ask before installing tools',
+                          last_validated_at='2026-10-13')
+        self.assertEqual(self.render()[0], b'Copyright\r\n\xff')
+        self.props['output_mode'] = 'markdown'
+        text = '# Synthetic prompt\r\nRun only after explicit approval.\n'
+        content, receipt = self.render(text)
+        self.assertEqual(content, text.encode('utf-8'))
+        self.assertNotIn(b'target_agents', content)
+        self.assertEqual(receipt['document_revision'], self.manifest[self.document])
+        self.props['document_type'] = 'unknown-prompt-type'
+        with self.assertRaises(cli.Fail):
+            self.render(text)
+
     def test_properties_reject_unsafe_destinations(self):
         for key, values in {'github_path': ['../LICENSE', '/LICENSE', '.git/config', 'a//b', 'a\\b'], 'github_branch': ['../main', 'a.lock', '-main', 'a b']}.items():
             for value in values:

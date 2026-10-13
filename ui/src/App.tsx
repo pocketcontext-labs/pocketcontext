@@ -39,7 +39,7 @@ function route() {
     slug: path.startsWith("catalog/") || path === "welcome" || /^(sources|passages)\//.test(path) ? "" : safeDecode(path.replace(/^page\//, "")),
     welcome: path === "welcome",
     catalog: path.startsWith("catalog/"),
-    catalogState: { type: catalogTypes.includes(path.split("/")[1] as CatalogType) ? path.split("/")[1] as CatalogType : "resource", query: params.get("q") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || "title", offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
+    catalogState: { type: catalogTypes.includes(path.split("/")[1] as CatalogType) ? path.split("/")[1] as CatalogType : "resource", query: params.get("q") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || "title", offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
     topic: params.get("topic") || "",
     collection: path.startsWith("sources/") ? "sources" as const : path.startsWith("passages/") ? "passages" as const : "pages" as const,
     record: /^(sources|passages)\//.test(path) ? safeDecode(path.split("/")[1] || "") : "",
@@ -620,7 +620,7 @@ function Reader() {
               }
               epoch={searchEpoch}
             />
-            {current.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog pages={pages} state={current.catalogState} publication={pinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
+            {current.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog key={`${space?.id}:${snapshot?.publication.id}`} space={space?.id} snapshotId={snapshot?.publication.id} pages={pages} state={current.catalogState} publication={pinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
             {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={pinned || "live"} pages={pages} publication={snapshot?.publication || null} pinned={pinned} topic={current.topic} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
             {current.collection === "pages" && !current.catalog && !searching && !welcoming && !showEmptySpace &&
               (page ? (

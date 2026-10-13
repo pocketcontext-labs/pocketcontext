@@ -205,3 +205,19 @@ hash, commit and timestamp rather than these placeholders):
 
 One document can have many destination pages. To inspect a copy without changing a
 repository, use `wikicontext export-repository-file ttttttttttttttt /tmp/COPYRIGHT.review --sequence 12`.
+
+
+## Reusable prompt properties
+
+A prompt remains one repository document even when it has no GitHub destination.
+Use actual immutable source IDs for exact-copy mode. Supporting citations and
+property evidence belong to the revision; these illustrative fields are not
+proof that a prompt has been tested.
+
+```json
+{"catalog_type":"repository_document","document_type":"prompt","output_mode":"exact_copy","source_id":"sssssssssssssss","purpose":"Prepare a development workspace","target_agents":["codex","claude-code"],"required_skills":["wikicontext"],"inputs":["Workspace directory"],"approval_boundaries":"Ask before installing missing dependencies or editing shell startup files.","last_validated_at":null}
+```
+
+The Prompts view reads this subtype from the selected publication. Classifying
+an existing document preserves its stable page identity, source and destination
+links. Publish a new revision and recheck destination sync against that revision.
