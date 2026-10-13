@@ -1,3 +1,10 @@
+## Prompts catalog — 13 October 2026
+
+Production runs `2146d2c36e1332e954f5347678849bfab55bc65a`. The
+[prompt release record](docs/prompts-release.md) covers native CI gates,
+independent runtime revision verification, copied client checks and authenticated
+browser acceptance. Prompts reuse the repository-document publication model.
+
 ## Company spaces and authentication — 11 October 2026
 
 Production runs source `d70b40eb479d16b809dac4b2327b067324089409`, image
