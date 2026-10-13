@@ -8,6 +8,37 @@ function local(app,t,id,space){
  if(r.getString('space')!==space)spaces().missing();
  return r;
 }
+function audioCatalog(app,r,p,space){
+ if(p.catalog_type!=='audio_recording')return;
+ if(local(app,'pages',r.getString('page'),space).getString('kind')!=='entity')invalid('Audio recording catalogs require entity pages');
+ const audio=local(app,'sources',p.audio_source_id,space);
+ if(!audio.getString('media_type').startsWith('audio/'))invalid('Audio recording requires an audio source');
+ for(const [key,kind] of [['transcript_pages','transcript'],['summary_pages','summary']])for(const id of p[key]||[])if(local(app,'pages',id,space).getString('kind')!==kind)invalid('Invalid recording page kind: '+key);
+ if(!p.selected_bundle_rendition_id)return;
+ const bundle=local(app,'renditions',p.selected_bundle_rendition_id,space);
+ if(bundle.getString('kind')!=='transcript-bundle'||bundle.getString('source')!==audio.id)invalid('Bundle must belong to selected audio');
+ let notes;try{notes=JSON.parse(bundle.getString('notes'));}catch(_){invalid('Invalid bundle provenance');}
+ if(!notes||notes.schema_version!=='gemini-transcribe.bundle/v2'||notes.source_sha256!==audio.getString('sha256')||! /^[a-f0-9]{64}$/.test(notes.bundle_sha256||''))invalid('Invalid bundle source provenance');
+ const artifacts=notes.artifact_sources;
+ if(!artifacts||typeof artifacts!=='object'||Array.isArray(artifacts)||!artifacts.manifest||!artifacts.transcript||!artifacts.transcript_txt||!artifacts.transcript_srt||Object.keys(artifacts).some(role=>!['manifest','transcript','transcript_txt','transcript_srt','analysis','analysis_md','translation','translation_txt','translation_srt'].includes(role)))invalid('Invalid bundle artifacts');
+ for(const group of [['analysis','analysis_md'],['translation','translation_txt','translation_srt']])if(group.some(role=>artifacts[role])&&!group.every(role=>artifacts[role]))invalid('Incomplete bundle artifact group');
+ const linkedNotes=linked=>{let n;try{n=JSON.parse(linked.getString('notes'));}catch(_){invalid('Invalid linked rendition provenance');}if(!n||n.bundle_sha256!==notes.bundle_sha256||n.source_sha256!==notes.source_sha256||n.schema_version!==notes.schema_version)invalid('Mismatched extraction provenance');return n;};
+ for(const role of Object.keys(artifacts))local(app,'sources',artifacts[role],space);
+ if(local(app,'sources',artifacts.manifest,space).getString('sha256')!==notes.bundle_sha256)invalid('Invalid bundle manifest hash');
+ for(const [key,kind] of [['transcript_rendition','transcript'],['annotations_rendition','audio-annotations'],['observations_rendition','model-observations']]){
+  const linked=local(app,'renditions',notes[key],space);
+  if(linked.getString('source')!==audio.id||linked.getString('kind')!==kind)invalid('Invalid bundle rendition provenance');
+  linkedNotes(linked);
+ }
+ if(!notes.derived_renditions||typeof notes.derived_renditions!=='object'||Array.isArray(notes.derived_renditions))invalid('Invalid derived rendition provenance');
+ for(const role of ['analysis','translation'])if(!!artifacts[role]!==!!notes.derived_renditions[role])invalid('Incomplete derived rendition provenance');
+ for(const role of Object.keys(notes.derived_renditions)){
+  if(!['analysis','translation'].includes(role))invalid('Invalid derived artifact role');
+  const linked=local(app,'renditions',notes.derived_renditions[role],space);
+  const n=linkedNotes(linked);if(n.audio_source!==audio.id||n.transcript_rendition!==notes.transcript_rendition)invalid('Mismatched derived extraction provenance');
+  if(linked.getString('source')!==artifacts[role]||linked.getString('kind')!=='derived-'+role)invalid('Invalid derived rendition provenance');
+ }
+}
 const ROOTS=['sources','ingestion_runs','pages'];
 const PARENTS={renditions:['source','sources'],passages:['rendition','renditions'],page_revisions:['run','ingestion_runs'],citations:['page_revision','page_revisions'],page_links:['page_revision','page_revisions']};
 function draft(app,id){const r=app.findRecordById('ingestion_runs',id);if(r.getString('status')!=='staging')invalid('Run is closed');return r;}
@@ -53,7 +84,7 @@ function publish(app,run){
    if(!target||app.findRecordById('page_revisions',target).getBool('archived'))invalid('Link target is not published');
   }
  }
- const destinationKeys=new Set();
+ const destinationKeys=new Set(),audioKeys=new Set();
  // Archiving cannot leave links from unchanged published pages dangling.
  for(const page in manifest){const r=app.findRecordById('page_revisions',manifest[page]);if(r.getBool('archived'))continue;
   const metadata=require(`${__hooks}/properties.js`),properties=metadata.validate(r).properties;
@@ -63,6 +94,8 @@ function publish(app,run){
    const target=app.findRecordById('page_revisions',selected);
    if(target.getBool('archived')||metadata.validate(target).properties.catalog_type!==metadata.targetCatalogs[key])invalid('Relationship target has invalid catalog type: '+key);
   }
+  audioCatalog(app,r,properties,space);
+  if(properties.catalog_type==='audio_recording'){if(audioKeys.has(properties.audio_source_id))invalid('Duplicate active audio recording');audioKeys.add(properties.audio_source_id);}
   if(properties.catalog_type==='repository_document'&&properties.output_mode==='exact_copy')local(app,'sources',properties.source_id,space);
   if(properties.catalog_type==='repository_destination'&&properties.lifecycle_status!=='retired'){
    const key=JSON.stringify([properties.github_repository.toLowerCase(),properties.github_branch,properties.github_path]);
@@ -103,6 +136,7 @@ function validate(app,r){
  if(t==='pages'&&['index','log'].includes(r.getString('slug')))invalid('Reserved page slug');
  if(t==='page_revisions'){
   const metadata=require(`${__hooks}/properties.js`).validate(r).properties;
+  audioCatalog(app,r,metadata,space);
   if(metadata.catalog_type==='repository_document'&&metadata.output_mode==='exact_copy')local(app,'sources',metadata.source_id,space);
   draft(app,r.getString('run'));
   local(app,'pages',r.getString('page'),space);

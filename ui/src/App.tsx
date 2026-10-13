@@ -1,3 +1,4 @@
+import AudioRecording from "./Audio";
 import { spaceLink } from "./spaceLinks";
 import {
   useCallback,
@@ -39,7 +40,7 @@ function route() {
     slug: path.startsWith("catalog/") || path === "welcome" || /^(sources|passages)\//.test(path) ? "" : safeDecode(path.replace(/^page\//, "")),
     welcome: path === "welcome",
     catalog: path.startsWith("catalog/"),
-    catalogState: { type: catalogTypes.includes(path.split("/")[1] as CatalogType) ? path.split("/")[1] as CatalogType : "resource", query: params.get("q") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || "title", offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
+    catalogState: { type: catalogTypes.includes(path.split("/")[1] as CatalogType) ? path.split("/")[1] as CatalogType : "resource", query: params.get("q") || "", language: params.get("language") || "", bundle: params.get("bundle") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || "title", offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
     topic: params.get("topic") || "",
     collection: path.startsWith("sources/") ? "sources" as const : path.startsWith("passages/") ? "passages" as const : "pages" as const,
     record: /^(sources|passages)\//.test(path) ? safeDecode(path.split("/")[1] || "") : "",
@@ -646,6 +647,7 @@ function Reader() {
                   {page.summary && (
                     <p className="page-summary">{page.summary}</p>
                   )}
+                  {page.properties?.catalog_type === "audio_recording" && space && <AudioRecording page={page} pages={pages} space={space.id} publication={pinned} />}
                   <PropertiesPanel key={page.id} page={page} pages={pages} publication={pinned} onCitation={openCitation} />
                   <div className="page-rule" />
                   <div className="markdown">

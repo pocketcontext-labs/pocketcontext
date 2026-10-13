@@ -6,7 +6,7 @@ import re
 from . import cli as wc
 
 RELATIONSHIPS = frozenset(('deployment_profiles', 'applications', 'resources', 'credentials',
-                           'consumers', 'replaces', 'replaced_by', 'members', 'accountable_owners', 'backup_owners', 'documents', 'destinations'))
+                           'consumers', 'replaces', 'replaced_by', 'members', 'accountable_owners', 'backup_owners', 'documents', 'destinations', 'transcript_pages', 'summary_pages'))
 TARGET_CATALOGS = {'members': 'person', 'accountable_owners': 'group', 'backup_owners': 'group', 'documents': 'repository_document', 'destinations': 'repository_destination'}
 RESERVED = frozenset(('wikicontext_page', 'wikicontext_revision', 'id', 'page', 'page_id',
     'revision', 'revision_id', 'publication', 'publication_id', 'kind', 'title', 'summary',
@@ -41,7 +41,7 @@ def read(revision):
             if key in RELATIONSHIPS and (not isinstance(value, list) or
                     any(not re.fullmatch('[a-z0-9]{15}', item) for item in value)):
                 raise ValueError()
-            if key == 'catalog_type' and value not in ('resource', 'credential', 'deployment', 'person', 'group', 'repository_document', 'repository_destination', 'repository_sync'):
+            if key == 'catalog_type' and value not in ('resource', 'credential', 'deployment', 'person', 'group', 'repository_document', 'repository_destination', 'repository_sync', 'audio_recording'):
                 raise ValueError()
         if 'members' in properties and properties.get('catalog_type') != 'group':
             raise ValueError()
@@ -64,6 +64,20 @@ def validate_repository(p):
     catalog = p.get('catalog_type')
     for key, owner in (('documents', 'repository_destination'), ('destinations', 'repository_sync')):
         if key in p and catalog != owner:
+            raise ValueError()
+    for key in ('audio_source_id', 'selected_bundle_rendition_id', 'transcript_pages', 'summary_pages'):
+        if key in p and catalog != 'audio_recording':
+            raise ValueError()
+    if catalog == 'audio_recording':
+        required('audio_source_id', '[a-z0-9]{15}')
+        if p.get('selected_bundle_rendition_id') is not None:
+            required('selected_bundle_rendition_id', '[a-z0-9]{15}')
+        if p.get('recorded_at') is not None:
+            required('recorded_at', r'\d{4}-\d{2}-\d{2}')
+            datetime.date.fromisoformat(p['recorded_at'])
+        if p.get('language') is not None and (not isinstance(p['language'], str) or not p['language'].strip()):
+            raise ValueError()
+        if p.get('duration_seconds') is not None and (type(p['duration_seconds']) not in (int, float) or not math.isfinite(p['duration_seconds']) or p['duration_seconds'] <= 0):
             raise ValueError()
     if catalog == 'repository_document':
         if p.get('document_type') not in ('readme', 'license', 'copyright', 'notice', 'contributing', 'prompt', 'other') or p.get('output_mode') not in ('exact_copy', 'markdown'):

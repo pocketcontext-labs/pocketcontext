@@ -89,7 +89,7 @@ Properties belong to immutable revisions, so publication, conflict checks, histo
 and export select exactly the same values as the page body. Older revisions have
 empty properties. No migration classifies or rewrites existing wiki content.
 Use `catalog_type` (`resource`, `credential`, `deployment`, `person`, `group`,
-`repository_document`, `repository_destination`, or `repository_sync`) on entity pages to
+`repository_document`, `repository_destination`, `repository_sync`, or `audio_recording`) on entity pages to
 opt into the catalog reader. Other page kinds and uncategorized pages still work.
 
 `properties` is a JSON object of at most 64 lowercase snake_case keys (1–64 ASCII
@@ -203,3 +203,27 @@ preview/copy/download is bounded to 8 MiB of UTF-8 text; Markdown
 comes from the selected revision, following the repository export markup rules.
 Descriptions and provenance remain outside the copied text. Prompts never execute
 inside WikiContext and do not authorize actions merely by being read or copied.
+
+### Audio recordings
+
+An `audio_recording` entity represents one immutable audio source. Required
+`audio_source_id` refers to a same-space source with an `audio/` media type.
+At most one unarchived recording entity may select that source in a publication.
+Optional `selected_bundle_rendition_id` explicitly pins a same-source
+`transcript-bundle` rendition. Publishing a newer extraction does not change old
+revisions or their selected bundle. Sources without a bundle remain catalogable.
+
+Optional `recorded_at` is the actual recording date (`YYYY-MM-DD`), `language` a
+nonempty string, and `duration_seconds` a positive finite number. Omit unknown
+values; never substitute ingestion date for recording date. Attach evidence to
+metadata when available. `transcript_pages` and `summary_pages` are stable page-ID
+lists targeting published, unarchived transcript and summary pages respectively,
+with ordinary `page_links` records. All references remain within the same space.
+
+Selection validates v2 bundle provenance notes, source and manifest hashes,
+same-space artifact sources, and linked transcript, annotations, observations and
+derived rendition identities. Reader previews additionally verify protected bytes
+against source hashes and manifest declarations. Source metadata and generated
+speaker names are extraction claims, not account identities or factual verification.
+The Audio view keeps generated analysis separate from reviewed summaries, marks
+timestamps approximate, and does not execute content or publish anything.

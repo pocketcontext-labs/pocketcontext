@@ -104,21 +104,65 @@ def main():
             assert not ingest.rows(cfg,'SELECT id FROM publications')
             def create(collection,data): return wc.must(cfg,'POST',wc.records(collection),data)
             run=create('ingestion_runs',{'key':'gemini-fixture','status':'staging','description':'Synthetic cross-package bundle','sources':list(set(ids.values()))})
+            pages = {}
             for slug,kind,body,segment in [
                 ('synthetic-transcript','transcript','Alice (SPEAKER_01): We agreed to deliver the report on Monday.[^1]','seg000001'),
                 ('synthetic-summary','summary','The speakers agreed to deliver a report on Monday.[^1]','seg000001'),
                 ('synthetic-translation','transcript','Italian translation: Lo invierò io.[^1]','seg000002')]:
                 page=create('pages',{'slug':slug,'kind':kind})
+                pages[slug] = page
                 revision=create('page_revisions',{'run':run['id'],'page':page['id'],'base_revision':'','title':slug,'summary':'Synthetic test.','body':body})
                 create('citations',{'page_revision':revision['id'],'passage':result['segment_passages'][segment][0],'marker':'1'})
+            recording = create('pages', {'slug': 'synthetic-recording', 'kind': 'entity'})
+            properties = {'catalog_type': 'audio_recording', 'audio_source_id': result['source'],
+                'selected_bundle_rendition_id': result['bundle_rendition'], 'recorded_at': '2026-10-13',
+                'duration_seconds': 2, 'language': 'English', 'transcript_pages': [pages['synthetic-transcript']['id']],
+                'summary_pages': [pages['synthetic-summary']['id']]}
+            recording_revision = create('page_revisions', {'run': run['id'], 'page': recording['id'],
+                'title': 'Synthetic recording', 'summary': 'Synthetic complete audio catalog.',
+                'body': 'The speakers discuss a report.[^1]', 'properties': properties})
+            create('citations', {'page_revision': recording_revision['id'], 'passage': result['segment_passages']['seg000001'][0], 'marker': '1'})
+            for linked in properties['transcript_pages'] + properties['summary_pages']:
+                create('page_links', {'page_revision': recording_revision['id'], 'target': linked})
             wc.must(cfg,'PATCH',wc.records('ingestion_runs',run['id']),{'expected_revision':run['revision'],'status':'published'})
             assert len(ingest.rows(cfg,'SELECT id FROM publications'))==1
+            # A catalog selection must bind the complete receipt to its own audio and space.
+            invalid_run = create('ingestion_runs', {'key': 'invalid-audio-catalog', 'status': 'staging', 'description': 'Synthetic invalid selections'})
+            def rejected(props, expected=400):
+                request('POST', '/api/collections/page_revisions/records', {'run': invalid_run['id'], 'page': recording['id'],
+                    'base_revision': recording_revision['id'], 'title': 'Invalid recording', 'body': '[needs verification]',
+                    'properties': props}, token, expected)
+            wrong = create('renditions', {'source': result['artifact_sources']['transcript'], 'kind': 'transcript-bundle',
+                'processor': 'synthetic', 'version_label': 'wrong-source', 'notes': '{}'})
+            rejected({**properties, 'selected_bundle_rendition_id': wrong['id']})
+            original_bundle = exporter.one(cfg, 'renditions', 'id,notes', result['bundle_rendition'])
+            notes = json.loads(original_bundle['notes'])
+            def forged(label, notes):
+                return create('renditions', {'source': result['source'], 'kind': 'transcript-bundle', 'processor': 'synthetic',
+                    'version_label': label, 'notes': json.dumps(notes)})['id']
+            rejected({**properties, 'selected_bundle_rendition_id': forged('wrong-hash', {**notes, 'bundle_sha256': '0' * 64})})
+            transcript_record = exporter.one(cfg, 'renditions', 'id,notes', result['rendition'])
+            foreign_notes = {**json.loads(transcript_record['notes']), 'bundle_sha256': 'f' * 64}
+            wrong_transcript = create('renditions', {'source': result['source'], 'kind': 'transcript',
+                'processor': 'synthetic', 'version_label': 'other-extraction', 'notes': json.dumps(foreign_notes)})
+            rejected({**properties, 'selected_bundle_rendition_id': forged('mixed-extraction', {**notes, 'transcript_rendition': wrong_transcript['id']})})
+
+            personal = request('POST', '/api/wiki/spaces/personal', {}, token)
+            personal_space = personal.get('space', personal)
+            personal_id = personal_space['id'] if isinstance(personal_space, dict) else personal_space
+            personal_cfg = {**cfg, 'space': personal_id, 'space_checked': False}
+            private_source = ingest.upload_source(personal_cfg, Path('private.txt'), b'Synthetic private artifact',
+                hashlib.sha256(b'Synthetic private artifact').hexdigest(), 'Synthetic private artifact')
+            forged_notes = {**notes, 'artifact_sources': {**notes['artifact_sources'], 'analysis': private_source['id']}}
+            rejected({**properties, 'selected_bundle_rendition_id': forged('foreign-artifact', forged_notes)}, 404)
+            assert len(ingest.rows(cfg, 'SELECT id FROM publications')) == 1
             destination=root/'export'
             exporter.export(cfg,destination)
             for role,ident in ids.items():
                 source=exporter.one(cfg,'sources','id,title,original_name,original,sha256',ident)
                 assert (destination/exporter.source_path(source)).read_bytes()==originals[role],role
             assert (destination/'wiki/synthetic-summary.md').exists()
+            assert 'audio_recording' in (destination/'wiki/synthetic-recording.md').read_text()
     print('PASS real Gemini bundle -> immutable Wiki evidence -> cited publication -> byte-exact export')
 
 

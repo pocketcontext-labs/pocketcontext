@@ -320,6 +320,30 @@ def main():
         with patch.dict(os.environ, {'XDG_CACHE_HOME': folder}):
             assert repository_files.render(cfg, markdown_destination['id'], latest)[0] == prompt_body.encode()
 
+        # Audio catalogs bind immutable originals and keep publication selection explicit.
+        import hashlib
+        audio_bytes = b'Synthetic audio fixture (never sent to a provider)'
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': folder}):
+            audio = ingest.upload_source(cfg, Path('synthetic.wav'), audio_bytes,
+                                         hashlib.sha256(audio_bytes).hexdigest(), 'Synthetic audio')
+        audio_page = create('pages', {'slug': 'audio-recording', 'kind': 'entity'})
+        audio_props = {'catalog_type': 'audio_recording', 'audio_source_id': audio['id'],
+                       'duration_seconds': 2, 'recorded_at': '2026-10-13'}
+        staged = run('audio-first')
+        for extra in ({'audio_source_id': source_id}, {'duration_seconds': 0},
+                      {'recorded_at': '2026-02-30'}, {'summary_pages': [audio_page['id']]}):
+            revision(staged, audio_page, properties={**audio_props, **extra}, expected=400)
+        revision(staged, audio_page, properties={**audio_props, 'audio_source_id': 'z'*15}, expected=404)
+        wrong_kind = create('pages', {'slug': 'audio-wrong-kind', 'kind': 'summary'})
+        revision(staged, wrong_kind, properties=audio_props, expected=400)
+        audio_rev = revision(staged, audio_page, properties=audio_props)
+        publish(staged)
+        duplicate = create('pages', {'slug': 'audio-duplicate', 'kind': 'entity'})
+        staged = run('audio-duplicate')
+        revision(staged, duplicate, properties=audio_props)
+        publish(staged, 400)
+        assert json.loads(query("SELECT properties FROM page_revisions WHERE id='%s'" % audio_rev['id'])[0]['properties']) == audio_props
+
     print('PASS: revisioned properties, immutable history, conflict rollback, bounded metadata, property provenance and relationship graph')
 
 

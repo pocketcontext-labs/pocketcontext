@@ -4,6 +4,8 @@ import { pageHref } from "./Markdown";
 import type { PageDetail, PageSummary, PropertyValue } from "./types";
 
 export const relationshipKeys = new Set([
+  "summary_pages",
+  "transcript_pages",
   "documents",
   "destinations",
   "members",

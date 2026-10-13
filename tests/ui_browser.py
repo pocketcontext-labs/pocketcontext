@@ -2,6 +2,7 @@
 """Run the browser reader against synthetic data and an isolated real server."""
 import argparse
 import contextlib
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -75,6 +76,66 @@ def seed(request):
     publish()
     def control(action):
         nonlocal token
+        if action == '/audio':
+            from transcript_bundle import fixture
+            from wikicontext_client import ingest
+            from wikicontext_client.transcript_bundle import ARTIFACT_FORMATS
+            request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
+            cfg = {'url': request.base_url, 'email': 'agent@example.com', 'password': 'SyntheticUserPassword123!'}
+            with tempfile.TemporaryDirectory(prefix='wiki-browser-audio-') as temporary:
+                root = Path(temporary)
+                audio, manifest, metadata = fixture(root)
+                analysis = {'schema_version': 'gemini-transcribe.analysis/v1',
+                    'summary': [{'text': 'The synthetic team agreed to review the report.', 'segment_ids': ['seg000001']}],
+                    'topics': [], 'decisions': [], 'action_items': [], 'questions': [],
+                    'speaker_mappings': [{'speaker': 'SPEAKER_01', 'name': 'Alice', 'status': 'explicit', 'segment_ids': ['seg000001']}]}
+                translation = {'schema_version': 'gemini-transcribe.translation/v1', 'target_language': 'Italian',
+                    'segments': [{'segment_id': 'seg000001', 'text': 'Prova sintetica.'}]}
+                artifacts = [('analysis', json.dumps(analysis)), ('analysis_md', '# Analysis\n\nThe synthetic team agreed to review the report.'),
+                    ('translation', json.dumps(translation)), ('translation_txt', 'Alice (SPEAKER_01): Prova sintetica.'),
+                    ('translation_srt', '1\n00:00:00,000 --> 00:00:01,000\nAlice (SPEAKER_01): Prova sintetica.\n')]
+                for role, content in artifacts:
+                    name, media = ARTIFACT_FORMATS[role]
+                    data = content.encode()
+                    (root / name).write_bytes(data)
+                    metadata['artifacts'].append({'role': role, 'path': name, 'sha256': hashlib.sha256(data).hexdigest(),
+                        'size_bytes': len(data), 'media_type': media})
+                metadata['stages'].update(analysis='complete', translation='complete')
+                manifest.write_text(json.dumps(metadata))
+                first = ingest.ingest(cfg, audio, audio_storage='original', transcript_bundle=manifest, version='browser-audio-v1')
+                metadata['speaker_names']['overrides'] = [{'speaker': 'SPEAKER_01', 'name': 'Reviewed Alice', 'reason': 'Synthetic review.'}]
+                manifest.write_text(json.dumps(metadata))
+                second = ingest.ingest(cfg, audio, audio_storage='original', transcript_bundle=manifest, version='browser-audio-v2')
+                pending_audio_bytes = audio.read_bytes()[:-1] + b'\x01'
+            body, media = multipart({'title': 'Pending synthetic recording', 'original_name': 'pending.wav', 'media_type': 'audio/wav'},
+                'original', 'pending.wav', pending_audio_bytes, 'audio/wav')
+            upload = urllib.request.Request(request.base_url + '/api/collections/sources/records', body, {'Authorization': token, 'Content-Type': media})
+            with urllib.request.urlopen(upload) as response:
+                pending_audio = json.load(response)
+            run = create('ingestion_runs', {'key': 'browser-audio', 'status': 'staging', 'description': 'Synthetic recording catalog'})
+            page = create('pages', {'slug': 'synthetic-recording', 'kind': 'entity'})
+            props = {'catalog_type': 'audio_recording', 'audio_source_id': first['source'],
+                'selected_bundle_rendition_id': first['bundle_rendition'], 'language': 'English', 'duration_seconds': 1,
+                'recorded_at': '2026-10-13'}
+            revision = create('page_revisions', {'run': run['id'], 'page': page['id'], 'title': 'Synthetic recording',
+                'summary': 'Synthetic audio catalog fixture.', 'body': 'Reviewed recording description. [needs verification]', 'properties': props})
+            create('page_revisions', {'run': run['id'], 'page': create('pages', {'slug': 'unprocessed-recording', 'kind': 'entity'})['id'],
+                'title': 'Unprocessed recording', 'summary': 'A recording without a selected extraction.',
+                'body': 'Synthetic pending review. [needs verification]',
+                'properties': {'catalog_type': 'audio_recording', 'audio_source_id': pending_audio['id']}})
+            request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'], {'expected_revision': run['revision'], 'status': 'published'}, token)
+            publication = request('GET', '/api/collections/publications/records?filter=space%3D%27companyspace001%27&sort=-sequence&perPage=1', token=token)['items'][0]
+            state['audio'] = {'page': page, 'revision': revision, 'props': props, 'second': second}
+            return {'publication': publication['id'], 'sequence': publication['sequence'], 'first': first['bundle_rendition'], 'second': second['bundle_rendition']}
+        if action == '/audio-update':
+            audio = state['audio']
+            run = create('ingestion_runs', {'key': 'browser-audio-update', 'status': 'staging', 'description': 'Reviewed extraction selection'})
+            create('page_revisions', {'run': run['id'], 'page': audio['page']['id'], 'base_revision': audio['revision']['id'],
+                'title': 'Synthetic recording', 'summary': 'New reviewed extraction selection.',
+                'body': 'Reviewed recording description. [needs verification]',
+                'properties': {**audio['props'], 'selected_bundle_rendition_id': audio['second']['bundle_rendition']}})
+            request('PATCH', '/api/collections/ingestion_runs/records/' + run['id'], {'expected_revision': run['revision'], 'status': 'published'}, token)
+            return {'ok': True}
         if action == '/directory':
             request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
             run = create('ingestion_runs', {'key': 'browser-directory', 'status': 'staging', 'description': 'Synthetic people and groups'})

@@ -284,3 +284,38 @@ revision. Deploy prompt support and release the compatible client first. After
 publication, export and compare each requested GitHub destination, then publish a
 fresh sync observation referencing the new document revision. Do not overwrite
 repository files when the bytes already match.
+
+## Audio recording catalog
+
+Import a completed Gemini bundle with `ingest AUDIO --transcript-bundle MANIFEST
+--audio-storage original --version NEW_VERSION --space SPACE`. Use the command's
+`--help` for option placement. Import creates evidence only. Read the returned
+passages and review the complete transcript, generated analysis and uncertainty
+before synthesizing knowledge. Do not silently treat model-generated analysis as
+a reviewed summary or timestamps as precise audio alignment.
+
+Query the selected publication for an existing `audio_recording` entity whose
+`audio_source_id` matches the receipt's `source`; reuse its stable page identity.
+Otherwise create one entity page. Stage a cited revision with flat properties:
+
+```json
+{"catalog_type":"audio_recording","audio_source_id":"SOURCE_ID",
+ "selected_bundle_rendition_id":"BUNDLE_RENDITION_ID",
+ "transcript_pages":["TRANSCRIPT_PAGE_ID"],"summary_pages":["SUMMARY_PAGE_ID"]}
+```
+
+Replace placeholders with queried IDs from the same space. The selected bundle is
+receipt `bundle_rendition`, not `rendition` (which identifies transcript passages).
+The linked pages must have kinds `transcript` and `summary`, and require matching
+`page_links`. Copy existing properties forward when revising. Add supported
+`recorded_at` (actual ISO recording date), `language`, and positive
+`duration_seconds` with `property_evidence`; omit unknown values. Audio-only entries
+may omit the bundle and related pages. Publication rejects duplicate active entries
+for one source, nonaudio sources, invalid provenance and cross-space references.
+
+Publish explicitly using the current base revision, then verify the Audio catalog,
+selected extraction, protected playback, readable analysis and page links. A newer
+bundle requires an explicit new revision to select it; historical publications
+retain their old selection. Reviewed summaries remain separate from generated
+analysis, translations and subjective observations. Importing or viewing a recording
+does not authorize provider uploads, messages, or execution of source contents.

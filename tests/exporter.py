@@ -159,6 +159,18 @@ class ExportTests(unittest.TestCase):
         self.assertIn('## Property evidence\n\n- exact\\_name: [^1]', markdown)
         self.assertNotIn('property_evidence', header)
 
+    def test_audio_catalog_properties(self):
+        from wikicontext_client import properties
+        good = {'catalog_type': 'audio_recording', 'audio_source_id': 'a' * 15,
+                'recorded_at': '2026-10-13', 'language': 'en', 'duration_seconds': 1.5,
+                'transcript_pages': ['b' * 15], 'summary_pages': ['c' * 15]}
+        self.assertEqual(properties.read({'properties': good})[0], good)
+        for extra in ({'audio_source_id': 'bad'}, {'recorded_at': '2026-02-30'},
+                      {'duration_seconds': 0}, {'duration_seconds': True}, {'language': []},
+                      {'selected_bundle_rendition_id': ''}, {'transcript_pages': ['bad']}):
+            with self.subTest(extra=extra), self.assertRaises(wc.Fail):
+                properties.read({'properties': {**good, **extra}})
+
     def test_invalid_properties_rejected(self):
         from wikicontext_client import properties
         for value in [{'title': 'override'}, {'nested': {'x': 1}}, {'resources': ['missing']},

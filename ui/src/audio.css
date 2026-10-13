@@ -1,0 +1,44 @@
+.audio-recording {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+.audio-recording audio {
+  display: block;
+  width: 100%;
+  max-width: 40rem;
+  margin: 1rem 0;
+}
+.audio-recording select {
+  max-width: 100%;
+  display: block;
+  margin: 0.5rem 0;
+}
+.audio-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.audio-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 40rem;
+  overflow: auto;
+}
+.audio-analysis dl {
+  margin: 0.5rem 0;
+}
+.audio-analysis dt {
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+.audio-analysis dd {
+  margin-left: 1rem;
+}
+.audio-recording article {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}

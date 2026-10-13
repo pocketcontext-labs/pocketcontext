@@ -64,6 +64,8 @@ accountability, grants no permissions and sends no notifications. Nested groups
 and automatic CRM synchronization are outside scope. Agents maintain these
 relationships through cited revisions; properties are read-only in the browser.
 
+The Audio catalog groups recordings by published `audio_recording` entities. Each entry pins its selected Gemini bundle and links reviewed transcript/summary pages. Protected audio, transcript, generated analysis, translation and provenance remain evidence previews; timestamps are approximate. New imports do not silently change published selections. See [audio catalog workflow](skills/wikicontext/references/workflows.md#audio-recording-catalog).
+
 The reader defaults to Company. Choose **Create personal space** to opt in, then
 use the Space selector to switch. New personal spaces are empty until an agent
 publishes there. Existing unscoped page links keep opening company knowledge;

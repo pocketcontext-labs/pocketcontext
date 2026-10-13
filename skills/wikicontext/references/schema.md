@@ -32,7 +32,7 @@ The authenticated search endpoint is separate from SQL. Index `pages` takes a re
 
 Revision properties follow the [catalog workflow](workflows.md#catalog-properties).
 Relationship properties contain stable page IDs and are checked against the resulting
-publication and require matching page_links records for each target. `catalog_type` supports resource, credential, deployment, person, group, repository_document, repository_destination and repository_sync entities.
+publication and require matching page_links records for each target. `catalog_type` supports resource, credential, deployment, person, group, repository_document, repository_destination, repository_sync and audio_recording entities.
 `members` links groups to people; `accountable_owners` and `backup_owners` link to
 groups. Membership is accountability metadata without authentication significance.
 Citation markers may be
@@ -52,3 +52,7 @@ Prompt catalog entries are repository documents with `document_type: prompt`, no
 an additional catalog type. Optional prompt metadata follows the flat property
 contract; see the prompt workflow. Destinations remain optional and copy/export
 never executes the prompt.
+
+Audio recording entities reference an immutable `audio_source_id` and may pin a
+`selected_bundle_rendition_id`. `transcript_pages` and `summary_pages` are typed
+page relationships. See the [audio catalog workflow](workflows.md#audio-recording-catalog).
