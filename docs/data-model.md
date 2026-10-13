@@ -8,6 +8,25 @@ Sources store immutable protected original bytes and server-computed SHA-256. Id
 
 Reviewed image ingestion preserves original static PNG/JPEG/WebP bytes. An `image-review` rendition records its processor and version; JSON notes bind the review to the image SHA-256, format, encoded dimensions and review digest. Optional `related_source` and `sequence` notes identify a supplementary source and ordering, not a server-enforced relationship or recording timestamp. Use these notes to supplement audio without `supersedes`. Passage locators record a transcription, description or caption kind and a pixel region in the original encoded orientation before EXIF rotation. Corrections create a new rendition version; earlier evidence remains immutable. No schema migration or automated OCR service is required.
 
+External transcript ingestion (`--transcript-bundle MANIFEST --audio-storage original`)
+preserves the exact original recording, manifest and all declared artifact bytes as
+protected sources. The v1 Gemini Transcribe bundle binds source and artifacts by
+SHA-256/size and records extraction provenance. Complete validation precedes writes;
+no transcription provider or conversion is invoked. Local `ffprobe` independently
+verifies the duration of the preserved audio snapshot. Transcript passages belong to
+a rendition of the audio source, with local segment IDs, speaker labels and second
+ranges in locators; long segments map to multiple passages. Acoustic observations
+have a separate rendition. A `model-observations` rendition preserves addressable
+tone and uncertainty with explicit subjective/inferred labels, original segment
+references and associated time ranges. Its receipt returns `observations_rendition`
+and `observation_passages`, keyed by `tone000001`/`uncertainty000001` array order.
+These observations are not spoken text. Analysis/translation artifacts remain derived evidence;
+format variants do not independently corroborate spoken claims. Rendition notes
+retain provenance links, not `supersedes`. Identical bundle/version retries resume
+immutable writes; corrections require a new extraction version. Space boundaries
+and ordinary file access apply independently. This uses existing schema records;
+extraction does not create or publish knowledge pages.
+
 Pages have immutable stable slugs and kinds. Each immutable page revision belongs to one staging ingestion run and records its expected previously published revision ID, title, summary, prose, archive flag, flat `properties` and `property_evidence`. Citations connect numbered inline markers to immutable source passages. Page links connect a revision to stable page IDs. Sources and relationships are authoritative in the database; Markdown is generated presentation. Factual synthesis remains agent work; structural validation does not establish factual truth.
 
 ## Publication

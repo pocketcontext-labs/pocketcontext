@@ -507,7 +507,7 @@ def run(args):
         cfg['space'] = args.space
     if args.command == 'ingest':
         from . import ingest
-        say(dump(ingest.ingest(cfg, args.path, title=args.title, version=args.version, audio_storage=args.audio_storage, image_review=args.image_review), args.pretty), sys.stdout)
+        say(dump(ingest.ingest(cfg, args.path, title=args.title, version=args.version, audio_storage=args.audio_storage, image_review=args.image_review, transcript_bundle=args.transcript_bundle), args.pretty), sys.stdout)
         return 0
     if args.command == 'export-repository-file':
         from . import repository_files
@@ -651,6 +651,7 @@ def parse(argv):
     source.add_argument('path')
     source.add_argument('--title')
     source.add_argument('--version', default='v1')
+    source.add_argument('--transcript-bundle', metavar='MANIFEST', help='Import a complete Gemini evidence bundle without model calls; requires original audio storage.')
     source.add_argument('--image-review', metavar='JSON',
                         help='reviewed image passages and provenance JSON; required for PNG/JPEG/WebP')
     source.add_argument('--audio-storage', choices=('normalized', 'original'), default='normalized',

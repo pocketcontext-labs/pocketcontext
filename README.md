@@ -137,6 +137,25 @@ The `ingest` command uploads an immutable source and extracts passages; audio is
 
 Supported extraction: reviewed PNG/JPEG/WebP images (see below); UTF-8 text/Markdown and related text formats; text PDFs using local `pdftotext`; audio using `ffmpeg`, `ffprobe` and the configured Groq service. Audio ingestion authorizes transcription. By default the client stores mono Opus `.ogg` audio encoded from 16 kHz input at 16 kbps, then sends those same bytes to Groq. It checks duration and the 25 MB transcription limit before upload; large input recordings can fit after normalization. Local recordings remain untouched. Use `ingest PATH --audio-storage original` to upload the input bytes and transcribe a separate derivative. Normalization selects the first audio stream and discards video. Normalized files are privately cached for retry across failures and encoder upgrades. The stored Ogg embeds the input hash, conversion profile and converter version before transcription; private cache metadata and later rendition notes also retain the input filename and conversion settings. Exact-byte deduplication applies to the stored file; different encoder builds can produce different bytes. Set only this application's `WIKICONTEXT_GROQ_API_KEY` in the agent environment. Missing tools or invalid/oversize normalized audio stop before upload in the default audio mode. Scanned PDFs without text and provider errors stop extraction with resumable source storage. No OCR or background crawler is supplied.
 
+Precomputed Gemini Transcribe bundles can be imported without retranscribing:
+
+```sh
+wikicontext --space companyspace001 ingest recording.m4a \
+  --transcript-bundle /path/to/run/manifest.json \
+  --audio-storage original --version gemini-v1
+```
+
+This requires a complete v1 bundle and the exact original audio (up to 100 MiB).
+It validates all source/artifact hashes, paths, references and timestamps before
+uploads, preserves every declared artifact and manifest, and creates timestamped
+native passages with segment-to-passage mappings. Tone and uncertainty receive
+separate, explicitly labelled model-observation passages and receipt mappings. No Gemini/Groq call, conversion or provider key is needed. Local `ffprobe`
+(from FFmpeg) independently verifies the preserved audio duration before uploads. Identical retries resume; changed
+content under the same version conflicts. Analysis, translation and format variants
+are derived artifacts, not independent corroboration. The receipt means extracted,
+not published: follow the [external bundle workflow](skills/wikicontext/references/workflows.md#external-transcript-bundles)
+for review, citations and publication. No backend migration is required.
+
 Pillow is installed automatically with the client package for reviewed image ingestion. Run `wikicontext ingest IMAGE --image-review REVIEW.json` after viewing the original and preparing reviewed evidence. The client verifies and decodes static PNG/JPEG/WebP images, requires matching extensions, limits dimensions to 16,384 pixels per axis and 50 million total pixels, and preserves the exact original bytes. Review JSON must match the original SHA-256 and encoded dimensions before upload. It separates transcription, visual description and captions into region-addressable passages. A changed review requires a new `--version`; identical reviewed input resumes interrupted writes. Related audio source IDs and screenshot sequence are recorded in rendition notes, without replacing the audio. Image ingestion makes no external OCR or vision-service request. See the [review format](skills/wikicontext/references/examples.md#reviewed-image-evidence) and [image workflow](skills/wikicontext/references/workflows.md#images). The reader previews PNG/JPEG/WebP originals on source and passage pages and in citation dialogs, with an enlarged view, actual-size scrolling, retry controls and protected original downloads. Previews clear when the source or signed-in identity changes. Other image formats remain download-only; previews do not add extraction or OCR.
 
 Resource, credential, deployment, person and group pages can carry flat typed revision properties, property-specific citation evidence and stable page relationships. Properties share publication history and conflict checks with prose; existing pages remain unclassified until an agent publishes a reviewed revision. See the [property contract](docs/data-model.md#revision-properties-and-catalogs) and [catalog workflow](skills/wikicontext/references/workflows.md#catalog-properties). Store credential metadata and protected-storage references only, never secret values. Obsidian export includes these properties in its single YAML frontmatter block and resolves relationship IDs to wiki links.
@@ -259,11 +278,25 @@ python3 tests/oauth.py
 python3 tests/client.py
 python3 tests/knowledge.py
 python3 tests/ingest.py
+python3 tests/transcript_bundle.py
+python3 tests/transcript_bundle_integration.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/exporter.py
 python3 tests/repository_files.py
 python3 tests/bootstrap.py
 python3 tests/deploy_workflow.py
 ```
+
+For the cross-package evidence contract, install Gemini Transcribe 0.2.0 or newer
+in a separate environment and run:
+
+```sh
+python3 tests/gemini_handoff.py --binary /absolute/path/to/pinned/pocketcontext \
+  --gemini-python /absolute/path/to/gemini-transcribe/.venv/bin/python
+```
+
+This uses mocked Gemini responses and synthetic audio, then verifies native
+passages, cited publication, protected downloads and byte-exact artifact export
+against an isolated WikiContext server. It makes no transcription-provider calls.
 
 After building the reader, install Chromium once and exercise the production
 assets against a synthetic isolated database:

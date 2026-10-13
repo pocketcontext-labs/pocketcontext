@@ -20,6 +20,23 @@ wikicontext ingest /path/to/recording.m4a --audio-storage original --title 'Full
 
 The first command stores a mono 16 kbps Opus `.ogg` source encoded from 16 kHz input and transcribes those same bytes. The second stores the input bytes and transcribes a temporary Opus derivative. Both leave the local input untouched. Continue through cited synthesis and publication after extraction.
 
+Import an existing complete Gemini Transcribe bundle without retranscribing:
+
+```sh
+wikicontext --space companyspace001 ingest /path/to/recording.m4a \
+  --transcript-bundle /path/to/run/manifest.json \
+  --audio-storage original --version gemini-v1
+```
+
+This preserves the exact original and artifacts, returns actual source/rendition
+IDs and `segment_passages`/`annotation_passages`/`observation_passages` mappings,
+and reports extraction. Tone and uncertainty use the returned
+`observations_rendition`; their passages are labelled model observations, not speech.
+Use those passage IDs after reading them through SQL; never cite local segment IDs
+as WikiContext IDs. Continue through synthesis and publication below. See the
+[external bundle workflow](workflows.md#external-transcript-bundles) for validation,
+retry and provenance constraints.
+
 IDs below are placeholders; replace with returned 15-character IDs. `create` adds the selected space (`--space`, `WIKICONTEXT_SPACE` or the company space) to new sources, runs and pages. Create a page only after checking for an existing slug in that space. The body belongs to the revision, never the page identity.
 
 ```sh

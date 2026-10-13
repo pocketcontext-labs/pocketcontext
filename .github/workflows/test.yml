@@ -133,7 +133,14 @@ jobs:
           python3 wikicontext/tests/client.py
           python3 wikicontext/tests/knowledge.py
           python3 wikicontext/tests/ingest.py
+          python3 wikicontext/tests/transcript_bundle.py
+          python3 wikicontext/tests/transcript_bundle_integration.py --binary pocketcontext/bin/pocketcontext
           python3 wikicontext/tests/exporter.py
           python3 wikicontext/tests/repository_files.py
       - name: Test opt-in trace isolation
         run: python3 wikicontext/tests/tracing.py --binary pocketcontext/bin/pocketcontext
+      - name: Test published Gemini bundle handoff
+        run: |
+          uv venv "$RUNNER_TEMP/gemini-venv" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/gemini-venv/bin/python" 'gemini-transcribe @ git+https://github.com/pocketcontext/gemini-transcribe.git@8b2d3621a8201af99774116ad1a5d44f75ca5366'
+          python3 wikicontext/tests/gemini_handoff.py --binary pocketcontext/bin/pocketcontext --gemini-python "$RUNNER_TEMP/gemini-venv/bin/python"

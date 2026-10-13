@@ -239,7 +239,12 @@ def extract(path, content, normalized=False):
     raise wc.Fail(2, f'Unsupported source extension {suffix or "(none)"}; original stored, extraction incomplete. Supply a supported source or explicitly prepare a rendition.')
 
 
-def ingest(cfg, path, title=None, version='v1', audio_storage='normalized', image_review=None):
+def ingest(cfg, path, title=None, version='v1', audio_storage='normalized', image_review=None, transcript_bundle=None):
+    if transcript_bundle:
+        if image_review or audio_storage != 'original':
+            raise wc.Fail(2, '--transcript-bundle requires --audio-storage original and cannot use --image-review.')
+        from .transcript_bundle import import_bundle
+        return import_bundle(cfg, path, transcript_bundle, title, version)
     path = Path(path).resolve()
     if not version or len(version) > 100:
         raise wc.Fail(2, 'Rendition version must contain 1–100 characters.')

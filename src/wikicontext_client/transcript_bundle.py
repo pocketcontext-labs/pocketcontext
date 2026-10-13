@@ -1,0 +1,272 @@
+"""Strict, offline evidence-bundle preflight and resumable immutable import."""
+import hashlib
+import json
+import math
+from pathlib import Path, PurePosixPath
+import re
+import tempfile
+from datetime import datetime
+
+from . import cli as wc
+
+ROLES = {'transcript', 'transcript_txt', 'transcript_srt', 'analysis', 'analysis_md',
+         'translation', 'translation_txt', 'translation_srt'}
+ARTIFACT_FORMATS = {
+    'transcript': ('transcript.json', 'application/json'),
+    'transcript_txt': ('transcript.txt', 'text/plain'),
+    'transcript_srt': ('transcript.srt', 'application/x-subrip'),
+    'analysis': ('analysis.json', 'application/json'),
+    'analysis_md': ('analysis.md', 'text/markdown'),
+    'translation': ('translation.json', 'application/json'),
+    'translation_txt': ('translation.txt', 'text/plain'),
+    'translation_srt': ('translation.srt', 'application/x-subrip'),
+}
+MAX_FILE = 100 * 1024 * 1024
+MAX_JSON = 8 * 1024 * 1024
+
+
+def require(ok, message):
+    if not ok:
+        raise wc.Fail(2, 'Invalid transcript bundle: ' + message)
+
+
+def text(value, maximum=1000000):
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= maximum
+
+
+def number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def strict_json(data):
+    require(len(data) <= MAX_JSON, 'JSON exceeds 8 MiB.')
+    def pairs(values):
+        result = {}
+        for key, value in values:
+            require(key not in result, 'duplicate JSON key.')
+            result[key] = value
+        return result
+    try:
+        return json.loads(data.decode('utf-8'), object_pairs_hook=pairs,
+                          parse_constant=lambda _: require(False, 'non-finite JSON number.'))
+    except (ValueError, UnicodeError, RecursionError):
+        raise wc.Fail(2, 'Invalid transcript bundle JSON.') from None
+
+
+def read(path, limit=MAX_FILE):
+    require(path.is_file() and path.stat().st_size <= limit, 'missing or oversized regular file.')
+    with path.open('rb') as handle:
+        result = handle.read(limit + 1)
+    require(len(result) <= limit, 'file grew beyond size limit.')
+    return result
+
+
+def _preflight(audio, manifest_path):
+    from . import ingest as ing
+    audio, manifest_path = Path(audio), Path(manifest_path)
+    raw = read(manifest_path, MAX_JSON)
+    m = strict_json(raw)
+    require(isinstance(m, dict) and m.get('schema_version') == 'gemini-transcribe.bundle/v1', 'unsupported manifest version.')
+    require(set(m) <= {'schema_version', 'run_id', 'created_at', 'status', 'source', 'extraction', 'stages', 'artifacts', 'errors', 'configuration'}, 'unknown manifest fields.')
+    require(m.get('status') == 'complete', 'only complete bundles can be imported.')
+    require(text(m.get('run_id'), 200), 'invalid run ID.')
+    try:
+        stamp = datetime.fromisoformat(m['created_at'].replace('Z', '+00:00'))
+        require(stamp.utcoffset().total_seconds() == 0, 'created_at must be UTC.')
+    except (KeyError, TypeError, ValueError, AttributeError):
+        require(False, 'invalid created_at.')
+    s, e, stages = m.get('source'), m.get('extraction'), m.get('stages')
+    require(isinstance(s, dict) and isinstance(e, dict) and isinstance(stages, dict), 'missing source, extraction or stages.')
+    require(set(s) == {'name', 'sha256', 'size_bytes', 'mime_type', 'duration_seconds'} and set(e) == {'provider', 'model', 'package_version', 'prompt_version', 'store'} and set(stages) == {'transcription', 'analysis', 'translation'}, 'unknown or missing provenance fields.')
+    errors = m.get('errors', [])
+    require(isinstance(errors, list) and len(errors) <= 3, 'invalid errors.')
+    for error in errors:
+        require(isinstance(error, dict) and set(error) <= {'stage', 'code', 'http_status'} and error.get('stage') in ('transcription', 'analysis', 'translation') and text(error.get('code'), 100) and ('http_status' not in error or error['http_status'] is None or type(error['http_status']) is int and 100 <= error['http_status'] <= 599), 'invalid error receipt.')
+    require(text(s.get('name'), 500) and PurePosixPath(s['name']).name == s['name'] and '\\' not in s['name'], 'invalid source name.')
+    require(text(s.get('mime_type'), 100) and s['mime_type'].startswith('audio/'), 'invalid source MIME type.')
+    require(number(s.get('duration_seconds')) and 0 < s['duration_seconds'] <= 31_536_000, 'invalid duration.')
+    require(e.get('provider') == 'google' and type(e.get('store')) is bool and all(text(e.get(k), 100) for k in ('model', 'package_version', 'prompt_version')), 'invalid extraction provenance.')
+    require(stages.get('transcription') == 'complete' and all(stages.get(k) in ('complete', 'skipped') for k in ('analysis', 'translation')), 'incomplete stages.')
+    config = m.get('configuration')
+    if config is not None:
+        require(isinstance(config, dict) and text(config.get('translation_language'), 100) and (config.get('language_hint') is None or text(config.get('language_hint'), 100)), 'invalid configuration.')
+    source = read(audio)
+    require(source and type(s.get('size_bytes')) is int and len(source) == s['size_bytes'] and sha(source) == s.get('sha256'), 'source hash or size mismatch.')
+    # Probe an immutable copy of the bytes we will upload, never the mutable input.
+    with tempfile.TemporaryDirectory(prefix='wiki-bundle-probe-') as folder:
+        snap = Path(folder) / ('audio' + audio.suffix)
+        snap.write_bytes(source)
+        measured = ing.command(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(snap)])
+    try:
+        measured = float(measured.strip())
+    except ValueError:
+        require(False, 'cannot independently measure audio duration.')
+    require(number(measured) and measured > 0 and abs(measured - s['duration_seconds']) <= 2, 'source duration mismatch.')
+    artifacts = m.get('artifacts')
+    require(isinstance(artifacts, list) and 3 <= len(artifacts) <= len(ROLES), 'invalid artifacts.')
+    files, paths = {}, set()
+    root = manifest_path.resolve().parent
+    for a in artifacts:
+        require(isinstance(a, dict) and a.get('role') in ROLES and a['role'] not in files, 'duplicate or unknown artifact role.')
+        require(set(a) == {'role', 'path', 'sha256', 'size_bytes', 'media_type'}, 'unknown artifact fields.')
+        name = a.get('path')
+        require((name, a.get('media_type')) == ARTIFACT_FORMATS[a['role']], 'artifact filename or media type differs from role.')
+        require(text(name, 500) and '\\' not in name and not PurePosixPath(name).is_absolute() and all(p not in ('', '.', '..') for p in name.split('/')), 'unsafe artifact path.')
+        require(name not in paths and name != manifest_path.name, 'duplicate artifact path.')
+        target = root
+        for part in name.split('/'):
+            target = target / part
+            require(not target.is_symlink(), 'symlink artifact path.')
+        require(target.resolve().is_relative_to(root), 'escaping artifact path.')
+        data = read(target)
+        require(type(a.get('size_bytes')) is int and len(data) == a['size_bytes'] and sha(data) == a.get('sha256'), 'artifact hash or size mismatch.')
+        require(text(a.get('media_type'), 100), 'invalid artifact media type.')
+        require(len(data) > 0, 'empty artifact cannot be stored as a protected original; regenerate nonempty presentations.')
+        files[a['role']] = (target, data)
+        paths.add(name)
+    expected = {'transcript', 'transcript_txt', 'transcript_srt'}
+    if stages['analysis'] == 'complete': expected |= {'analysis', 'analysis_md'}
+    if stages['translation'] == 'complete': expected |= {'translation', 'translation_txt', 'translation_srt'}
+    require(set(files) == expected, 'artifacts do not match stages.')
+    t = strict_json(files['transcript'][1])
+    require(isinstance(t, dict) and t.get('schema_version') == 'gemini-transcribe.transcript/v1' and text(t.get('language'), 100), 'invalid transcript version or language.')
+    for key in ('segments', 'audio_annotations', 'uncertainties', 'tone'):
+        require(isinstance(t.get(key), list) and len(t[key]) <= 100000, 'invalid transcript arrays.')
+    ids, speakers, previous = set(), set(), -1
+    def timing(item):
+        require(isinstance(item, dict) and number(item.get('start')) and number(item.get('end')) and 0 <= item['start'] <= item['end'] <= measured + 2, 'invalid timestamps.')
+    for i, seg in enumerate(t['segments'], 1):
+        timing(seg)
+        require(seg.get('id') == f'seg{i:06d}' and text(seg.get('text')) and isinstance(seg.get('speaker'), str) and re.fullmatch(r'(?:SPEAKER_(?:0[1-9]|[1-9][0-9]+)|UNKNOWN)', seg['speaker']) is not None and seg['start'] >= previous, 'invalid segment.')
+        ids.add(seg['id']); speakers.add(seg['speaker']); previous = seg['start']
+    def refs(item):
+        require(isinstance(item, dict), 'invalid referenced claim.')
+        r = item.get('segment_ids')
+        require(isinstance(r, list) and r and all(isinstance(x, str) and x in ids for x in r) and len(set(r)) == len(r), 'invalid segment references.')
+    for i, ann in enumerate(t['audio_annotations'], 1):
+        timing(ann)
+        require(ann.get('id') == f'ann{i:06d}' and ann.get('kind') in ('laughter', 'pause', 'overlap', 'background_noise', 'other') and text(ann.get('description')) and isinstance(ann.get('speakers'), list) and all(isinstance(x, str) and x in speakers for x in ann['speakers']) and len(set(ann['speakers'])) == len(ann['speakers']), 'invalid audio annotation.')
+    for item in t['uncertainties']:
+        refs(item); require(item.get('kind') in ('wording', 'speaker', 'timing', 'other') and text(item.get('description')), 'invalid uncertainty.')
+    for item in t['tone']:
+        refs(item); require(item.get('subjective') is True and text(item.get('label')) and text(item.get('cues')), 'invalid subjective tone.')
+    documents = {'transcript': t}
+    if 'analysis' in files:
+        a = strict_json(files['analysis'][1]); documents['analysis'] = a
+        require(isinstance(a, dict) and a.get('schema_version') == 'gemini-transcribe.analysis/v1', 'invalid analysis version.')
+        fields = {'summary': ('text',), 'topics': ('title', 'text'), 'decisions': ('text',), 'action_items': ('task',), 'questions': ('question',), 'speaker_mappings': ('name',)}
+        for key, required in fields.items():
+            require(isinstance(a.get(key), list), 'invalid analysis array.')
+            for item in a[key]:
+                refs(item); require(all(text(item.get(k)) for k in required), 'missing claim text.')
+                if key == 'action_items': require(all(k in item and (item[k] is None or text(item[k])) for k in ('owner', 'deadline')), 'invalid action attribution.')
+                if key == 'questions': require(item.get('status') in ('answered', 'partially_answered', 'unresolved', 'unclear') and 'answer' in item and (item['answer'] is None or text(item['answer'])), 'invalid question.')
+                if key == 'speaker_mappings': require(item.get('speaker') in speakers and item.get('status') in ('explicit', 'tentative'), 'invalid speaker mapping.')
+    if 'translation' in files:
+        tr = strict_json(files['translation'][1]); documents['translation'] = tr
+        require(isinstance(tr, dict) and tr.get('schema_version') == 'gemini-transcribe.translation/v1' and text(tr.get('target_language'), 100) and isinstance(tr.get('segments'), list), 'invalid translation.')
+        if config is not None:
+            require(tr['target_language'] == config['translation_language'], 'translation language differs from configuration.')
+        require(len(tr['segments']) == len(t['segments']), 'incomplete translation.')
+        for translated, original in zip(tr['segments'], t['segments']):
+            require(isinstance(translated, dict) and translated.get('segment_id') == original['id'] and text(translated.get('text')), 'invalid translated segment.')
+    return m, raw, source, files, documents
+
+
+def preflight(audio, manifest_path):
+    try:
+        return _preflight(audio, manifest_path)
+    except (OSError, KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        raise wc.Fail(2, 'Invalid transcript bundle structure or inaccessible local file; no uploads attempted.') from None
+
+
+def import_bundle(cfg, audio, manifest_path, title, version):
+    from . import ingest as ing
+    require(text(version, 100), 'version must contain 1–100 characters.')
+    require(title is None or text(title, 500), 'title exceeds source bounds.')
+    m, raw, content, files, docs = preflight(audio, manifest_path)
+    # Build derived audio-observation passages before any network writes. Keep
+    # model judgements distinct from words actually spoken in the recording.
+    observation_chunks, observation_ordinals = [], {}
+    indexed = {seg['id']: seg for seg in docs['transcript']['segments']}
+    for category, items in [('tone', docs['transcript']['tone']), ('uncertainty', docs['transcript']['uncertainties'])]:
+        for index, item in enumerate(items, 1):
+            key = f'{category}{index:06d}'
+            refs = item['segment_ids']
+            start = min(indexed[ref]['start'] for ref in refs)
+            end = max(indexed[ref]['end'] for ref in refs)
+            if category == 'tone':
+                body = 'Subjective model tone inference (not spoken text): ' + item['label'] + '\nAcoustic cues: ' + item['cues']
+            else:
+                body = 'Model extraction uncertainty (not spoken text): ' + item['kind'] + '\n' + item['description']
+            body += '\nReferenced transcript segments: ' + ', '.join(refs)
+            first = len(observation_chunks)
+            observation_chunks += ing.chunks(body, f'observation {key}; seconds {start:.3f}-{end:.3f}')
+            observation_ordinals[key] = list(range(first, len(observation_chunks)))
+    require(all(len(p['locator']) <= 500 and len(p['body']) <= 30000 for p in observation_chunks), 'model observation exceeds passage bounds.')
+    digest = sha(raw)
+    space = wc.space_id(cfg)
+    def get_source(path, data, label=None):
+        found = ing.rows(cfg, 'SELECT id, sha256 FROM sources WHERE space = ' + ing.literal(space) + ' AND sha256 = ' + ing.literal(sha(data)) + ' LIMIT 1')
+        record = found[0] if found else ing.upload_source(cfg, path, data, sha(data), label)
+        require(record.get('sha256') == sha(data), 'server source digest mismatch.')
+        return record['id']
+    source = get_source(Path(m['source']['name']), content, title)
+    # Establish the immutable import identity before auxiliary uploads.
+    base_notes = {'bundle_sha256': digest, 'source_sha256': sha(content), 'schema_version': m['schema_version']}
+    def rendition(source_id, kind, passages, extra=None):
+        notes = json.dumps({**base_notes, **(extra or {}), 'passages': len(passages), 'sha256': sha(json.dumps(passages, sort_keys=True).encode())}, sort_keys=True)
+        require(len(notes) <= 10000, 'provenance exceeds notes bounds.')
+        query = 'SELECT id, notes FROM renditions WHERE source = ' + ing.literal(source_id) + ' AND kind = ' + ing.literal(kind) + ' AND version_label = ' + ing.literal(version) + ' LIMIT 1'
+        existing = ing.rows(cfg, query)
+        if not existing:
+            try:
+                record = wc.must(cfg, 'POST', wc.records('renditions'), {'source': source_id, 'kind': kind, 'processor': 'google/' + m['extraction']['model'] + ' / transcript-bundle-v1', 'version_label': version, 'notes': notes})
+            except wc.Fail:
+                existing = ing.rows(cfg, query)
+                if not existing: raise
+                record = existing[0]
+        else: record = existing[0]
+        if record['notes'] != notes: raise wc.Fail(4, 'Existing bundle rendition differs; select a new --version.')
+        mapping = []
+        for ordinal, passage in enumerate(passages, 1):
+            query = 'SELECT id, locator, body FROM passages WHERE rendition = ' + ing.literal(record['id']) + f' AND ordinal = {ordinal} LIMIT 1'
+            previous = ing.rows(cfg, query)
+            if not previous:
+                try: previous = [wc.must(cfg, 'POST', wc.records('passages'), {'rendition': record['id'], 'ordinal': ordinal, **passage})]
+                except wc.Fail:
+                    previous = ing.rows(cfg, query)
+                    if not previous: raise
+            if any(previous[0][k] != passage[k] for k in ('locator', 'body')): raise wc.Fail(4, 'Existing bundle passage differs; select a new --version.')
+            mapping.append(previous[0]['id'])
+        counts = ing.rows(cfg, 'SELECT COUNT(*) AS count FROM passages WHERE rendition = ' + ing.literal(record['id']))[0]
+        if counts['count'] != len(passages): raise wc.Fail(4, 'Unexpected bundle passages; select a new --version.')
+        return record['id'], mapping
+    t = docs['transcript']
+    passages, segment_ordinals = [], {}
+    for seg in t['segments']:
+        start = len(passages)
+        passages += ing.chunks(seg['speaker'] + ': ' + seg['text'], f"segment {seg['id']}; seconds {seg['start']:.3f}-{seg['end']:.3f}")
+        segment_ordinals[seg['id']] = list(range(start, len(passages)))
+    rid, passage_ids = rendition(source, 'transcript', passages)
+    artifact_sources = {'manifest': get_source(Path('manifest.json'), raw)}
+    for role, (path, data) in files.items(): artifact_sources[role] = get_source(Path(path.name), data)
+    annotation_passages, acoustic = {}, []
+    for ann in t['audio_annotations']:
+        start = len(acoustic)
+        acoustic += ing.chunks(ann['kind'] + ': ' + ann['description'], f"annotation {ann['id']}; seconds {ann['start']:.3f}-{ann['end']:.3f}")
+        annotation_passages[ann['id']] = list(range(start, len(acoustic)))
+    arid, aids = rendition(source, 'audio-annotations', acoustic)
+    orid, oids = rendition(source, 'model-observations', observation_chunks)
+    derived = {}
+    for role in ('analysis', 'translation'):
+        if role in docs:
+            chunks = ing.chunks(json.dumps(docs[role], ensure_ascii=False, indent=2), 'derived ' + role + '; segment references in artifact')
+            derived[role], _ = rendition(artifact_sources[role], 'derived-' + role, chunks, {'audio_source': source, 'transcript_rendition': rid, 'independent_evidence': False})
+    # Final link record is immutable and reconstructible after any interrupted phase.
+    link_rid, _ = rendition(source, 'transcript-bundle', [], {'artifact_sources': artifact_sources, 'transcript_rendition': rid, 'annotations_rendition': arid, 'observations_rendition': orid, 'derived_renditions': derived})
+    return {'space': space, 'source': source, 'sha256': sha(content), 'rendition': rid, 'bundle_rendition': link_rid, 'artifact_sources': artifact_sources, 'derived_renditions': derived, 'annotations_rendition': arid, 'observations_rendition': orid, 'observation_passages': {k: [oids[i] for i in v] for k, v in observation_ordinals.items()}, 'segment_passages': {k: [passage_ids[i] for i in v] for k, v in segment_ordinals.items()}, 'annotation_passages': {k: [aids[i] for i in v] for k, v in annotation_passages.items()}, 'passages': len(passages), 'status': 'extracted', 'next': 'Review original evidence, synthesize cited revisions in a staging run, then publish.'}
