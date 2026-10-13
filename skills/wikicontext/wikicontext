@@ -4,7 +4,7 @@
 # dependencies = ["wikicontext-client"]
 #
 # [tool.uv.sources]
-# wikicontext-client = { git = "https://github.com/pocketcontext/wikicontext.git", rev = "eaf04f8baa111bb301b32809345db7e4d11b5399" }
+# wikicontext-client = { git = "https://github.com/pocketcontext/wikicontext.git", rev = "85fbc63405b3fe878af076181cb7961a85a6ecb1" }
 # ///
 """Standalone launcher for the pinned wikicontext client."""
 from wikicontext_client.cli import main
