@@ -192,6 +192,18 @@ def ingest_audio(cfg, path, title, version, audio_storage, pipeline, language,
                        'audio': provenance, 'status': 'prepared'}
             save(receipt_path, receipt)
         if receipt['status'] != 'complete':
+            # A different host may already have imported this exact stored audio.
+            # Generation is billable and its new bundle identity would conflict
+            # with the immutable version, so fail before invoking the provider.
+            existing = ing.rows(cfg,
+                    'SELECT r.id, r.kind, s.id AS source FROM renditions r JOIN sources s ON r.source = s.id '
+                    'WHERE s.space = ' + ing.literal(space) + ' AND s.sha256 = ' + ing.literal(digest) +
+                    ' AND r.version_label = ' + ing.literal(version) +
+                    " AND r.kind IN ('transcript', 'transcript-bundle') ORDER BY r.kind DESC LIMIT 1")
+            if existing:
+                raise wc.Fail(4, 'An extraction already exists for this audio and version; '
+                              f"reuse source {existing[0]['source']} and rendition {existing[0]['id']}, or explicitly select a new --version. "
+                              'No Gemini generation attempted.')
             if receipt['status'] != 'prepared' and not resume:
                 raise wc.Fail(1, f'Previous Gemini attempt requires explicit --resume {receipt_path}; no provider retry attempted.')
             if not os.environ.get('GEMINI_API_KEY', '').strip():

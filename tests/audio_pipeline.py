@@ -27,7 +27,7 @@ class AudioPipelineTests(unittest.TestCase):
         self.imports = patch.object(transcript_bundle, 'import_bundle', return_value={'status': 'extracted', 'source': 'synthetic'})
         for p in (patch.dict(os.environ, {'XDG_CACHE_HOME': str(self.root / 'cache'), 'GEMINI_API_KEY': 'synthetic'}),
                   patch.object(ap.wc, 'space_id', return_value='companyspace001'),
-                  patch.object(ingest, 'rows', return_value=[{'role': 'editor'}]),
+                  patch.object(ingest, 'rows', side_effect=lambda cfg, sql: [{'role': 'editor'}] if 'space_members' in sql else []),
                   patch.object(ap.wc, 'must', return_value={'record': {'id': 'testaccount0001'}}), patch.object(ap.shutil, 'which', return_value='/synthetic/tool'),
                   patch.object(ingest, 'prepare_audio', return_value=(b'synthetic ogg', self.provenance)),
                   patch.object(ap.subprocess, 'run', side_effect=self.provider), self.imports):
@@ -123,6 +123,15 @@ class AudioPipelineTests(unittest.TestCase):
                 ingest.ingest(self.cfg, path, audio_storage='original')
                 self.assertEqual(route.call_args.args[1], path)
                 self.assertEqual(route.call_args.args[4], 'original')
+
+    def test_existing_remote_extraction_prevents_billable_generation(self):
+        for kind in ('transcript', 'transcript-bundle'):
+            with self.subTest(kind=kind), patch.object(ingest, 'rows', side_effect=lambda cfg, sql:
+                    [{'role': 'editor'}] if 'space_members' in sql else [{'id': 'existing', 'kind': kind, 'source': 'source'}]):
+                with self.assertRaises(ap.wc.Fail) as failed:
+                    self.run_audio()
+                self.assertIn('already exists', str(failed.exception))
+                self.assertEqual(self.calls, [])
 
     def test_import_only_never_runs_gemini(self):
         self.run_audio(transcript_bundle=self.root / 'manifest.json', audio_storage='original')
