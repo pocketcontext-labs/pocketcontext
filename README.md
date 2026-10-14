@@ -42,6 +42,18 @@ offers an authenticated original-file download.
 
 The live view adopts complete publications and rechecks after reconnect or tab
 focus. Selecting a historical publication pins the view until you return to live.
+Same-space published-page navigation and publication refreshes retain the complete
+displayed view until its replacement is ready; temporary network failures leave it readable.
+Immutable publication validation, directories and page details share bounded
+in-memory session caches. Directory and evidence counts must match their selected
+publication before retention; incomplete reads can be retried. Private content is
+never persisted by these caches.
+Membership checks run on focus, reconnect, publication events and every minute,
+including during slow content reads. Confirmed access loss discards cached data,
+clears affected views and rejects pending responses. Logout or an identity change
+also discards all reader caches. Unchanged publications reuse cached content.
+See [performance behavior and server adoption](docs/reader-performance.md)
+for cache bounds, isolated measurements and release prerequisites.
 Each publication can select a home page. `/#/` opens that page and the sidebar marks it Home; unset or cleared choices open the built-in welcome index. Historical views retain their home choice, and explicit page links stay stable. The Welcome link (`/#/welcome`) always opens a searchable, topic-grouped index of every unarchived page in the selected publication, with an A–Z view and onboarding links drawn only from available pages. New or uncategorized pages remain visible under Other knowledge. Welcome and sidebar search use the same full-text search across published titles, summaries and contents. The sidebar starts with topic navigation; expand All pages for the complete catalog. The welcome directory supports topic browsing and an A–Z view, while additional onboarding guides remain under All onboarding guides. No company page catalog is bundled into the reader.
 Unpublished revisions are never selected. Markdown supports tables, code, wiki
 links with aliases/heading anchors, citation markers and callouts. Raw HTML and
@@ -383,7 +395,7 @@ The existing `wiki/` checkout has not been modified or migrated. Import original
 
 ## Infrastructure provenance
 
-Authentication and portable OAuth client adapted from RaiseContext `44f8f10537388f9a934a2bc1800d3df6a046c580`; revision/concurrency and realtime test patterns from TaskContext `5bb214ef32fcffa9a42bb1de2d13cfd4052dc80f`; protected originals, complete backups and container/deployment patterns from AccountContext `2b78c0f38680381376b0ce485312ff659037a13f`. WikiContext's domain schema and publication/export model are independent. Server pin: `dc1dc6b0e88bbc46f36fa8441c8f6959bada4732`.
+Authentication and portable OAuth client adapted from RaiseContext `44f8f10537388f9a934a2bc1800d3df6a046c580`; revision/concurrency and realtime test patterns from TaskContext `5bb214ef32fcffa9a42bb1de2d13cfd4052dc80f`; protected originals, complete backups and container/deployment patterns from AccountContext `2b78c0f38680381376b0ce485312ff659037a13f`. WikiContext's domain schema and publication/export model are independent. The current server pin is recorded in `POCKETCONTEXT_VERSION`.
 
 ## Request observability
 

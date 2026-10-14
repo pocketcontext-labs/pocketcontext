@@ -1,6 +1,8 @@
 # Filtered SQL snapshot reuse
 
-WikiContext pins PocketContext `4b03d2905a34d9a606cb313e118d6874e74f0548`.
+This is the 11 October 2026 release record, which adopted PocketContext
+`4b03d2905a34d9a606cb313e118d6874e74f0548`. See the
+[reader performance changes](reader-performance.md) for the current adoption.
 SQL snapshots are reused per authenticated requester and invalidated on every
 committed source-database change. Membership and account changes therefore
 invalidate cached visibility. Each request still authenticates. Search retains

@@ -1,3 +1,4 @@
+import { MemoryCache } from "./memoryCache";
 import PocketBase, { BaseAuthStore, LocalAuthStore, type SendOptions, type RecordAuthResponse } from "pocketbase";
 import type {
   Citation,
@@ -6,6 +7,19 @@ import type {
   Publication,
   Source,
 } from "./types";
+
+// Private publication content never leaves memory. Session changes and confirmed
+// membership loss discard every entry, including pending reads.
+const validatedPublications = new MemoryCache<number | null>(128, 4096);
+const publicationCache = new MemoryCache<Publication | null>(128, 256 * 1024);
+const pageLists = new MemoryCache<PageSummary[]>(8, 8 * 1024 * 1024);
+const pageDetails = new MemoryCache<PageDetail | null>(48, 16 * 1024 * 1024);
+export function clearReaderCache(): void {
+  validatedPublications.clear();
+  publicationCache.clear();
+  pageLists.clear();
+  pageDetails.clear();
+}
 
 // The SDK synchronizes this application's credentials across same-origin tabs.
 const sessionKey = "wikicontext.reader.auth";
@@ -45,6 +59,7 @@ authStore.onChange(() => {
   }
   activeIdentity = next;
   sessionGeneration++;
+  clearReaderCache();
   realtimeCleanup = realtimeCleanup.then(() => pb.realtime.unsubscribe()).catch(() => {});
 });
 export const pb = new PocketBase(
@@ -160,7 +175,11 @@ function published(publicationId: string): string {
   return `FROM publications pub JOIN json_each(pub.manifest) m JOIN pages p ON p.id=m.key JOIN page_revisions r ON r.page=p.id AND r.id=m.value WHERE pub.id=${identity(publicationId)} AND m.type='text' AND r.archived=0`;
 }
 
-async function validatePublication(publicationId: string): Promise<boolean> {
+async function validatePublication(publicationId: string): Promise<number | null> {
+  identity(publicationId);
+  return validatedPublications.read(publicationId, () => readPublicationValidation(publicationId), count => count !== null);
+}
+async function readPublicationValidation(publicationId: string): Promise<number | null> {
   // Validate before inner joins can discard broken entries. Publications and
   // their revisions are immutable, so subsequent paged reads share this check.
   const rows = await query<{
@@ -168,9 +187,11 @@ async function validatePublication(publicationId: string): Promise<boolean> {
     total: number;
     unique_keys: number;
     invalid: number;
+    published_count: number;
   }>(
     `SELECT json_type(pub.manifest) AS manifest_type, count(m.key) AS total,
       count(DISTINCT m.key) AS unique_keys,
+      coalesce(sum(CASE WHEN r.archived=0 THEN 1 ELSE 0 END),0) AS published_count,
       coalesce(sum(CASE WHEN m.key IS NULL THEN 0
         WHEN length(m.key)!=15 OR m.key GLOB '*[^a-z0-9]*'
         OR m.type!='text' OR length(m.value)!=15 OR m.value GLOB '*[^a-z0-9]*'
@@ -180,15 +201,20 @@ async function validatePublication(publicationId: string): Promise<boolean> {
      LEFT JOIN page_revisions r ON r.id=m.value AND r.page=p.id
      WHERE pub.id=${identity(publicationId)} GROUP BY pub.id LIMIT 1`,
   );
-  if (!rows.length) return false;
+  if (!rows.length) return null;
   const check = rows[0];
   if (
     check.manifest_type !== "object" ||
     check.invalid !== 0 ||
-    check.total !== check.unique_keys
+    check.total !== check.unique_keys ||
+    !Number.isSafeInteger(check.published_count) || check.published_count < 0 || check.published_count > check.total
   )
     throw new Error("This publication is incomplete or invalid");
-  return true;
+  return check.published_count;
+}
+
+export class IncompleteReadError extends Error {
+  constructor() { super("This publication could not be read completely. Please retry."); }
 }
 
 export interface Space {
@@ -231,19 +257,23 @@ export async function latestPublication(space = companySpace): Promise<Publicati
   return (await listPublications(space, 0, 1))[0] ?? null;
 }
 export async function getPublication(id: string): Promise<Publication | null> {
-  return (
+  identity(id);
+  return publicationCache.read(id, async () => (
     (
       await query<Publication>(
         `SELECT id, space, sequence, run, home, created FROM publications WHERE id=${identity(id)} LIMIT 1`,
       )
     )[0] ?? null
-  );
+  ), publication => publication !== null);
 }
 export async function listPages(publicationId: string): Promise<PageSummary[]> {
-  if (!(await validatePublication(publicationId))) return [];
-  return allRows(
-    `SELECT ${summary} ${published(publicationId)} ORDER BY p.slug`,
-  );
+  const expected = await validatePublication(publicationId);
+  if (expected === null) return [];
+  return pageLists.read(publicationId, async () => {
+    const pages = await allRows<PageSummary>(`SELECT ${summary} ${published(publicationId)} ORDER BY p.slug`, 200);
+    if (pages.length !== expected) throw new IncompleteReadError();
+    return pages;
+  }, pages => pages.length > 0);
 }
 export interface SearchPage {
   generation: string;
@@ -281,7 +311,7 @@ export async function searchPages(
     throw new Error(
       "Search must contain 1 to 500 characters and at most 16 words",
     );
-  if (!(await validatePublication(publicationId)))
+  if ((await validatePublication(publicationId)) === null)
     throw new Error("This publication is unavailable");
   const token = pb.authStore.token;
   let result: {
@@ -395,10 +425,20 @@ export async function getPage(
 ): Promise<PageDetail | null> {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
     throw new Error("Invalid page slug");
-  if (!(await validatePublication(publicationId))) return null;
+  if ((await validatePublication(publicationId)) === null) return null;
+  return pageDetails.read(`${publicationId}:${slug}`, () => readPage(publicationId, slug), page => page !== null);
+}
+async function readPage(publicationId: string, slug: string): Promise<PageDetail | null> {
   const page = (
-    await query<PageSummary & { body: string }>(
-      `SELECT ${summary}, r.body, r.property_evidence ${published(publicationId)} AND p.slug=${literal(slug)} LIMIT 1`,
+    await query<PageSummary & { body: string; citation_count: number; backlink_count: number; link_count: number }>(
+      // The selected revision and all expected relationship counts come from
+      // one authorized SQL snapshot. Separate paged reads must match it before
+      // a complete detail can enter the immutable cache.
+      `SELECT selected.*,
+        (SELECT count(*) FROM citations c WHERE c.page_revision=selected.id) AS citation_count,
+        (SELECT count(*) ${published(publicationId)} AND r.id IN (SELECT l.page_revision FROM page_links l WHERE l.target=selected.page)) AS backlink_count,
+        (SELECT count(*) ${published(publicationId)} AND p.id IN (SELECT l.target FROM page_links l WHERE l.page_revision=selected.id)) AS link_count
+       FROM (SELECT ${summary}, r.body, r.property_evidence ${published(publicationId)} AND p.slug=${literal(slug)} LIMIT 1) selected`,
     )
   )[0];
   if (!page) return null;
@@ -416,6 +456,11 @@ export async function getPage(
       `SELECT ${summary} ${published(publicationId)} AND p.id IN (SELECT l.target FROM page_links l WHERE l.page_revision=${identity(page.id)}) ORDER BY p.slug`,
     ),
   ]);
+  const { citation_count, backlink_count, link_count, ...detail } = page;
+  const counts = [citation_count, backlink_count, link_count];
+  if (counts.some(count => !Number.isSafeInteger(count) || count < 0) ||
+      citation_count !== rows.length || backlink_count !== backlinks.length || link_count !== links.length)
+    throw new IncompleteReadError();
   const citations: Citation[] = rows
     .map((row) => ({
       id: row.id,
@@ -438,7 +483,7 @@ export async function getPage(
       },
     }))
     .sort((a, b) => Number(a.marker) - Number(b.marker));
-  return { ...page, citations, backlinks, links };
+  return { ...detail, citations, backlinks, links };
 }
 
 const googleRequestKey = "wikicontext-google-signin";
@@ -592,6 +637,7 @@ export async function watchPublications(
 }
 
 export const api = {
+  clearReaderCache,
   listSpaces,
   createPersonalSpace,
   evidenceSpace,

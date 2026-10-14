@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  clearReaderCache,
+  IncompleteReadError,
   getPage,
   listPages,
   logout,
@@ -26,15 +28,91 @@ function response(rows: Record<string, unknown>[], truncated = false) {
     truncated,
   };
 }
-const validManifest = () =>
-  response([{ manifest_type: "object", total: 1, unique_keys: 1, invalid: 0 }]);
+const validManifest = (published = 1) =>
+  response([{ manifest_type: "object", total: Math.max(1, published), unique_keys: Math.max(1, published), invalid: 0, published_count: published }]);
+const detailRow = (page: Record<string, unknown>, citations = 0, backlinks = 0, links = 0) =>
+  ({ ...page, citation_count: citations, backlink_count: backlinks, link_count: links });
 
 afterEach(() => {
+  clearReaderCache();
   vi.restoreAllMocks();
   pb.authStore.clear();
 });
 
 describe("published knowledge reads", () => {
+  it("shares validation and complete publication data until access invalidation", async () => {
+    const page = { id: "revision0000001", page: "page00000000001", slug: "example", title: "Example", body: "Synthetic" };
+    const send = vi.spyOn(pb, "send").mockImplementation(async (_path, options) => {
+      const sql = options?.body.sql as string;
+      if (sql.includes("manifest_type")) return validManifest();
+      if (sql.includes("r.body")) return response([detailRow(page)]);
+      if (sql.includes("FROM citations") || sql.includes("FROM page_links")) return response([]);
+      return response([page]);
+    });
+    await Promise.all([listPages(publication), getPage(publication, "example")]);
+    expect(send).toHaveBeenCalledTimes(6);
+    await Promise.all([listPages(publication), getPage(publication, "example")]);
+    expect(send).toHaveBeenCalledTimes(6);
+    clearReaderCache();
+    await Promise.all([listPages(publication), getPage(publication, "example")]);
+    expect(send).toHaveBeenCalledTimes(12);
+  });
+
+  it("does not retain missing pages or empty directories across temporary visibility loss", async () => {
+    const page = { id: "revision0000001", page: "page00000000001", slug: "example", title: "Example", body: "Synthetic" };
+    let visible = false;
+    vi.spyOn(pb, "send").mockImplementation(async (_path, options) => {
+      const sql = options?.body.sql as string;
+      if (sql.includes("manifest_type")) return validManifest();
+      if (sql.includes("r.body")) return response(visible ? [detailRow(page)] : []);
+      if (sql.includes("FROM citations") || sql.includes("FROM page_links")) return response([]);
+      return response(visible ? [page] : []);
+    });
+    await expect(listPages(publication)).rejects.toBeInstanceOf(IncompleteReadError);
+    await expect(getPage(publication, "example")).resolves.toBeNull();
+    visible = true;
+    await expect(listPages(publication)).resolves.toEqual([page]);
+    await expect(getPage(publication, "example")).resolves.toMatchObject(page);
+  });
+
+  it("rejects and retries a directory whose later batch loses visibility", async () => {
+    const pages = Array.from({ length: 201 }, (_, i) => ({ id: String(i).padStart(15, "0"), slug: `page-${i}` }));
+    let revoked = true;
+    vi.spyOn(pb, "send").mockImplementation(async (_path, options) => {
+      const sql = options?.body.sql as string;
+      if (sql.includes("manifest_type")) return validManifest(pages.length);
+      const [, limit, offset] = /LIMIT (\d+) OFFSET (\d+)/.exec(sql)!;
+      return response(revoked && Number(offset) ? [] : pages.slice(Number(offset), Number(offset) + Number(limit)));
+    });
+    await expect(listPages(publication)).rejects.toBeInstanceOf(IncompleteReadError);
+    revoked = false;
+    await expect(listPages(publication)).resolves.toEqual(pages);
+  });
+
+  it("rejects and retries evidence whose later citation batch loses visibility", async () => {
+    const citations = Array.from({ length: 101 }, (_, i) => ({ id: String(i).padStart(15, "0"), marker: String(i + 1) }));
+    let revoked = true;
+    vi.spyOn(pb, "send").mockImplementation(async (_path, options) => {
+      const sql = options?.body.sql as string;
+      if (sql.includes("manifest_type")) return validManifest();
+      if (sql.includes("r.body")) return response([detailRow({ id: "revision0000001", page: "page00000000001" }, citations.length)]);
+      if (!sql.includes("FROM citations c")) return response([]);
+      const [, limit, offset] = /LIMIT (\d+) OFFSET (\d+)/.exec(sql)!;
+      return response(revoked && Number(offset) ? [] : citations.slice(Number(offset), Number(offset) + Number(limit)));
+    });
+    await expect(getPage(publication, "example")).rejects.toBeInstanceOf(IncompleteReadError);
+    revoked = false;
+    await expect(getPage(publication, "example")).resolves.toMatchObject({ citations: expect.arrayContaining([expect.objectContaining({ marker: "101" })]) });
+  });
+
+  it.each(["backlinks", "links"])("rejects incomplete %s before retaining page details", async kind => {
+    vi.spyOn(pb, "send")
+      .mockResolvedValueOnce(validManifest())
+      .mockResolvedValueOnce(response([detailRow({ id: "revision0000001", page: "page00000000001" }, 0, kind === "backlinks" ? 1 : 0, kind === "links" ? 1 : 0)]))
+      .mockResolvedValue(response([]));
+    await expect(getPage(publication, "example")).rejects.toBeInstanceOf(IncompleteReadError);
+  });
+
   it("reconciles a publication committed between the initial read and subscription activation", async () => {
     vi.spyOn(pb.authStore, "isValid", "get").mockReturnValue(true);
     let connected!: () => void;
@@ -98,7 +176,7 @@ describe("published knowledge reads", () => {
   it("pins index reads to the manifest and excludes archived and staged revisions", async () => {
     const send = vi
       .spyOn(pb, "send")
-      .mockResolvedValueOnce(validManifest())
+      .mockResolvedValueOnce(validManifest(0))
       .mockResolvedValue(response([]));
     await listPages(publication);
     const sql = send.mock.calls[1][1]?.body.sql as string;
@@ -119,18 +197,18 @@ describe("published knowledge reads", () => {
       .mockResolvedValueOnce(response([{ id: "partial" }], true))
       .mockResolvedValueOnce(response([{ id: "complete" }]));
     await expect(listPages(publication)).resolves.toEqual([{ id: "complete" }]);
-    expect(send.mock.calls[1][1]?.body.sql).toContain("LIMIT 100 OFFSET 0");
-    expect(send.mock.calls[2][1]?.body.sql).toContain("LIMIT 50 OFFSET 0");
+    expect(send.mock.calls[1][1]?.body.sql).toContain("LIMIT 200 OFFSET 0");
+    expect(send.mock.calls[2][1]?.body.sql).toContain("LIMIT 100 OFFSET 0");
   });
 
   it("reduces pages when the server rejects the response byte budget", async () => {
     const send = vi
       .spyOn(pb, "send")
-      .mockResolvedValueOnce(validManifest())
+      .mockResolvedValueOnce(validManifest(0))
       .mockRejectedValueOnce({ status: 413 })
       .mockResolvedValueOnce(response([]));
     await expect(listPages(publication)).resolves.toEqual([]);
-    expect(send.mock.calls[2][1]?.body.sql).toContain("LIMIT 50 OFFSET 0");
+    expect(send.mock.calls[2][1]?.body.sql).toContain("LIMIT 100 OFFSET 0");
   });
 
   it("rejects invalid IDs, slugs and pagination before sending requests", async () => {
@@ -271,7 +349,7 @@ describe("published knowledge reads", () => {
     const send = vi
       .spyOn(pb, "send")
       .mockResolvedValueOnce(validManifest())
-      .mockResolvedValueOnce(response([page]))
+      .mockResolvedValueOnce(response([detailRow(page)]))
       .mockResolvedValue(response([]));
     await expect(getPage(publication, "example")).resolves.toEqual({
       ...page,
@@ -297,7 +375,7 @@ describe("published knowledge reads", () => {
     const send = vi.spyOn(pb, "send").mockImplementation(async (_path, options) => {
       const sql = options?.body.sql as string;
       if (sql.includes("AS manifest_type")) return validManifest();
-      if (sql.includes("r.body")) return response([{ id: "revision0000001", page: "page00000000001" }]);
+      if (sql.includes("r.body")) return response([detailRow({ id: "revision0000001", page: "page00000000001" }, 738)]);
       if (!sql.includes("FROM citations c")) return response([]);
       const [, limit, offset] = /LIMIT (\d+) OFFSET (\d+)/.exec(sql)!;
       if (oversized && Number(limit) > 50) throw { status: 413 };

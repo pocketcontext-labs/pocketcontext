@@ -1,4 +1,5 @@
 import AudioRecording from "./Audio";
+import { ReconciledRead } from "./reconciledRead";
 import { spaceLink } from "./spaceLinks";
 import {
   useCallback,
@@ -83,13 +84,19 @@ function Reader() {
     publication: Publication;
     pages: PageSummary[];
     page: PageDetail | null;
+    selection: ReturnType<typeof route>;
   } | null>(null);
   const [error, setError] = useState("");
+  const membershipsCache = useRef<Space[] | null>(null);
+  const membershipsCheckedAt = useRef(0);
+  const membershipReads = useRef(new ReconciledRead<Space[]>());
+  const histories = useRef(new Map<string, Publication[]>());
+  const historyRequests = useRef(new Map<string, Promise<Publication[]>>());
+  const authority = useRef(0);
+  const [accessEpoch, setAccessEpoch] = useState(0);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState(current.query);
-  const [searchEpoch, setSearchEpoch] = useState(0);
   const lastPublication = useRef<string | undefined>(undefined);
-  const latestSeen = useRef("");
   const [outline, setOutline] = useState<
     { level: number; title: string; id: string }[]
   >([]);
@@ -101,6 +108,10 @@ function Reader() {
   const [connected, setConnected] = useState(false);
   const [theme, setTheme] = useState(savedTheme);
   const generation = useRef(0);
+  const mounted = useRef(false);
+  const refreshInFlight = useRef(false);
+  const refreshQueued = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => () => { generation.current++; personalCreation.current++; }, []);
   const historyOffset = useRef(0);
   const [moreHistory, setMoreHistory] = useState(false);
@@ -126,9 +137,9 @@ function Reader() {
       ) {
         generation.current++;
       }
-      if (next.space !== previous.space || next.publication !== previous.publication || next.record !== previous.record) {
+      if ((next.space || companySpace) !== (previous.space || companySpace)) {
         setSnapshot(null); setPublications([]); setSpace(null); setEmptySpace(false);
-        setOriginal(""); lastPublication.current = undefined; latestSeen.current = "";
+        setOriginal(""); lastPublication.current = undefined;
       }
       routeSelection.current = next;
       setCurrent(next);
@@ -186,45 +197,102 @@ function Reader() {
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   }, []);
-  const load = useCallback(async () => {
+  const readMemberships = async (refresh: boolean): Promise<Space[]> => {
+    const identity = sessionGeneration;
+    if (!mounted.current) throw new Error("Reader closed");
+    // Navigation shares a recent authorization check; focus, reconnect, realtime
+    // and the interval always recheck, including same-identity revocations.
+    if (!refresh && !membershipReads.current.active && membershipsCache.current && Date.now() - membershipsCheckedAt.current < 60000)
+      return membershipsCache.current;
+    return membershipReads.current.read(async () => {
+      if (!mounted.current || identity !== sessionGeneration) throw new Error("Session changed");
+      await api.refreshSession();
+      if (!mounted.current || identity !== sessionGeneration) throw new Error("Session changed");
+      const memberships = await api.listSpaces();
+      if (!mounted.current || identity !== sessionGeneration) throw new Error("Session changed");
+      const removed = membershipsCache.current?.filter(old => !memberships.some(item => item.id === old.id)) || [];
+      if (removed.length) {
+        authority.current++;
+        api.clearReaderCache();
+        histories.current.clear();
+        historyRequests.current.clear();
+        // Remount search/evidence children as well: their loaded data is private.
+        setAccessEpoch(authority.current);
+        if (removed.some(item => item.id === selectedSpace.current)) {
+          setSnapshot(null); setPublications([]); setSpace(null); setEmptySpace(false);
+          setEvidence(null); setOriginal(""); lastPublication.current = undefined;
+          setBusy(false);
+          setError("This space is unavailable. Choose another space to continue.");
+        }
+      }
+      membershipsCache.current = memberships;
+      membershipsCheckedAt.current = Date.now();
+      setSpaces(memberships); setMembershipsLoaded(true);
+      return memberships;
+    }, refresh);
+  };
+  const readHistory = (spaceId: string, refresh: boolean): Promise<Publication[]> => {
+    const pending = historyRequests.current.get(spaceId);
+    if (pending) return refresh ? pending.then(() => readHistory(spaceId, true)) : pending;
+    const previous = histories.current.get(spaceId);
+    if (previous && !refresh) return Promise.resolve(previous);
+    const access = authority.current;
+    const request = (async () => {
+      const latest = previous ? await api.latestPublication(spaceId) : undefined;
+      const rows = previous && latest?.id === previous[0]?.id ? previous : await api.listPublications(spaceId);
+      if (access !== authority.current) throw new Error("Reader access changed");
+      histories.current.delete(spaceId);
+      histories.current.set(spaceId, rows);
+      if (histories.current.size > 8) histories.current.delete(histories.current.keys().next().value!);
+      return rows;
+    })().finally(() => { if (historyRequests.current.get(spaceId) === request) historyRequests.current.delete(spaceId); });
+    historyRequests.current.set(spaceId, request);
+    return request;
+  };
+  const load = useCallback(async (refresh = false) => {
     if (!pb.authStore.isValid) { pb.authStore.clear(); return; }
     const own = ++generation.current;
+    const identity = sessionGeneration;
+    const current = routeSelection.current;
+    let access = authority.current;
+    const active = () => mounted.current && identity === sessionGeneration && own === generation.current && access === authority.current;
     setBusy(true);
     setError("");
     try {
-      await api.refreshSession();
-      const memberships = await api.listSpaces();
-      // A pinned publication link opens in its own space when it is a membership.
-      let pinned = current.publication ? await api.getPublication(current.publication) : null;
-      const recordSpace = current.record && current.collection !== "pages"
-        ? await api.evidenceSpace(current.collection, current.record) : null;
+      const unknownSpace = current.space !== undefined && !membershipsCache.current?.some(item => item.id === current.space);
+      const memberships = await readMemberships(refresh || unknownSpace);
+      access = authority.current;
+      if (!active()) return;
+      // A pinned publication or evidence link resolves its authorized space.
+      const [resolvedPublication, recordSpace] = await Promise.all([
+        current.publication ? api.getPublication(current.publication) : Promise.resolve(null),
+        current.record && current.collection !== "pages" ? api.evidenceSpace(current.collection, current.record) : Promise.resolve(null),
+      ]);
+      let pinned = resolvedPublication;
       const chosen = selectSpace(memberships, recordSpace || pinned?.space || current.space);
-      if (own !== generation.current) return;
-      setSpaces(memberships); setMembershipsLoaded(true);
-      if (!chosen) throw new Error("This space is unavailable. Choose another space to continue.");
+      if (!active()) return;
+      if (!chosen || (current.publication && !pinned)) {
+        setSnapshot(null); setEvidence(null); setOriginal(""); setSpace(null); lastPublication.current = undefined;
+        throw new Error(!chosen ? "This space is unavailable. Choose another space to continue." : "This publication is unavailable. Choose Live to return to the latest pages.");
+      }
       if ((recordSpace || pinned?.space) && current.space !== chosen.id && (current.space || chosen.id !== companySpace)) {
         historySpace(chosen.id);
       }
-      if (own === generation.current) {
+      const changedSpace = chosen.id !== selectedSpace.current;
+      if (active()) {
         setSpaces(memberships);
         setSpace(chosen);
-        if (chosen && chosen.id !== selectedSpace.current) {
+        if (changedSpace) {
           setSnapshot(null);
           setEvidence(null);
           setOriginal("");
           lastPublication.current = undefined;
-          latestSeen.current = "";
         }
-        if (chosen) selectedSpace.current = chosen.id;
+        selectedSpace.current = chosen.id;
       }
       if (pinned && pinned.space !== chosen.id) pinned = null;
-      const history = await api.listPublications(chosen.id);
-      if (own === generation.current && history[0]) {
-        if (latestSeen.current && latestSeen.current !== history[0].id)
-          setSearchEpoch((n) => n + 1);
-        latestSeen.current = history[0].id;
-      }
-      if (own === generation.current) {
+      const history = [...await readHistory(chosen.id, refresh || changedSpace)];
+      if (active()) {
         historyOffset.current = history.length;
         setMoreHistory(history.length === 50);
       }
@@ -240,21 +308,28 @@ function Reader() {
           throw new Error(
             "This publication is unavailable. Choose Live to return to the latest pages.",
           );
-        if (own === generation.current) {
+        if (active()) {
           setPublications(history);
           setSnapshot(null);
           setEmptySpace(true);
         }
         return;
       }
-      const pages = await api.listPages(publication.id);
-      const slug = current.welcome || current.catalog ? undefined : current.slug || homePageSlug(publication, pages);
-      const page = slug ? await api.getPage(publication.id, slug) : null;
-      if (own === generation.current) {
+      if (!active()) return;
+      // Explicit page requests do not depend on the directory. The API shares
+      // their validation and serves immutable cache hits without network work.
+      const [pages, explicitPage] = await Promise.all([
+        api.listPages(publication.id),
+        current.slug ? api.getPage(publication.id, current.slug) : Promise.resolve(null),
+      ]);
+      if (!active()) return;
+      const slug = current.welcome || current.catalog || current.collection !== "pages" || current.query ? undefined : current.slug || homePageSlug(publication, pages);
+      const page = current.slug ? explicitPage : slug ? await api.getPage(publication.id, slug) : null;
+      if (active()) {
         setPublications(history);
         setEmptySpace(false);
         lastPublication.current = publication.id;
-        setSnapshot({ publication, pages, page });
+        setSnapshot({ publication, pages, page, selection: current });
         setEvidence((previous) =>
           previous && page?.citations.some((c) => c.id === previous.id)
             ? previous
@@ -262,21 +337,42 @@ function Reader() {
         );
       }
     } catch (e) {
-      if (own === generation.current) { setError(message(e)); setSnapshot(null); setEvidence(null); setOriginal(""); setSpace(null); lastPublication.current = undefined; }
+      // A transient failure leaves the last complete authorized view available.
+      // Confirmed membership loss and unavailable selections are cleared above.
+      if (active()) setError(message(e));
     } finally {
       if (own === generation.current) setBusy(false);
     }
-  }, [current.slug, current.welcome, current.catalog, current.publication, current.space, current.collection, current.record]);
+  }, []);
+  const refresh = useCallback(async () => {
+    if (refreshInFlight.current) {
+      refreshQueued.current = true;
+      // Authorization checks must never wait behind a slow page download.
+      // A confirmed loss immediately clears private views and fences that load.
+      try { await readMemberships(true); }
+      catch (error) { if (mounted.current) setError(message(error)); }
+      return;
+    }
+    refreshInFlight.current = true;
+    try {
+      do {
+        refreshQueued.current = false;
+        await load(true);
+      } while (refreshQueued.current && mounted.current && pb.authStore.isValid);
+    } finally { refreshInFlight.current = false; }
+  }, [load]);
+  useEffect(() => {
+    if (authenticated) void load();
+  }, [authenticated, load, current.slug, current.welcome, current.catalog, current.publication, current.space, current.collection, current.record]);
   useEffect(() => {
     if (!authenticated) return;
-    void load();
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     api
       .watchPublications(() => {
         if (disposed) return;
         setConnected(navigator.onLine);
-        void load();
+        void refresh();
       })
       .then((fn) => {
         if (disposed) fn();
@@ -286,11 +382,11 @@ function Reader() {
         }
       })
       .catch(() => { if (!disposed) setConnected(false); });
-    const focus = () => void load();
+    const focus = () => void refresh();
     const offline = () => setConnected(false);
     const online = () => {
       setConnected(false);
-      void load();
+      void refresh();
     };
     window.addEventListener("offline", offline);
     window.addEventListener("online", online);
@@ -305,7 +401,7 @@ function Reader() {
       window.removeEventListener("online", online);
       clearInterval(interval);
     };
-  }, [authenticated, load]);
+  }, [authenticated, refresh]);
   useEffect(() => {
     if (!(current.welcome && current.topic)) reader.current?.scrollTo?.(0, 0);
   }, [current.slug, current.welcome, current.publication, current.collection, current.record, current.topic, current.catalog, current.catalogState.type, current.offset]);
@@ -319,11 +415,12 @@ function Reader() {
     if (!evidence) return;
     setOriginal("");
     let disposed = false;
+    const access = authority.current;
     citationClose.current?.focus();
     api
       .originalURL(evidence.source)
       .then((url) => {
-        if (!disposed) setOriginal(url);
+        if (!disposed && access === authority.current) setOriginal(url);
       })
       .catch((e) => {
         if (!disposed) setError(message(e));
@@ -400,23 +497,26 @@ function Reader() {
   );
   const pinned = current.publication || undefined;
   if (!authenticated) return <Login theme={theme} setTheme={setTheme} />;
-  const page =
-    (!current.publication ||
-      snapshot?.publication.id === current.publication) &&
-    (!current.slug || snapshot?.page?.slug === current.slug)
-      ? snapshot?.page
-      : null;
-  const matchingPublication = !pinned || snapshot?.publication.id === pinned;
-  const pages = matchingPublication ? snapshot?.pages || [] : [];
-  const searching = !current.catalog && current.collection === "pages" && Boolean(current.query.trim() && !current.slug);
+  // Retain one coherent publication (directory, page, links and citations)
+  // until the requested replacement is complete. Space switches clear it.
+  const page = snapshot?.page;
+  const matchingPublication = Boolean(snapshot);
+  const pages = snapshot?.pages || [];
+  const selection = snapshot?.selection;
+  const sameView = !selection || (selection.slug === current.slug && selection.welcome === current.welcome && selection.catalog === current.catalog && selection.collection === current.collection && selection.record === current.record && selection.publication === current.publication);
+  // Evidence views own expiring file tokens and navigation-scoped actions.
+  // Preserve their immediate unmount/reset behavior when leaving a record.
+  const view = selection && !sameView && selection.collection === "pages" && current.collection === "pages" ? selection : current;
+  const displayedPinned = view.publication ? snapshot?.publication.id || view.publication : undefined;
+  const searching = !view.catalog && view.collection === "pages" && Boolean(view.query.trim() && !view.slug);
   const topicGroups = groupWelcomePages(pages).filter(group => group.pages.length);
   const welcomeHref = (topic: string) => {
     const params = new URLSearchParams({ topic });
     if (pinned) params.set("publication", pinned);
     return spaceLink(`#/welcome?${params}`);
   };
-  const welcoming = !emptySpace && !current.catalog && current.collection === "pages" && !searching && !current.slug &&
-    (current.welcome || (matchingPublication && !snapshot?.publication.home));
+  const welcoming = !emptySpace && !view.catalog && view.collection === "pages" && !searching && !view.slug &&
+    (view.welcome || (matchingPublication && !snapshot?.publication.home));
   const showEmptySpace = emptySpace && !current.publication && current.collection === "pages";
   return (
     <div className="workspace">
@@ -498,7 +598,7 @@ function Reader() {
           {(current.collection === "pages" ? pages : []).map((p) => (
             <a
               key={p.id}
-              href={pageHref(p.slug, pinned)}
+              href={pageHref(p.slug, displayedPinned)}
               className={!welcoming && p.slug === page?.slug ? "selected" : ""}
               aria-current={!welcoming && p.slug === page?.slug ? "page" : undefined}
             >
@@ -550,11 +650,11 @@ function Reader() {
                 value={pinned || "live"}
                 onChange={(e) => {
                   if (e.target.value === "more") {
-                    const own = generation.current;
+                    const own = generation.current, access = authority.current;
                     void api
                       .listPublications(space?.id || "", historyOffset.current, 50)
                       .then((rows) => {
-                        if (own !== generation.current) return;
+                        if (own !== generation.current || access !== authority.current) return;
                         historyOffset.current += rows.length;
                         setMoreHistory(rows.length === 50);
                         setPublications((previous) =>
@@ -565,7 +665,7 @@ function Reader() {
                           ].sort((a, b) => b.sequence - a.sequence),
                         );
                       })
-                      .catch((e) => { if (own === generation.current) setError(message(e)); });
+                      .catch((e) => { if (own === generation.current && access === authority.current) setError(message(e)); });
                   } else navigatePublication(e.target.value);
                 }}
               >
@@ -592,9 +692,10 @@ function Reader() {
         {error && (
           <div className="error-banner" role="alert">
             {error}
-            <button onClick={() => void load()}>Retry</button>
+            <button onClick={() => void refresh()}>Retry</button>
           </div>
         )}
+        {busy && snapshot && <div className="refresh-status" role="status">{!sameView ? "Opening page…" : "Checking for updates…"}</div>}
         {pinned && (
           <div className="history-banner">
             Viewing publication {snapshot?.publication.sequence}.{" "}
@@ -603,33 +704,33 @@ function Reader() {
             </button>
           </div>
         )}
-        <div className={`reading-layout ${welcoming ? "welcome-layout" : current.catalog ? "catalog-layout" : ""}`}>
+        <div className={`reading-layout ${welcoming ? "welcome-layout" : view.catalog ? "catalog-layout" : ""}`}>
           <main
             id="reader"
             ref={reader}
-            className={`reader ${welcoming ? "welcome-reader" : current.catalog ? "catalog-reader" : ""}`}
+            className={`reader ${welcoming ? "welcome-reader" : view.catalog ? "catalog-reader" : ""}`}
             tabIndex={-1}
             aria-busy={busy}
           >
             {showEmptySpace && <section className="empty-state"><h1>This space has no published pages</h1><p>Pages appear here when your agent publishes knowledge in this space.</p></section>}
-            {current.collection !== "pages" && space && <EvidenceBrowser key={`evidence-${space.id}`} space={space.id} collection={current.collection} id={current.record} term={current.query} publication={current.publication} offset={current.offset} navigation={evidenceNavigation} onTitleChange={setEvidenceTitle} />}
-            <SearchResults key={`search-${space?.id || "none"}`}
+            {view.collection !== "pages" && space && <EvidenceBrowser key={`evidence-${accessEpoch}-${space.id}`} space={space.id} collection={view.collection} id={view.record} term={view.query} publication={view.publication} offset={view.offset} navigation={evidenceNavigation} onTitleChange={setEvidenceTitle} />}
+            <SearchResults key={`search-${accessEpoch}-${space?.id || "none"}`}
               publication={snapshot?.publication.id || lastPublication.current}
-              query={current.query}
+              query={view.query}
               visible={
-                searching && (!pinned || snapshot?.publication.id === pinned)
+                searching && matchingPublication
               }
-              epoch={searchEpoch}
+              epoch={accessEpoch}
             />
-            {current.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog key={`${space?.id}:${snapshot?.publication.id}`} space={space?.id} snapshotId={snapshot?.publication.id} pages={pages} state={current.catalogState} publication={pinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
-            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={pinned || "live"} pages={pages} publication={snapshot?.publication || null} pinned={pinned} topic={current.topic} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
-            {current.collection === "pages" && !current.catalog && !searching && !welcoming && !showEmptySpace &&
+            {view.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog key={`${accessEpoch}:${space?.id}:${snapshot?.publication.id}`} space={space?.id} snapshotId={snapshot?.publication.id} pages={pages} state={view.catalogState} publication={displayedPinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
+            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={displayedPinned || "live"} pages={pages} publication={snapshot?.publication || null} pinned={displayedPinned} topic={view.topic} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
+            {view.collection === "pages" && !view.catalog && !searching && !welcoming && !showEmptySpace &&
               (page ? (
                 <article>
-                  {current.query && current.slug && (
+                  {view.query && view.slug && (
                     <a
                       className="back-to-search"
-                      href={searchHref(current.query, pinned)}
+                      href={searchHref(view.query, pinned)}
                     >
                       ← Back to search results
                     </a>
@@ -647,13 +748,13 @@ function Reader() {
                   {page.summary && (
                     <p className="page-summary">{page.summary}</p>
                   )}
-                  {page.properties?.catalog_type === "audio_recording" && space && <AudioRecording page={page} pages={pages} space={space.id} publication={pinned} />}
-                  <PropertiesPanel key={page.id} page={page} pages={pages} publication={pinned} onCitation={openCitation} />
+                  {page.properties?.catalog_type === "audio_recording" && space && <AudioRecording page={page} pages={pages} space={space.id} publication={displayedPinned} />}
+                  <PropertiesPanel key={page.id} page={page} pages={pages} publication={displayedPinned} onCitation={openCitation} />
                   <div className="page-rule" />
                   <div className="markdown">
                     <Markdown
                       body={page.body}
-                      publication={pinned}
+                      publication={displayedPinned}
                       resolveSlug={resolveSlug}
                       onCitation={openCitation}
                     />
@@ -694,12 +795,12 @@ function Reader() {
                   <h1>
                     {busy
                       ? "Opening your wiki…"
-                      : current.slug
+                      : view.slug
                         ? "Page unavailable"
                         : "A home for your knowledge"}
                   </h1>
                   <p>
-                    {current.slug
+                    {view.slug
                       ? "This page is not available in the selected publication. Choose a page from the sidebar."
                       : "Published pages will appear here as your workspace grows."}
                   </p>
@@ -709,7 +810,7 @@ function Reader() {
           <aside
             className="context-panel"
             aria-label="Page context"
-            hidden={current.catalog || welcoming || searching || current.collection !== "pages"}
+            hidden={view.catalog || welcoming || searching || view.collection !== "pages"}
           >
             <div className="context-title">ON THIS PAGE</div>
             {outline.length ? (
@@ -736,7 +837,7 @@ function Reader() {
               <a
                 className="backlink"
                 key={p.id}
-                href={pageHref(p.slug, pinned)}
+                href={pageHref(p.slug, displayedPinned)}
               >
                 ↗ <span>{p.title}</span>
               </a>
@@ -755,7 +856,7 @@ function Reader() {
                   <a
                     className="backlink"
                     key={p.id}
-                    href={pageHref(p.slug, pinned)}
+                    href={pageHref(p.slug, displayedPinned)}
                   >
                     ↗ <span>{p.title}</span>
                   </a>
@@ -840,12 +941,13 @@ function Reader() {
                   event.preventDefault();
                   const initiatingToken = pb.authStore.token;
                   const initiatingRoute = location.hash;
+                  const initiatingAccess = authority.current;
                   const popup = window.open("about:blank", "_blank");
                   if (popup) popup.opener = null;
                   void api
                     .originalURL(evidence.source)
                     .then((url) => {
-                      if (!pb.authStore.isValid || pb.authStore.token !== initiatingToken || location.hash !== initiatingRoute) { popup?.close(); return; }
+                      if (!mounted.current || initiatingAccess !== authority.current || !pb.authStore.isValid || pb.authStore.token !== initiatingToken || location.hash !== initiatingRoute) { popup?.close(); return; }
                       if (popup) popup.location.replace(url);
                       else window.location.assign(url);
                     })

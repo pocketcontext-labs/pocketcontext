@@ -152,9 +152,9 @@ backup, and a raw ONCE restore must not reuse production settings.
 
 ## Runtime migration freeze
 
-The application pins PocketContext `dc1dc6b0e88bbc46f36fa8441c8f6959bada4732`,
-which retains the runtime maintenance API and writable PocketBase backup support
-under the SQLite guard, and adds private search. Verify API support before attempting a production
+The server revision in `POCKETCONTEXT_VERSION` retains the runtime maintenance API,
+writable PocketBase backup support under the SQLite guard, and private search.
+Verify API support before attempting a production
 freeze; images predating the maintenance feature do not expose it.
 
 An operator with an existing valid superuser token reads

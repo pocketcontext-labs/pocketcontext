@@ -17,7 +17,7 @@ from integration import ROOT, credentials
 
 
 @contextlib.contextmanager
-def running(binary, work, *, data=None):
+def running(binary, work, *, data=None, track_changes=False):
     """Start an isolated copied application."""
     work=Path(work);work.mkdir(exist_ok=True,parents=True)
     hooks=work/'pb_hooks'; migrations=work/'pb_migrations'
@@ -26,6 +26,7 @@ def running(binary, work, *, data=None):
     shutil.copytree(ROOT/'pb_hooks',hooks)
     shutil.copytree(ROOT/'pb_migrations',migrations)
     cfg=json.loads((ROOT/'pocketcontext.json').read_text())
+    if track_changes:cfg['snapshot']['trackChanges']=True
     (work/'pocketcontext.json').write_text(json.dumps(cfg))
     (hooks/'search_failure_fixture.pb.js').write_text('''
 onRecordCreateExecute(e=>{

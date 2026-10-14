@@ -87,9 +87,10 @@ def main():
             sql = validation.group(1).replace('${identity(publicationId)}', knowledge.literal(publication['id']))
             assert '${' not in sql
             return query(sql)
-        for publication in (first_publication, second_publication):
+        for publication, expected_pages in ((first_publication, 3), (second_publication, 2)):
             assert validate(publication) == [{'manifest_type': 'object', 'total': 3,
-                                               'unique_keys': 3, 'invalid': 0}]
+                                               'unique_keys': 3, 'invalid': 0,
+                                               'published_count': expected_pages}]
         assert validate({'id': 'missingpub00001'}) == []
         def browser(publication, conditions='', offset=0, limit=2):
             join = match.group(1).replace('${identity(publicationId)}', knowledge.literal(publication['id']))
@@ -103,6 +104,19 @@ def main():
         assert not browser(second_publication, " AND instr(lower(r.body),lower('DraftOnlyToken'))>0")
         assert not browser(first_publication, " AND instr(lower(r.body),lower('CurrentOnlyToken'))>0")
         assert browser(second_publication, " AND instr(lower(r.body),lower('CurrentOnlyToken'))>0")[0]['id'] == replacement['id']
+        detail = re.search(r'`(SELECT selected\.\*,.*?)`,', api, re.S)
+        summary = re.search(r'const summary = "(.*?)";', api)
+        assert detail and summary, 'Update this regression if the browser detail template changes'
+        for publication, expected_links in ((first_publication, 1), (second_publication, 0)):
+            join = match.group(1).replace('${identity(publicationId)}', knowledge.literal(publication['id']))
+            sql = detail.group(1).replace('${published(publicationId)}', join)
+            sql = sql.replace('${summary}', summary.group(1)).replace('${literal(slug)}', knowledge.literal(pages[0]['slug']))
+            assert '${' not in sql
+            selected = query(sql)
+            assert len(selected) == 1
+            assert selected[0]['citation_count'] == 0
+            assert selected[0]['backlink_count'] == expected_links
+            assert selected[0]['link_count'] == expected_links
     print('PASS: HTTP JSON manifest joins, paged agent reads, concurrent publication pin, drafts, archives and browser history')
 
 
