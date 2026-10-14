@@ -87,13 +87,13 @@ def main():
             with patch.object(ingest, 'send_transcription', side_effect=provider), \
                     patch.dict(os.environ, {'WIKICONTEXT_GROQ_API_KEY': 'synthetic-key'}):
                 try:
-                    ingest.ingest(cfg, audio)
+                    ingest.ingest(cfg, audio, audio_provider='groq')
                 except wc.Fail as error:
                     assert str(error) == 'synthetic provider failure', str(error)
                 else:
                     raise AssertionError('Expected synthetic provider failure')
-                normalized = ingest.ingest(cfg, audio)
-                assert normalized == ingest.ingest(cfg, audio)
+                normalized = ingest.ingest(cfg, audio, audio_provider='groq')
+                assert normalized == ingest.ingest(cfg, audio, audio_provider='groq')
             assert len(sent) == 2 and sent[0] == sent[1]
             assert audio.read_bytes() == original_audio
             stored_audio = ingest.rows(cfg, "SELECT id, original, original_name, sha256 FROM sources WHERE id = '%s'" % normalized['source'])[0]

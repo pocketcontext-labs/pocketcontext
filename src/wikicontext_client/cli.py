@@ -507,7 +507,25 @@ def run(args):
         cfg['space'] = args.space
     if args.command == 'ingest':
         from . import ingest
-        say(dump(ingest.ingest(cfg, args.path, title=args.title, version=args.version, audio_storage=args.audio_storage, image_review=args.image_review, transcript_bundle=args.transcript_bundle), args.pretty), sys.stdout)
+        result = ingest.ingest(cfg, args.path, title=args.title, version=args.version,
+                               audio_storage=args.audio_storage, image_review=args.image_review,
+                               transcript_bundle=args.transcript_bundle, audio_provider=args.audio_provider,
+                               pipeline=args.pipeline, language=args.language,
+                               translation_language=args.translation_language, resume=args.resume)
+        say(dump(result, args.pretty), sys.stdout)
+        return 0
+    if args.command == 'stage-audio':
+        from . import audio_catalog
+        try:
+            receipt_text = sys.stdin.read() if args.receipt == '-' else Path(args.receipt).read_text()
+            receipt = json.loads(receipt_text)
+        except (OSError, ValueError):
+            raise Fail(2, 'Audio receipt must be a readable JSON file or stdin; no staging attempted.') from None
+        if not isinstance(receipt, dict):
+            raise Fail(2, 'Audio receipt must be a JSON object.')
+        result = audio_catalog.stage(cfg, args.run_id, receipt, args.transcript_page, args.summary_page,
+                                     title=args.title, language=args.language, duration_seconds=args.duration_seconds)
+        say(dump(result, args.pretty), sys.stdout)
         return 0
     if args.command == 'export-repository-file':
         from . import repository_files
@@ -656,6 +674,22 @@ def parse(argv):
                         help='reviewed image passages and provenance JSON; required for PNG/JPEG/WebP')
     source.add_argument('--audio-storage', choices=('normalized', 'original'), default='normalized',
                         help='store normalized Opus audio (default), or preserve input bytes')
+    source.add_argument('--audio-provider', choices=('gemini', 'groq'), default='gemini',
+                        help='Audio transcription provider (default: Gemini); Groq is the explicit legacy route.')
+    source.add_argument('--pipeline', choices=('standard', 'long-decode'), default='standard',
+                        help='Gemini generation pipeline (default: standard); no automatic fallback.')
+    source.add_argument('--language', help='Expected source language; transcript remains in its original language.')
+    source.add_argument('--translation-language', help='Gemini translation language (default: English).')
+    source.add_argument('--resume', metavar='WORKFLOW_RECEIPT',
+                        help='Explicitly resume the saved WikiContext audio workflow; completed stages are reused.')
+    audio = commands.add_parser('stage-audio', parents=[pretty], help='stage a recording catalog entry with reviewed transcript and summary links')
+    audio.add_argument('run_id')
+    audio.add_argument('--receipt', required=True, help='Saved ingest JSON receipt file, or - for stdin.')
+    audio.add_argument('--transcript-page', required=True, help='Reviewed transcript page ID in this publication or staging run.')
+    audio.add_argument('--summary-page', required=True, help='Reviewed summary page ID in this publication or staging run.')
+    audio.add_argument('--title')
+    audio.add_argument('--language')
+    audio.add_argument('--duration-seconds', type=float)
     repository = commands.add_parser('export-repository-file', parents=[pretty], help='create a new repository copy from an explicit publication')
     repository.add_argument('destination_id', help='repository_destination page ID')
     repository.add_argument('output', help='new output file; parent directories must exist')

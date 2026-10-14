@@ -237,11 +237,33 @@ def preflight(audio, manifest_path):
         raise wc.Fail(2, 'Invalid transcript bundle structure or inaccessible local file; no uploads attempted.') from None
 
 
-def import_bundle(cfg, audio, manifest_path, title, version):
+def validate_audio_provenance(value, content):
+    require(isinstance(value, dict), 'audio provenance must be an object.')
+    common = {'input_name', 'input_sha256', 'stored_sha256', 'storage'}
+    normalized = {'profile', 'converter', 'channels', 'sample_rate', 'bitrate', 'codec', 'duration'}
+    require(value.get('storage') in ('original', 'normalized'), 'invalid audio storage provenance.')
+    require(set(value) == common | (normalized if value['storage'] == 'normalized' else set()), 'invalid audio provenance fields.')
+    require(text(value['input_name'], 500) and text(value['input_sha256'], 64) and
+            re.fullmatch('[0-9a-f]{64}', value['input_sha256']) is not None,
+            'invalid original audio identity.')
+    require(value['stored_sha256'] == sha(content), 'stored audio provenance digest mismatch.')
+    if value['storage'] == 'normalized':
+        require(value['profile'] == 'mono-24khz-32kbps-opus-v1' and
+                value['channels'] == 1 and value['sample_rate'] == 24000 and
+                value['bitrate'] == 32000 and value['codec'] == 'opus' and
+                text(value['converter'], 1000) and number(value['duration']) and value['duration'] > 0,
+                'invalid normalization provenance.')
+    else:
+        require(value['input_sha256'] == sha(content), 'original audio digest mismatch.')
+
+
+def import_bundle(cfg, audio, manifest_path, title, version, audio_provenance=None):
     from . import ingest as ing
     require(text(version, 100), 'version must contain 1–100 characters.')
     require(title is None or text(title, 500), 'title exceeds source bounds.')
     m, raw, content, files, docs = preflight(audio, manifest_path)
+    if audio_provenance is not None:
+        validate_audio_provenance(audio_provenance, content)
     # Build derived audio-observation passages before any network writes. Keep
     # model judgements distinct from words actually spoken in the recording.
     observation_chunks, observation_ordinals = [], {}
@@ -271,6 +293,8 @@ def import_bundle(cfg, audio, manifest_path, title, version):
     source = get_source(Path(m['source']['name']), content, title)
     # Establish the immutable import identity before auxiliary uploads.
     base_notes = {'bundle_sha256': digest, 'source_sha256': sha(content), 'schema_version': m['schema_version']}
+    if audio_provenance is not None:
+        base_notes['audio'] = audio_provenance
     def rendition(source_id, kind, passages, extra=None):
         notes = json.dumps({**base_notes, **(extra or {}), 'passages': len(passages), 'sha256': sha(json.dumps(passages, sort_keys=True).encode())}, sort_keys=True)
         require(len(notes) <= 10000, 'provenance exceeds notes bounds.')
@@ -284,7 +308,20 @@ def import_bundle(cfg, audio, manifest_path, title, version):
                 if not existing: raise
                 record = existing[0]
         else: record = existing[0]
-        if record['notes'] != notes: raise wc.Fail(4, 'Existing bundle rendition differs; select a new --version.')
+        if record['notes'] != notes:
+            # An import-only retry may omit locally generated conversion metadata;
+            # preserve the first immutable provenance rather than stripping it.
+            try:
+                previous, expected = json.loads(record['notes']), json.loads(notes)
+                if audio_provenance is None:
+                    previous.pop('audio', None)
+                elif isinstance(previous.get('audio'), dict):
+                    expected['audio']['input_name'] = previous['audio'].get('input_name')
+                compatible = previous == expected
+            except (ValueError, TypeError, KeyError):
+                compatible = False
+            if not compatible:
+                raise wc.Fail(4, 'Existing bundle rendition differs; select a new --version.')
         mapping = []
         for ordinal, passage in enumerate(passages, 1):
             query = 'SELECT id, locator, body FROM passages WHERE rendition = ' + ing.literal(record['id']) + f' AND ordinal = {ordinal} LIMIT 1'

@@ -18,4 +18,4 @@ Add `--capture-sql` only when the user authorizes retaining SQL text. Without it
 
 `observecontext dashboard` opens a personal loopback dashboard on port 8766. Over SSH, forward 8765 for login and 8766 for the dashboard. Failed uploads remain in the private account-bound pending queue; use `observecontext flush` to retry after restoring connectivity. Capture adds retrieval/upload latency and measures completed requests, not the full agent session or prompt. Only supported HTTP routes on the explicitly selected origin are instrumented; protected file downloads, realtime streams, subprocesses and unrelated external services are excluded.
 
-For ingestion, this measures WikiContext API requests, including original-file uploads, but not local PDF/audio processing or Groq calls.
+For ingestion, this measures WikiContext API requests, including original-file uploads, but not local PDF/audio processing or Gemini/Groq calls.

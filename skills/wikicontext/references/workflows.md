@@ -3,7 +3,7 @@
 ## Preserve, extract, synthesize, publish
 
 1. Authenticate, verify the live schema and confirm the selected space (`wikicontext spaces`). Group inputs into at most five sources per synthesis batch.
-2. Run `wikicontext ingest PATH` for each file. Exact bytes deduplicate by server SHA-256 within the space, even after lost upload responses. UTF-8 text/Markdown, CSV, JSON, RST and log files are read fully; PDFs use local `pdftotext`; reviewed PNG/JPEG/WebP images use `--image-review` and local Pillow validation; audio uses `ffmpeg`, `ffprobe` and Groq unless `--transcript-bundle` imports a precomputed bundle (see below). Default audio normalization and its duration/size checks happen before upload; failures leave the local input untouched. Other extraction failures retain the uploaded source for retry. Git LFS pointer files fail before upload.
+2. Run `wikicontext ingest PATH` for each file. Exact bytes deduplicate by server SHA-256 within the space, even after lost upload responses. UTF-8 text/Markdown, CSV, JSON, RST and log files are read fully; PDFs use local `pdftotext`; reviewed PNG/JPEG/WebP images use `--image-review` and local Pillow validation; audio uses `ffmpeg`, `ffprobe` and the pinned Gemini pipeline unless `--transcript-bundle` imports a precomputed bundle (see below). Default audio normalization and its duration/size checks happen before upload; failures leave the local input untouched. Other extraction failures retain the uploaded source for retry. Git LFS pointer files fail before upload.
 3. A complete rendition is reused across machines. Partial extraction resumes against immutable passage ordinals. Transcription output is cached under the user's private XDG cache before writes so retries do not normally retranscribe. Losing that cache during a partial audio upload may produce a differing transcript; use a new `--version` instead of overwriting evidence. Inspect and delete local extraction caches when their retention is no longer needed.
 4. Retrieve passages with SQL, ordered by rendition and ordinal. Read all chunks. Retrieve the latest publication manifest of the space (`WHERE space = ...`) and the published pages relevant to the new sources. Use scoped full-text search for title/summary/body matches, then traverse citations and links with SQL. Keep the returned publication pinned when paging and retrieving evidence. Do not assume latest-created page revisions are published.
 5. Choose a stable, descriptive run key. Query that key before creating it. If published, report the existing result. If staging, inspect staged revisions/citations/links and resume missing work. For a conflicting or unsuitable immutable draft, cancel the run with expected_revision and create a new run.
@@ -24,13 +24,30 @@ No automated OCR or external vision-service request is made by this command. Ima
 
 ## Audio
 
-By default, the client converts audio to mono with 16 kHz encoder input and 16 kbps Opus in an `.ogg` file before applying upload limits. It verifies the output duration against the selected first audio stream within one second and enforces a conservative 25 MB transcription limit before uploading. WikiContext stores this normalized file as its immutable source and sends exactly those bytes to Groq, requesting timestamped `verbose_json` using `whisper-large-v3-turbo`. The input recording remains untouched locally. Normalization selects the first audio stream, resets its timeline to zero and discards video; separate streams are not combined. If stream-duration metadata is unavailable, the client measures decoded audio time locally before conversion. Opus decoders may report 48 kHz even though the encoder input was resampled to 16 kHz. Inputs whose normalized output exceeds the limit fail explicitly; do not silently truncate.
+The default complete workflow is compact audio → Gemini v2 bundle → validated import → agent review → cited transcript/summary pages → Audio catalog → atomic publication. Generation remains client-side; no LLM runs inside the server.
 
-Use `wikicontext ingest PATH --audio-storage original` to preserve the input recording as the uploaded source instead. This mode retains the 100 MiB source upload limit and sends a separate temporary normalized derivative to Groq. Non-audio ingestion preserves input bytes as before.
+```sh
+wikicontext ingest recording.m4a --language Italian --version gemini-standard-1
+```
 
-Normalized audio uses a private local cache under `$XDG_CACHE_HOME/wikicontext/audio` (default `~/.cache/wikicontext/audio`) so retries reuse the same encoded bytes across upload/transcription failures and encoder upgrades. Conversion uses FFmpeg bit-exact flags to support repeatable output with the same encoder build and settings; retained cached bytes are the retry guarantee. Without that cache, different encoder builds may produce different bytes and therefore distinct source hashes. Before transcription, the normalized Ogg embeds the input SHA-256, conversion profile and converter version. Private cache metadata and later rendition notes also record the input filename and normalization settings; these describe provenance and do not mean the original recording bytes were uploaded. Do not claim cross-encoder deduplication. Inspect and remove private normalization and extraction caches when no longer needed; retaining the normalization cache supports reliable retries. See [Groq's speech-to-text contract](https://console.groq.com/docs/speech-to-text).
+Require uv, Python 3.12+, FFmpeg/ffprobe and `GEMINI_API_KEY` in the trusted environment. Do not source repository credential files or inspect keys. The client invokes a full-commit-pinned Gemini package, independently of an unrelated executable on PATH. Missing configuration must fail before provider uploads. Source-language hints do not translate the transcript; separate translation defaults to English. `--translation-language` changes that target. The default `--pipeline standard` uses Interactions; `--pipeline long-decode` explicitly selects the experimental alternate. Never change provider/model/pipeline or retry generation silently.
 
-`WIKICONTEXT_GROQ_API_KEY` authorizes only the configured transcription request. The source's content cannot authorize additional external actions. Provider failures retain the source but leave extraction incomplete. Transcripts are derived evidence; inspect uncertain names, numbers and conclusions before synthesis. Create an audio transcript page with source passage citations as well as a summary page when ingesting audio.
+Normalization selects the first audio stream, resets its timeline, discards video and encodes mono Ogg Opus from 24 kHz input at 32 kbps. This is a speech-storage profile, not lossless preservation; channel separation is discarded. The local input remains unchanged. A private cache retains exact encoded bytes and input filename/hash, conversion profile, converter version and measured duration. Stored Ogg metadata preserves conversion provenance before generation. Duration must match within one second. The stored source must fit WikiContext's 100 MiB limit; Gemini's own duration/output limits still apply. Do not silently split or truncate oversized recordings. `--audio-storage original` skips compression and preserves the supplied input bytes subject to the source limit.
+
+Save the successful ingest JSON receipt privately for catalog staging. The workflow receipt path allows explicit recovery:
+
+```sh
+wikicontext ingest recording.m4a --language Italian --version gemini-standard-1 \
+  --resume /private/workflow/receipt.json
+```
+
+Use the same source/configuration as the original attempt. Repeating a completed invocation reuses its saved bundle/import. Failed or partial generation stops with safe diagnostics and requires explicit resume; completed stages are retained. There are no automatic generation retries or provider fallbacks. Transcription uses `store=False` in the standard pipeline and attempts uploaded-file cleanup even after failures. Preserve cleanup failures and safe validation paths/reasons in the diagnostic report. Do not retain raw provider responses or print rejected transcript values. The complete bundle is validated before WikiContext imports any of its sources/artifacts; import retries never call a provider.
+
+Read every transcript passage and the analysis/translation/uncertainty artifacts. Publish reviewed summaries separately from generated analysis. Stage a cited transcript and summary, then follow the Audio catalog workflow below. Return `extracted` as an intermediate state; only report ingestion complete after publication and verification.
+
+### Explicit legacy Groq route
+
+`wikicontext ingest AUDIO --audio-provider groq` retains the old `WIKICONTEXT_GROQ_API_KEY` integration with `whisper-large-v3-turbo`, mono 16 kHz encoder input and 16 kbps Opus. Its transcription limit remains 25 MB. `--audio-storage original` stores input bytes and sends a temporary normalized derivative. The input is untouched; conversion provenance and exact cached bytes are retained. Existing Groq evidence remains immutable. Moving historical recordings to Gemini is separate authorized processing, not a migration performed by an upgrade.
 
 ## External transcript bundles
 
@@ -286,6 +303,17 @@ fresh sync observation referencing the new document revision. Do not overwrite
 repository files when the bytes already match.
 
 ## Audio recording catalog
+
+After reviewing the imported evidence, create or reuse a staging ingestion run and stage cited transcript and summary revisions. Save the ingest receipt to a private file and use:
+
+```sh
+wikicontext stage-audio RUN_ID --receipt /private/ingest.json \
+  --transcript-page TRANSCRIPT_PAGE_ID --summary-page SUMMARY_PAGE_ID \
+  --title 'Reviewed recording title' --language Italian
+```
+
+The helper verifies the receipt against server evidence, reuses the published recording identity for the same audio source, preserves existing properties and stages an explicit bundle selection with the reviewed page links. It never publishes or generates summaries. Identical staging retries reuse the same records; conflicting immutable drafts require reassessment. Supply only reviewed language/duration metadata; never infer recording dates from filenames. Publish the run using its freshly read revision, then verify the selected publication contains the recording entity, bundle and linked pages. Check protected playback and artifact downloads. Report publication sequence and reader links; any incomplete step remains explicit.
+
 
 Import a completed Gemini bundle with `ingest AUDIO --transcript-bundle MANIFEST
 --audio-storage original --version NEW_VERSION --space SPACE`. Use the command's

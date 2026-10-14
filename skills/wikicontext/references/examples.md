@@ -18,7 +18,7 @@ wikicontext ingest /path/to/meeting.m4a --title 'Meeting recording'
 wikicontext ingest /path/to/recording.m4a --audio-storage original --title 'Full recording'
 ```
 
-The first command stores a mono 16 kbps Opus `.ogg` source encoded from 16 kHz input and transcribes those same bytes. The second stores the input bytes and transcribes a temporary Opus derivative. Both leave the local input untouched. Continue through cited synthesis and publication after extraction.
+The first command stores mono 32 kbps Opus `.ogg` encoded from 24 kHz input and sends those exact bytes to the pinned Gemini pipeline. The second preserves and processes the input bytes. Both leave the local input untouched. Use `--language Italian` for a known Italian recording; translation remains a separate artifact. Save the ingest receipt, review evidence, stage cited transcript/summary pages, run `stage-audio`, publish and verify. `--audio-provider groq` explicitly selects the legacy route.
 
 Import an existing complete Gemini Transcribe bundle without retranscribing:
 

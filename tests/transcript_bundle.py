@@ -66,6 +66,18 @@ class BundleTests(unittest.TestCase):
             self.m['configuration'] = {'translation_language': 'English', 'language_hint': None, 'generation': g}; self.save()
             with self.assertRaises(ingest.wc.Fail): self.run_import()
             self.assertFalse(self.store.tables['sources'])
+    def test_audio_provenance_preserved_on_import_only_retry(self):
+        digest = bundle.sha(self.audio.read_bytes())
+        provenance = {'storage': 'original', 'input_name': self.audio.name,
+                      'input_sha256': digest, 'stored_sha256': digest}
+        result = bundle.import_bundle(self.cfg, self.audio, self.manifest, None, 'v1', audio_provenance=provenance)
+        notes = json.loads(self.store.tables['renditions'][0]['notes'])
+        self.assertEqual(notes['audio'], provenance)
+        self.assertEqual(result, self.run_import())
+        bad = {**provenance, 'stored_sha256': '0' * 64}
+        with self.assertRaises(ingest.wc.Fail):
+            bundle.import_bundle(self.cfg, self.audio, self.manifest, None, 'v1', audio_provenance=bad)
+
     def test_complete_retry(self):
         first = self.run_import(); self.assertEqual(first, self.run_import())
         self.assertEqual(len(first['artifact_sources']), 4)

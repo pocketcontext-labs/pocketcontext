@@ -37,6 +37,26 @@ class Client(unittest.TestCase):
             self.assertEqual(events[0]['route'], '/api/collections/sources/records')
             self.assertNotIn('private', output.read_text())
 
+    def test_audio_cli_routes_provider_language_and_explicit_resume(self):
+        from wikicontext_client import ingest
+        args = wc.parse(['ingest', '/private/recording.m4a', '--language', 'Italian',
+                         '--translation-language', 'English', '--resume', '/private/workflow.json'])
+        with patch.object(wc, 'config', return_value={}), patch.object(ingest, 'ingest', return_value={}) as call, patch.object(wc, 'say'):
+            wc.run(args)
+        self.assertEqual(call.call_args.kwargs['audio_provider'], 'gemini')
+        self.assertEqual(call.call_args.kwargs['pipeline'], 'standard')
+        self.assertEqual(call.call_args.kwargs['language'], 'Italian')
+        self.assertEqual(call.call_args.kwargs['translation_language'], 'English')
+        self.assertEqual(call.call_args.kwargs['resume'], '/private/workflow.json')
+
+    def test_audio_catalog_cli_reads_private_receipt_and_never_publishes(self):
+        from wikicontext_client import audio_catalog
+        args = wc.parse(['stage-audio', 'r'*15, '--receipt', '-', '--transcript-page', 't'*15, '--summary-page', 's'*15])
+        with patch.object(wc, 'config', return_value={}), patch.object(wc.sys, 'stdin', io.StringIO('{"space":"companyspace001"}')), patch.object(audio_catalog, 'stage', return_value={}) as stage, patch.object(wc, 'must') as write, patch.object(wc, 'say'):
+            wc.run(args)
+        stage.assert_called_once_with({}, 'r'*15, {'space': 'companyspace001'}, 't'*15, 's'*15, title=None, language=None, duration_seconds=None)
+        write.assert_not_called()
+
     def test_throttled_read(self):
         with patch.object(wc,'call',side_effect=[(429,{}),(200,{'rows':[]})]) as call,patch.object(wc.time,'sleep') as sleep:
             self.assertEqual(wc.must({},'POST','/api/context/query',{}),{'rows':[]})

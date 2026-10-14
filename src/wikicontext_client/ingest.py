@@ -16,7 +16,7 @@ import urllib.request
 from . import cli as wc
 from . import image_review as reviewed_image
 
-AUDIO = {'.mp3', '.m4a', '.wav', '.flac', '.ogg', '.webm', '.mp4', '.mpeg', '.mpga', '.opus'}
+AUDIO = {'.aiff', '.aif', '.aac', '.mp3', '.m4a', '.wav', '.flac', '.ogg', '.webm', '.mp4', '.mpeg', '.mpga', '.opus'}
 TEXT = {'.txt', '.md', '.markdown', '.csv', '.json', '.rst', '.log'}
 MAX_SOURCE = 100 * 1024 * 1024
 MAX_AUDIO = 25_000_000
@@ -100,30 +100,32 @@ def duration(path):
         try:
             seconds = float(values[-1]) / 1_000_000
         except (ValueError, IndexError):
-            raise wc.Fail(1, 'Cannot verify audio duration; no audio sent to Groq.') from None
+            raise wc.Fail(1, 'Cannot verify audio duration; no audio sent to a provider.') from None
     if not math.isfinite(seconds) or seconds <= 0:
-        raise wc.Fail(1, 'Cannot verify audio duration; no audio sent to Groq.')
+        raise wc.Fail(1, 'Cannot verify audio duration; no audio sent to a provider.')
     return seconds
 
 
-def convert_audio(path, derivative, metadata=None):
+def convert_audio(path, derivative, metadata=None, *, sample_rate=16000, bitrate=16000, max_bytes=None):
+    max_bytes = MAX_AUDIO if max_bytes is None else max_bytes
     original_duration = duration(path)
     args = ['ffmpeg', '-nostdin', '-v', 'error', '-fflags', '+bitexact', '-i', str(path),
             '-map', '0:a:0', '-vn', '-map_metadata', '-1', '-af', 'asetpts=N/SR/TB',
-            '-ac', '1', '-ar', '16000',
-            '-c:a', 'libopus', '-b:a', '16k', '-flags:a', '+bitexact', '-fflags', '+bitexact']
+            '-ac', '1', '-ar', str(sample_rate),
+            '-c:a', 'libopus', '-b:a', str(bitrate), '-flags:a', '+bitexact', '-fflags', '+bitexact']
     for key, value in (metadata or {}).items():
         args.extend(['-metadata', key + '=' + str(value)])
     command([*args, str(derivative)])
     if abs(duration(derivative) - original_duration) > 1:
         raise wc.Fail(1, 'Normalized audio duration differs by more than one second; no normalized audio sent. Any previously uploaded source remains stored.')
-    if not 0 < derivative.stat().st_size <= MAX_AUDIO:
-        raise wc.Fail(2, 'Normalized audio exceeds the 25 MB limit or is empty; no normalized audio sent. Any previously uploaded source remains stored. Supply approved split sources.')
+    if not 0 < derivative.stat().st_size <= max_bytes:
+        raise wc.Fail(2, 'Normalized audio exceeds the configured byte limit or is empty; no normalized audio sent. Any previously uploaded source remains stored. Supply approved split sources.')
     return original_duration
 
 
-def prepare_audio(cfg, path):
+def prepare_audio(cfg, path, *, profile=AUDIO_PROFILE, sample_rate=16000, bitrate=16000, max_bytes=None):
     """Snapshot large inputs, and retain exact normalized bytes for safe retries."""
+    max_bytes = MAX_AUDIO if max_bytes is None else max_bytes
     base = Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'wikicontext' / 'audio'
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(base, 0o700)
@@ -140,7 +142,7 @@ def prepare_audio(cfg, path):
             head = source.read(100)
         if not head or head.startswith(b'version https://git-lfs.github.com/spec/v1\n'):
             raise wc.Fail(2, 'Source is empty or a Git LFS pointer; retrieve actual source bytes first.')
-        key = hashlib.sha256((cfg['url'] + '\n' + cfg['email'] + '\n' + input_sha + '\n' + AUDIO_PROFILE).encode()).hexdigest()
+        key = hashlib.sha256((cfg['url'] + '\n' + cfg['email'] + '\n' + input_sha + '\n' + profile).encode()).hexdigest()
         cached = base / key
         with (base / (key + '.lock')).open('a+b') as lock:
             os.chmod(lock.name, 0o600)
@@ -149,22 +151,22 @@ def prepare_audio(cfg, path):
                 try:
                     provenance = json.loads((cached / 'provenance.json').read_text())
                     content = (cached / 'audio.ogg').read_bytes()
-                    if (provenance['input_sha256'] != input_sha or provenance['profile'] != AUDIO_PROFILE
+                    if (provenance['input_sha256'] != input_sha or provenance['profile'] != profile
                             or provenance['stored_sha256'] != hashlib.sha256(content).hexdigest()
-                            or not 0 < len(content) <= MAX_AUDIO):
+                            or not 0 < len(content) <= max_bytes):
                         raise ValueError()
                 except (OSError, ValueError, KeyError, TypeError):
                     raise wc.Fail(1, 'Normalized audio cache is invalid; investigate before retrying.') from None
                 return content, provenance
             converter = command(['ffmpeg', '-version']).decode('utf-8', errors='replace').splitlines()[0]
-            provenance = {'input_name': path.name, 'input_sha256': input_sha, 'profile': AUDIO_PROFILE,
+            provenance = {'input_name': path.name, 'input_sha256': input_sha, 'profile': profile,
                           'converter': converter, 'storage': 'normalized', 'channels': 1,
-                          'sample_rate': 16000, 'bitrate': 16000, 'codec': 'opus'}
+                          'sample_rate': sample_rate, 'bitrate': bitrate, 'codec': 'opus'}
             with tempfile.TemporaryDirectory(prefix='conversion-', dir=base) as staging:
                 derivative = Path(staging) / 'audio.ogg'
                 provenance['duration'] = convert_audio(snapshot, derivative, {
-                    'wikicontext_input_sha256': input_sha, 'wikicontext_audio_profile': AUDIO_PROFILE,
-                    'wikicontext_converter': converter})
+                    'wikicontext_input_sha256': input_sha, 'wikicontext_audio_profile': profile,
+                    'wikicontext_converter': converter}, sample_rate=sample_rate, bitrate=bitrate, max_bytes=max_bytes)
                 os.chmod(derivative, 0o600)
                 content = derivative.read_bytes()
                 provenance['stored_sha256'] = hashlib.sha256(content).hexdigest()
@@ -239,8 +241,10 @@ def extract(path, content, normalized=False):
     raise wc.Fail(2, f'Unsupported source extension {suffix or "(none)"}; original stored, extraction incomplete. Supply a supported source or explicitly prepare a rendition.')
 
 
-def ingest(cfg, path, title=None, version='v1', audio_storage='normalized', image_review=None, transcript_bundle=None):
+def ingest(cfg, path, title=None, version='v1', audio_storage='normalized', image_review=None, transcript_bundle=None, audio_provider='gemini', pipeline='standard', language=None, translation_language=None, resume=None, gemini_executable=None):
     if transcript_bundle:
+        if resume or pipeline != 'standard' or language or translation_language or audio_provider != 'gemini' or gemini_executable:
+            raise wc.Fail(2, '--transcript-bundle cannot use Gemini generation or provider options.')
         if image_review or audio_storage != 'original':
             raise wc.Fail(2, '--transcript-bundle requires --audio-storage original and cannot use --image-review.')
         from .transcript_bundle import import_bundle
@@ -255,6 +259,14 @@ def ingest(cfg, path, title=None, version='v1', audio_storage='normalized', imag
     is_image = path.suffix.lower() in reviewed_image.EXTENSIONS
     if image_review and not is_image:
         raise wc.Fail(2, '--image-review requires a PNG, JPEG or WebP source.')
+    if audio_provider not in ('gemini', 'groq'):
+        raise wc.Fail(2, 'Audio provider must be gemini or groq.')
+    if path.suffix.lower() in AUDIO and audio_provider == 'gemini':
+        from .audio_pipeline import ingest_audio
+        return ingest_audio(cfg, path, title, version, audio_storage, pipeline, language,
+                            translation_language, resume, gemini_executable)
+    if resume or pipeline != 'standard' or language or translation_language:
+        raise wc.Fail(2, 'Gemini workflow options require Gemini audio ingestion.')
     normalized = path.suffix.lower() in AUDIO and audio_storage == 'normalized'
     provenance = None
     if normalized:

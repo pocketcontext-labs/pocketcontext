@@ -15,7 +15,7 @@ import urllib.request
 from unittest.mock import patch
 
 from integration import server, credentials
-from wikicontext_client import cli as wc, ingest, exporter
+from wikicontext_client import cli as wc, ingest, exporter, audio_catalog
 
 PRODUCE = r'''
 import contextlib, io, json, os, sys, wave
@@ -25,10 +25,12 @@ from unittest.mock import MagicMock, patch
 from gemini_transcribe import cli
 root = Path(sys.argv[1])
 pipeline = sys.argv[2]
-audio = root/'synthetic.wav'
-with wave.open(str(audio),'wb') as f:
-    f.setnchannels(2); f.setsampwidth(2); f.setframerate(16000)
-    f.writeframes(b'\0' * 16000 * 2 * 2 * 2)
+audio = Path(sys.argv[3]) if len(sys.argv) > 3 else root/'synthetic.wav'
+if len(sys.argv) <= 3:
+    with wave.open(str(audio),'wb') as f:
+        f.setnchannels(2); f.setsampwidth(2); f.setframerate(16000)
+        f.writeframes(b'\0' * 16000 * 2 * 2 * 2)
+output_dir = Path(sys.argv[4]) if len(sys.argv) > 4 else root/'outputs'
 transcript = {'language':'English','segments':[
     {'start':0.0,'end':0.9,'speaker':'SPEAKER_01','text':'We agreed to deliver the report on Monday.'},
     {'start':1.0,'end':1.8,'speaker':'SPEAKER_02','text':'I will send it.'}],
@@ -57,7 +59,7 @@ client.models.generate_content.side_effect=responses
 with patch.dict(os.environ,{'GEMINI_API_KEY':'synthetic-key'}),patch.object(cli.genai,'Client',return_value=client):
     output=io.StringIO()
     with contextlib.redirect_stdout(output):
-        code=cli.main([str(audio),'--pipeline',pipeline,'--output-dir',str(root/'outputs'),'--translation-language','Italian','--json'])
+        code=cli.main([str(audio),'--pipeline',pipeline,'--output-dir',str(output_dir),'--translation-language','Italian','--json'])
     assert code==0
     receipt=json.loads(output.getvalue())
     manifest=Path(receipt['manifest_path'])
@@ -183,17 +185,33 @@ def check_pipeline(args,pipeline):
                 pages[slug] = page
                 revision=create('page_revisions',{'run':run['id'],'page':page['id'],'base_revision':'','title':slug,'summary':'Synthetic test.','body':body})
                 create('citations',{'page_revision':revision['id'],'passage':result['segment_passages'][segment][0],'marker':'1'})
-            recording = create('pages', {'slug': 'synthetic-recording', 'kind': 'entity'})
-            properties = {'catalog_type': 'audio_recording', 'audio_source_id': result['source'],
-                'selected_bundle_rendition_id': result['bundle_rendition'], 'recorded_at': '2026-10-13',
-                'duration_seconds': 2, 'language': 'English', 'transcript_pages': [pages['synthetic-transcript']['id']],
-                'summary_pages': [pages['synthetic-summary']['id']]}
-            recording_revision = create('page_revisions', {'run': run['id'], 'page': recording['id'],
-                'title': 'Synthetic recording', 'summary': 'Synthetic complete audio catalog.',
-                'body': 'The speakers discuss a report.[^1]', 'properties': properties})
-            create('citations', {'page_revision': recording_revision['id'], 'passage': result['segment_passages']['seg000001'][0], 'marker': '1'})
-            for linked in properties['transcript_pages'] + properties['summary_pages']:
-                create('page_links', {'page_revision': recording_revision['id'], 'target': linked})
+            stage_args = (cfg, run['id'], result, pages['synthetic-transcript']['id'],
+                          pages['synthetic-summary']['id'])
+            stage_options = {'title': 'Synthetic recording', 'language': 'English', 'duration_seconds': 2}
+            # An interrupted graph write must reconcile immutable staging on retry.
+            def interrupted_link(cfg, method, url, body=None):
+                if url == wc.records('page_links'):
+                    raise wc.Fail(1, 'Synthetic interrupted catalog staging')
+                return original_must(cfg, method, url, body)
+            with patch.object(wc, 'must', side_effect=interrupted_link):
+                try:
+                    audio_catalog.stage(*stage_args, **stage_options)
+                except wc.Fail as exc:
+                    assert str(exc) == 'Synthetic interrupted catalog staging'
+                else:
+                    raise AssertionError('Expected interrupted catalog staging')
+            staged = audio_catalog.stage(*stage_args, **stage_options)
+            assert staged == audio_catalog.stage(*stage_args, **stage_options)
+            assert staged['status'] == 'staged'
+            assert not ingest.rows(cfg, 'SELECT id FROM publications')
+            recording = {'id': staged['page']}
+            recording_revision = exporter.one(cfg, 'page_revisions', 'id,properties', staged['revision'])
+            properties = recording_revision['properties']
+            if isinstance(properties, str): properties = json.loads(properties)
+            assert properties['selected_bundle_rendition_id'] == result['bundle_rendition']
+            assert properties['transcript_pages'] == [pages['synthetic-transcript']['id']]
+            assert properties['summary_pages'] == [pages['synthetic-summary']['id']]
+            assert 'recorded_at' not in properties
             wc.must(cfg,'PATCH',wc.records('ingestion_runs',run['id']),{'expected_revision':run['revision'],'status':'published'})
             assert len(ingest.rows(cfg,'SELECT id FROM publications'))==1
             # Another pipeline/version shares audio, preserving the explicit published selection.
@@ -242,13 +260,48 @@ def check_pipeline(args,pipeline):
             forged_notes = {**notes, 'artifact_sources': {**notes['artifact_sources'], 'analysis': private_source['id']}}
             rejected({**properties, 'selected_bundle_rendition_id': forged('foreign-artifact', forged_notes)}, 404)
             assert len(ingest.rows(cfg, 'SELECT id FROM publications')) == 1
+            if pipeline == 'standard':
+                # Exercise the default normalized path end-to-end. Only the Gemini
+                # process boundary is substituted; FFmpeg, bundle generation with
+                # mocked SDK, authenticated import and protected files are real.
+                real_subprocess_run = subprocess.run
+                provider_commands = []
+                def synthetic_gemini(command, **kwargs):
+                    if command[0] != 'synthetic-gemini':
+                        return real_subprocess_run(command, **kwargs)
+                    provider_commands.append(command)
+                    assert command[command.index('--pipeline') + 1] == 'standard'
+                    assert command[command.index('--language') + 1] == 'English'
+                    assert command[command.index('--translation-language') + 1] == 'Italian'
+                    return real_subprocess_run([str(Path(args.gemini_python).absolute()), '-c', PRODUCE,
+                        str(root), 'standard', command[1], command[command.index('--output-dir') + 1]],
+                        **kwargs)
+                with patch.dict(os.environ, {'GEMINI_API_KEY': 'synthetic-key'}), \
+                     patch('subprocess.run', side_effect=synthetic_gemini):
+                    normalized = ingest.ingest(cfg, audio, version='default-gemini', language='English',
+                        translation_language='Italian', gemini_executable='synthetic-gemini')
+                    repeated = ingest.ingest(cfg, audio, version='default-gemini', language='English',
+                        translation_language='Italian', gemini_executable='synthetic-gemini')
+                assert len(provider_commands) == 1
+                assert normalized == repeated
+                assert normalized['audio_provider'] == 'gemini' and normalized['pipeline'] == 'standard'
+                assert audio.read_bytes() == originals['audio']
+                snapshot = Path(provider_commands[0][1])
+                assert snapshot.suffix == '.ogg' and snapshot.read_bytes().startswith(b'OggS')
+                source = exporter.one(cfg, 'sources', 'id,original,sha256', normalized['source'])
+                assert source['sha256'] == hashlib.sha256(snapshot.read_bytes()).hexdigest()
+                protected = request('POST', '/api/files/token', {}, token)['token']
+                url = request.base_url+'/api/files/sources/'+source['id']+'/'+source['original']+'?token='+protected
+                with urllib.request.urlopen(url, timeout=20) as response:
+                    assert response.read() == snapshot.read_bytes()
+                assert len(ingest.rows(cfg, 'SELECT id FROM publications')) == 1
             destination=root/'export'
             exporter.export(cfg,destination)
             for role,ident in ids.items():
                 source=exporter.one(cfg,'sources','id,title,original_name,original,sha256',ident)
                 assert (destination/exporter.source_path(source)).read_bytes()==originals[role],role
             assert (destination/'wiki/synthetic-summary.md').exists()
-            assert 'audio_recording' in (destination/'wiki/synthetic-recording.md').read_text()
+            assert 'audio_recording' in (destination/('wiki/audio-'+result['source']+'.md')).read_text()
     print('PASS '+pipeline+' handoff, provider-free resume, immutable publication and artifact recovery')
 
 

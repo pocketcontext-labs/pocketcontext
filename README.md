@@ -137,7 +137,17 @@ package must be published and its portable launcher pinned before release.
 
 The `ingest` command uploads an immutable source and extracts passages; audio is normalized before upload by default. The agent then follows the skill to synthesize summaries/concepts, create citations/links, and publish a staging run. Uploading/extracting alone is not a completed knowledge-ingestion workflow. The server validates publication and rejects stale synthesis with 409. Use `wikicontext stage-home RUN_ID --home SLUG --expected-revision N` (or `--clear-home`) to stage the home choice and capture its expected base. Publish using the returned run revision without home flags. Home-only runs are supported; concurrent home changes return 409 and require reassessment. Direct `publish --home`/`--clear-home` requires an explicit `--home-base` page ID or empty string. No LLM runs inside the server or Markdown exporter.
 
-Supported extraction: reviewed PNG/JPEG/WebP images (see below); UTF-8 text/Markdown and related text formats; text PDFs using local `pdftotext`; audio using `ffmpeg`, `ffprobe` and the configured Groq service. Audio ingestion authorizes transcription. By default the client stores mono Opus `.ogg` audio encoded from 16 kHz input at 16 kbps, then sends those same bytes to Groq. It checks duration and the 25 MB transcription limit before upload; large input recordings can fit after normalization. Local recordings remain untouched. Use `ingest PATH --audio-storage original` to upload the input bytes and transcribe a separate derivative. Normalization selects the first audio stream and discards video. Normalized files are privately cached for retry across failures and encoder upgrades. The stored Ogg embeds the input hash, conversion profile and converter version before transcription; private cache metadata and later rendition notes also retain the input filename and conversion settings. Exact-byte deduplication applies to the stored file; different encoder builds can produce different bytes. Set only this application's `WIKICONTEXT_GROQ_API_KEY` in the agent environment. Missing tools or invalid/oversize normalized audio stop before upload in the default audio mode. Scanned PDFs without text and provider errors stop extraction with resumable source storage. No OCR or background crawler is supplied.
+Supported extraction: reviewed PNG/JPEG/WebP images; UTF-8 text/Markdown and related text formats; text PDFs using local `pdftotext`; and audio through the pinned Gemini Transcribe client. Audio ingestion authorizes sending the recording to Gemini. The default stores mono Ogg Opus encoded from 24 kHz input at 32 kbps, verifies duration and the 100 MiB source limit, and processes those exact bytes. Original input files remain unchanged. Input hashes, conversion settings and converter versions are retained in private cache metadata and stored Ogg provenance. `--audio-storage original` preserves input bytes instead. Require uv, Python 3.12+, FFmpeg/ffprobe and `GEMINI_API_KEY` for generation. The WikiContext client itself still supports Python 3.11; uv runs Gemini in its separate compatible environment.
+
+```sh
+wikicontext ingest recording.m4a --language Italian --version gemini-standard-1
+# Resume explicitly with the saved workflow receipt and the same source/options:
+wikicontext ingest recording.m4a --language Italian --version gemini-standard-1 --resume /private/workflow/receipt.json
+```
+
+The default Gemini `standard` pipeline produces a v2 transcript/analysis/translation bundle. Translation defaults to English; `--translation-language` changes it independently of the original transcript. The experimental `--pipeline long-decode` remains explicit. Safe validation diagnostics identify failed stages/reasons without exposing transcript text or provider responses. Completed work is reused, interrupted work remains resumable, and no automatic generation retry or provider fallback occurs. The explicit legacy `--audio-provider groq` route retains `WIKICONTEXT_GROQ_API_KEY`, 16 kHz/16 kbps Opus and its 25 MB transcription limit.
+
+After extraction, the agent reviews evidence and stages cited transcript/summary pages. `wikicontext stage-audio RUN_ID --receipt /private/ingest.json --transcript-page ID --summary-page ID` stages the matching Audio catalog entry and bundle selection. It validates existing evidence and preserves published identities; it does not generate prose or publish. The skill continues through atomic publication and verifies the catalog, selected extraction, protected playback/artifacts and page links before reporting ingestion complete. See the [audio workflow](skills/wikicontext/references/workflows.md#audio).
 
 Precomputed Gemini Transcribe bundles can be imported without retranscribing:
 
@@ -311,6 +321,8 @@ python3 tests/oauth.py
 python3 tests/client.py
 python3 tests/knowledge.py
 python3 tests/ingest.py
+python3 tests/audio_pipeline.py
+python3 tests/audio_catalog.py
 python3 tests/transcript_bundle.py
 python3 tests/transcript_bundle_integration.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/exporter.py
