@@ -319,3 +319,22 @@ bundle requires an explicit new revision to select it; historical publications
 retain their old selection. Reviewed summaries remain separate from generated
 analysis, translations and subjective observations. Importing or viewing a recording
 does not authorize provider uploads, messages, or execution of source contents.
+
+### Choosing a Gemini pipeline
+
+Both `standard` (Interactions) and opt-in `long-decode` (GenerateContent) use the
+same v2 bundle import command. Choose the pipeline in Gemini Transcribe, then
+import with distinct `--version` labels (for example `gemini-standard-1` and
+`gemini-long-decode-1`). Importing either version does not replace published
+selections or citations. Review and explicitly publish a selected extraction.
+
+Optional `configuration.generation` uses `gemini-transcribe.generation/v1` to
+record pipeline/API, SDK, configured limits and per-stage attempt/hop receipts.
+The importer validates this metadata before writes; the five-field `extraction`
+object remains unchanged. Historical bundles without versioned generation
+metadata remain importable. In Audio → Files and provenance, the hash-verified
+selected manifest supplies pipeline/model, actual continuation responses and
+reported token totals across recorded attempts. Continuation being enabled does
+not mean it occurred. Missing counts are unavailable, not zero; counts are not a
+billing invoice. Opaque continuation tokens, prompts and raw provider responses
+are never generation metadata. JSON artifacts remain limited to 8 MiB.

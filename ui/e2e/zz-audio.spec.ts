@@ -33,6 +33,7 @@ test("audio catalog: protected playback, bundle previews, historical selection a
   await expect(recording.locator(".audio-analysis")).toContainText("Alice (SPEAKER_01)");
   await recording.getByRole("button", {name:"Files and provenance",exact:true}).click();
   await expect(recording.getByRole("button", {name:"Download Analysis",exact:true})).toBeVisible();
+  await expect(recording.getByRole("region", {name:"Generation provenance"})).toContainText("Pipeline and usage: Unavailable");
   const downloadEvent = page.waitForEvent("download");
   await recording.getByRole("button", {name:"Download Analysis",exact:true}).click();
   const download = await downloadEvent;
@@ -51,6 +52,14 @@ test("audio catalog: protected playback, bundle previews, historical selection a
   await recording.getByLabel("Extraction version").selectOption(fixture.second);
   await recording.getByRole("button", {name:"Transcript",exact:true}).click();
   await expect(recording).toContainText("Reviewed Alice (SPEAKER_01): Synthetic evidence.");
+  await recording.getByRole("button", {name:"Files and provenance",exact:true}).click();
+  await expect(recording.getByRole("region", {name:"Generation provenance"})).toContainText("Long decode (continuation enabled)");
+  await expect(recording.getByRole("region", {name:"Generation provenance"})).toContainText("Continuation responses: 1");
+  await expect(recording.getByRole("region", {name:"Generation provenance"})).toContainText("200");
+  await recording.getByLabel("Extraction version").selectOption(fixture.first);
+  await expect(recording.getByRole("region", {name:"Generation provenance"})).toHaveCount(0);
+  await recording.getByRole("button", {name:"Files and provenance",exact:true}).click();
+  await expect(recording.getByRole("region", {name:"Generation provenance"})).toContainText("Pipeline and usage: Unavailable");
   await page.reload();
   await expect(recording.getByLabel("Extraction version")).toHaveValue(fixture.first);
   const update = await request.post(process.env.WIKICONTEXT_TEST_CONTROL + "/audio-update");

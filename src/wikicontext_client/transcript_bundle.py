@@ -38,6 +38,47 @@ def number(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
+GENERATION_USAGE = {'prompt_token_count', 'cached_content_token_count', 'candidates_token_count',
+                    'thoughts_token_count', 'total_token_count', 'initial_prompt_token_count'}
+
+
+def validate_generation(g):
+    """Validate optional public generation receipts; never retain opaque provider state."""
+    require(isinstance(g, dict), 'invalid generation metadata.')
+    if 'schema_version' not in g:  # Historical local prototypes had unversioned metadata.
+        return
+    def integer(v): return type(v) is int and 0 <= v <= 9_007_199_254_740_991
+    require(isinstance(g, dict) and set(g) == {'schema_version', 'pipeline', 'api', 'sdk_version', 'settings', 'stages'}, 'invalid generation metadata.')
+    require(g['schema_version'] == 'gemini-transcribe.generation/v1' and g['pipeline'] in ('standard', 'long-decode'), 'unsupported generation metadata.')
+    require(g['api'] == {'standard': 'interactions', 'long-decode': 'generate_content'}[g['pipeline']] and text(g['sdk_version'], 100), 'invalid generation API.')
+    settings = g['settings']
+    allowed = {'automatic_retries', 'request_timeout_seconds'}
+    if g['pipeline'] == 'long-decode':
+        allowed |= {'max_output_tokens', 'thinking_level', 'automatic_continuation', 'deadline_seconds', 'max_hops'}
+    require(isinstance(settings, dict) and set(settings) == allowed and settings['automatic_retries'] is False, 'invalid generation settings.')
+    for key in allowed - {'automatic_retries', 'automatic_continuation', 'thinking_level'}:
+        require(number(settings[key]) and 0 < settings[key] <= 9_007_199_254_740_991, 'invalid generation limit.')
+    if g['pipeline'] == 'long-decode':
+        require(settings['automatic_continuation'] is False and settings['thinking_level'] == 'low' and integer(settings['max_hops']) and integer(settings['max_output_tokens']), 'invalid continuation settings.')
+    require(isinstance(g['stages'], dict) and set(g['stages']) <= {'transcription', 'analysis', 'translation'}, 'invalid generation stages.')
+    for attempts in g['stages'].values():
+        require(isinstance(attempts, list) and 1 <= len(attempts) <= 100, 'invalid generation attempts.')
+        for attempt in attempts:
+            require(isinstance(attempt, dict) and set(attempt) == {'status', 'hops', 'continuation_count'} and attempt['status'] in ('complete', 'failed') and integer(attempt['continuation_count']), 'invalid generation attempt.')
+            hops = attempt['hops']
+            require(isinstance(hops, list) and len(hops) <= 100, 'invalid generation hops.')
+            for index, hop in enumerate(hops, 1):
+                require(isinstance(hop, dict) and set(hop) <= {'hop', 'status', 'finish_reason', 'usage', 'visible_bytes', 'has_continuation_token', 'elapsed_seconds', 'error_code'}, 'unknown generation hop fields.')
+                require(type(hop.get('hop')) is int and hop['hop'] == index and hop.get('status') in ('received', 'failed') and number(hop.get('elapsed_seconds')) and hop['elapsed_seconds'] >= 0, 'invalid generation hop.')
+                require('finish_reason' not in hop or hop['finish_reason'] in ('STOP', 'CONTINUATION', 'MAX_TOKENS', 'OTHER'), 'invalid generation finish reason.')
+                require('visible_bytes' not in hop or integer(hop['visible_bytes']), 'invalid visible byte count.')
+                require('has_continuation_token' not in hop or type(hop['has_continuation_token']) is bool, 'invalid continuation flag.')
+                require('error_code' not in hop or text(hop['error_code'], 100), 'invalid generation error.')
+                usage = hop.get('usage', {})
+                require(isinstance(usage, dict) and set(usage) <= GENERATION_USAGE and all(integer(v) for v in usage.values()), 'invalid generation usage.')
+            require(attempt['continuation_count'] == sum(h.get('finish_reason') == 'CONTINUATION' for h in hops), 'incorrect continuation count.')
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -94,6 +135,8 @@ def _preflight(audio, manifest_path):
     config = m.get('configuration')
     if config is not None:
         require(isinstance(config, dict) and text(config.get('translation_language'), 100) and (config.get('language_hint') is None or text(config.get('language_hint'), 100)), 'invalid configuration.')
+    if config is not None and 'generation' in config:
+        validate_generation(config['generation'])
     source = read(audio)
     require(source and type(s.get('size_bytes')) is int and len(source) == s['size_bytes'] and sha(source) == s.get('sha256'), 'source hash or size mismatch.')
     # Probe an immutable copy of the bytes we will upload, never the mutable input.

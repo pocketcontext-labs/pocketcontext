@@ -27,6 +27,24 @@ immutable writes; corrections require a new extraction version. Space boundaries
 and ordinary file access apply independently. This uses existing schema records;
 extraction does not create or publish knowledge pages.
 
+
+Both `standard` (Interactions) and opt-in `long-decode` (GenerateContent) use the
+same v2 bundle import command. Choose the pipeline in Gemini Transcribe, then
+import with distinct `--version` labels (for example `gemini-standard-1` and
+`gemini-long-decode-1`). Importing either version does not replace published
+selections or citations. Review and explicitly publish a selected extraction.
+
+Optional `configuration.generation` uses `gemini-transcribe.generation/v1` to
+record pipeline/API, SDK, configured limits and per-stage attempt/hop receipts.
+The importer validates this metadata before writes; the five-field `extraction`
+object remains unchanged. Historical bundles without versioned generation
+metadata remain importable. In Audio → Files and provenance, the hash-verified
+selected manifest supplies pipeline/model, actual continuation responses and
+reported token totals across recorded attempts. Continuation being enabled does
+not mean it occurred. Missing counts are unavailable, not zero; counts are not a
+billing invoice. Opaque continuation tokens, prompts and raw provider responses
+are never generation metadata. JSON artifacts remain limited to 8 MiB.
+
 V2 bundles require `gemini-transcribe.speaker-names/v1` and display supported names
 as `Alice (SPEAKER_01)` in native transcript passages. A single consistent name
 with at least one explicit model mapping is eligible; tentative, conflicting,

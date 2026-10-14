@@ -26,6 +26,19 @@ def fixture(root):
     return audio, manifest, m
 
 
+def generation_fixture():
+    return {'schema_version': 'gemini-transcribe.generation/v1', 'pipeline': 'long-decode',
+        'api': 'generate_content', 'sdk_version': '2.30.1',
+        'settings': {'automatic_retries': False, 'request_timeout_seconds': 1200,
+            'max_output_tokens': 131072, 'thinking_level': 'low', 'automatic_continuation': False,
+            'deadline_seconds': 1800, 'max_hops': 16},
+        'stages': {'transcription': [{'status': 'complete', 'continuation_count': 1, 'hops': [
+            {'hop': 1, 'status': 'received', 'finish_reason': 'CONTINUATION', 'elapsed_seconds': 1,
+             'usage': {'prompt_token_count': 100, 'candidates_token_count': 50}},
+            {'hop': 2, 'status': 'received', 'finish_reason': 'STOP', 'elapsed_seconds': 1,
+             'usage': {'prompt_token_count': 100, 'candidates_token_count': 20}}]}]}}
+
+
 class BundleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -35,6 +48,24 @@ class BundleTests(unittest.TestCase):
             p.start(); self.addCleanup(p.stop)
     def save(self): self.manifest.write_text(json.dumps(self.m))
     def run_import(self): return ingest.ingest(self.cfg, self.audio, transcript_bundle=self.manifest, audio_storage='original')
+    def test_generation_metadata_and_historical(self):
+        for generation in (generation_fixture(), {'prototype': 'historical'}):
+            self.m['configuration'] = {'translation_language': 'English', 'language_hint': None, 'generation': generation}
+            self.save()
+            self.assertEqual(bundle.preflight(self.audio, self.manifest)[0]['configuration']['generation'], generation)
+    def test_generation_rejects_unsafe_or_inconsistent_receipts_before_upload(self):
+        for mutate in (
+            lambda g: g.update(api='interactions'),
+            lambda g: g['settings'].update(automatic_retries=True),
+            lambda g: g['stages']['transcription'][0].update(continuation_count=0),
+            lambda g: g['stages']['transcription'][0]['hops'][0].update(continuation_token='opaque-secret'),
+            lambda g: g['stages']['transcription'][0]['hops'][0]['usage'].update(thoughts_token_count=-1),
+            lambda g: g['stages']['transcription'][0]['hops'][0]['usage'].update(prompt_token_count=True),
+        ):
+            g = generation_fixture(); mutate(g)
+            self.m['configuration'] = {'translation_language': 'English', 'language_hint': None, 'generation': g}; self.save()
+            with self.assertRaises(ingest.wc.Fail): self.run_import()
+            self.assertFalse(self.store.tables['sources'])
     def test_complete_retry(self):
         first = self.run_import(); self.assertEqual(first, self.run_import())
         self.assertEqual(len(first['artifact_sources']), 4)

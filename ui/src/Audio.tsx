@@ -1,3 +1,4 @@
+import { GenerationProvenance, generationMetadata } from "./Generation";
 import { useEffect, useRef, useState } from "react";
 import { api, pb, query, sessionGeneration } from "./api";
 import {
@@ -292,6 +293,8 @@ interface Artifact {
   media_type: string;
 }
 interface Manifest {
+  extraction?: { model?: string };
+  configuration?: { generation?: unknown };
   schema_version: string;
   status: string;
   source: { sha256: string };
@@ -366,6 +369,7 @@ export function validateManifest(
     )
   )
     throw new Error("Unbound bundle artifact.");
+  generationMetadata(m.configuration?.generation);
   return m;
 }
 async function verifiedManifest(
@@ -624,6 +628,7 @@ function Recording({
     {},
   );
   const [revoked, setRevoked] = useState(false);
+  const [provenance, setProvenance] = useState<Manifest | null>(null);
   const [files, setFiles] = useState<Record<string, Source>>({});
   const epoch = useRef(0),
     controllers = useRef(new Set<AbortController>()),
@@ -674,6 +679,7 @@ function Recording({
         setPreview(null);
         setPassages([]);
         setFiles({});
+        setProvenance(null);
         setSource(null);
         setBundles([]);
         setRevoked(true);
@@ -694,6 +700,7 @@ function Recording({
     setSegmentLinks({});
     setPassages([]);
     setFiles({});
+    setProvenance(null);
     setStatus("");
     setTab("");
   };
@@ -743,7 +750,10 @@ function Recording({
           boundArtifact(role, result[role], manifest);
           if (signal.aborted) return;
         }
-        if (current === epoch.current) setFiles(result);
+        if (current === epoch.current) {
+          setFiles(result);
+          setProvenance(manifest);
+        }
       } else {
         const role = kind === "Analysis" ? "analysis" : "translation";
         if (!notes.artifact_sources[role]) {
@@ -843,7 +853,14 @@ function Recording({
               ? "Reviewed wiki summaries"
               : "Reviewed wiki transcripts"}
           </h3>
-          {(!Array.isArray(page.properties?.[key]) || !(page.properties![key] as string[]).length) && <p>{key === "summary_pages" ? "No reviewed summary linked." : "No reviewed transcript linked."}</p>}
+          {(!Array.isArray(page.properties?.[key]) ||
+            !(page.properties![key] as string[]).length) && (
+            <p>
+              {key === "summary_pages"
+                ? "No reviewed summary linked."
+                : "No reviewed transcript linked."}
+            </p>
+          )}
           {Array.isArray(page.properties?.[key]) &&
             (page.properties![key] as string[]).map((pid) => {
               const target = pages.find((p) => p.page === pid);
@@ -930,6 +947,12 @@ function Recording({
             />
           </div>
         ))}
+      {provenance && (
+        <GenerationProvenance
+          value={provenance.configuration?.generation}
+          model={provenance.extraction?.model}
+        />
+      )}
       {Object.entries(files).map(([role, file]) => (
         <p key={role}>
           <a href={evidenceHref("sources", file.id, "", publication)}>

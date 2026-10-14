@@ -142,5 +142,5 @@ jobs:
       - name: Test published Gemini bundle handoff
         run: |
           uv venv "$RUNNER_TEMP/gemini-venv" --python 3.12
-          uv pip install --python "$RUNNER_TEMP/gemini-venv/bin/python" 'gemini-transcribe @ git+https://github.com/pocketcontext/gemini-transcribe.git@573cc8f5800b7c8de966151daf6c27b46532cf19'
+          uv pip install --python "$RUNNER_TEMP/gemini-venv/bin/python" 'gemini-transcribe @ git+https://github.com/pocketcontext/gemini-transcribe.git@b47b0f8dc44409e56c1bc2fc1daada36e2b7dfd5'
           python3 wikicontext/tests/gemini_handoff.py --binary pocketcontext/bin/pocketcontext --gemini-python "$RUNNER_TEMP/gemini-venv/bin/python"

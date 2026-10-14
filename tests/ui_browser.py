@@ -77,7 +77,7 @@ def seed(request):
     def control(action):
         nonlocal token
         if action == '/audio':
-            from transcript_bundle import fixture
+            from transcript_bundle import fixture, generation_fixture
             from wikicontext_client import ingest
             from wikicontext_client.transcript_bundle import ARTIFACT_FORMATS
             request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
@@ -103,6 +103,7 @@ def seed(request):
                 metadata['stages'].update(analysis='complete', translation='complete')
                 manifest.write_text(json.dumps(metadata))
                 first = ingest.ingest(cfg, audio, audio_storage='original', transcript_bundle=manifest, version='browser-audio-v1')
+                metadata['configuration'] = {'translation_language': 'Italian', 'language_hint': None, 'generation': generation_fixture()}
                 metadata['speaker_names']['overrides'] = [{'speaker': 'SPEAKER_01', 'name': 'Reviewed Alice', 'reason': 'Synthetic review.'}]
                 manifest.write_text(json.dumps(metadata))
                 second = ingest.ingest(cfg, audio, audio_storage='original', transcript_bundle=manifest, version='browser-audio-v2')
