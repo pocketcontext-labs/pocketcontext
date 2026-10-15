@@ -26,6 +26,32 @@ test("audio catalog: protected playback, bundle previews, historical selection a
   await page.keyboard.press("Enter");
   await expect(recording).toContainText("Alice (SPEAKER_01): Synthetic evidence.");
   await expect(recording.getByRole("link", {name:/segment seg000001/})).toHaveAttribute("href", /passages\//);
+  // Exercise warning rendering even when optional manifest warnings are absent.
+  await page.route("**/api/context/query", async route => {
+    const sql = route.request().postDataJSON().sql as string;
+    if (!sql.startsWith("SELECT p.id,p.ordinal,p.locator,p.body FROM passages")) {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const data = await response.json();
+    data.rows = [
+      ["timingpassage001", 1, "segment seg000001; seconds 0.500-0.900", "Synthetic first segment"],
+      ["timingpassage002", 2, "segment seg000002; seconds 0.200-0.600", "Synthetic backwards segment"],
+      ["timingpassage003", 3, "segment seg000003; seconds 0.800-0.400", "Synthetic reversed segment"],
+    ];
+    await route.fulfill({response, json:data});
+  });
+  await recording.getByRole("button", {name:"Transcript",exact:true}).click();
+  const timing = recording.getByRole("note", {name:"Transcript timing warnings"});
+  await expect(timing).toContainText("seg000002: Start precedes");
+  await expect(timing).toContainText("seg000003: Timing unavailable");
+  await expect(recording.getByRole("link", {name:"segment seg000003; timing unavailable (reversed interval)", exact:true})).toHaveAttribute("href", /passages\//);
+  await expect(recording).not.toContainText("seconds 0.800-0.400");
+  await expect(recording.locator("article p")).toHaveText([
+    "Synthetic first segment", "Synthetic backwards segment", "Synthetic reversed segment",
+  ]);
+  await page.unroute("**/api/context/query");
   await recording.getByRole("button", {name:"Analysis",exact:true}).click();
   await expect(recording.locator(".audio-analysis")).toContainText("The synthetic team agreed to review the report.");
   await recording.getByRole("button", {name:"Translation",exact:true}).click();

@@ -43,6 +43,26 @@ wikicontext ingest recording.m4a --language Italian --version gemini-standard-1 
 
 Use the same source/configuration as the original attempt. Repeating a completed invocation reuses its saved bundle/import. Failed or partial generation stops with safe diagnostics and requires explicit resume; completed stages are retained. If the same source/version already exists remotely without a matching local workflow, the client stops before generation and reports the evidence IDs. Reuse that evidence for review/catalog publication; a new transcription requires an explicitly chosen version and authorization. There are no automatic generation retries or provider fallbacks. Transcription uses `store=False` in the standard pipeline and attempts uploaded-file cleanup even after failures. Preserve cleanup failures and safe validation paths/reasons in the diagnostic report. Do not retain raw provider responses or print rejected transcript values. The complete bundle is validated before WikiContext imports any of its sources/artifacts; import retries never call a provider.
 
+Timestamp ordering is a review warning, not a failed extraction. Import recomputes
+warnings from canonical transcript bytes: reversed segment/annotation intervals
+and backward segment starts preserve text, original order and IDs. Numeric,
+nonfinite, negative and out-of-duration timestamps remain fatal. The receipt's
+`timing_review` lists all warnings; immutable rendition notes retain the count
+and first ten diagnostics. Missing warning metadata in older bundles does not
+bypass validation. No spoken text is included in warning diagnostics.
+
+For isolated warnings, listen around the affected range and neighbouring valid
+segments. Preserve legitimate overlap; use reviewed derivative evidence for
+corrections without overwriting the original. Reversed intervals have no native
+playback range: retain timing as unavailable unless independently corrected.
+Repeated backward jumps or resets require broader section review, and may need
+explicitly authorized section retranscription. Content analysis remains provisional
+where uncertain order changes interpretation. Before publication, describe what
+you reviewed and remaining uncertainty using the `stage-audio` option
+`--timing-review-note "Reviewed affected ranges; ..."`. This review is tied to the selected bundle;
+selecting another bundle requires a fresh review. Warnings alone neither authorize
+another provider request nor establish publication readiness.
+
 Read every transcript passage and the analysis/translation/uncertainty artifacts. Publish reviewed summaries separately from generated analysis. Stage a cited transcript and summary, then follow the Audio catalog workflow below. Return `extracted` as an intermediate state; only report ingestion complete after publication and verification.
 
 ### Explicit legacy Groq route

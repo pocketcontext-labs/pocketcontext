@@ -423,6 +423,63 @@ export async function transcriptPassages(
   }
   throw new Error("Transcript exceeds preview limit.");
 }
+// Inspect immutable native locators rather than trusting optional manifest warnings.
+export function timingWarnings(passages: Passage[]): string[] {
+  const warnings: string[] = [];
+  const seen = new Set<string>();
+  let previous: number | undefined;
+  for (const p of passages) {
+    const segment = /^segment (seg[0-9]+);/.exec(p.locator)?.[1];
+    if (!segment || seen.has(segment)) continue;
+    seen.add(segment);
+    const range = /; seconds ([0-9.]+)-([0-9.]+)/.exec(p.locator);
+    if (!range) {
+      if (p.locator.includes("timing unavailable"))
+        warnings.push(
+          `${segment}: Timing unavailable; the generated interval was reversed.`,
+        );
+      continue;
+    }
+    const start = Number(range[1]),
+      end = Number(range[2]);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end)
+      warnings.push(
+        `${segment}: Timing unavailable; the generated interval is invalid.`,
+      );
+    if (previous !== undefined && start < previous)
+      warnings.push(
+        `${segment}: Start precedes the previous segment. Check the recording before relying on conversational order.`,
+      );
+    previous = start;
+  }
+  return warnings;
+}
+export function timingLocator(locator: string): string {
+  const range = /; seconds ([0-9.]+)-([0-9.]+)/.exec(locator);
+  return range && Number(range[1]) > Number(range[2])
+    ? locator.replace(range[0], "; timing unavailable (reversed interval)")
+    : locator;
+}
+export function TimingWarnings({ warnings }: { warnings: string[] }) {
+  if (!warnings.length) return null;
+  return (
+    <aside aria-label="Transcript timing warnings" role="note">
+      <p>
+        Timing warnings: text and segment order are preserved. Review affected
+        passages against the recording; unavailable timing cannot be used for
+        playback ranges.
+      </p>
+      <ul>
+        {warnings.slice(0, 10).map((warning, i) => (
+          <li key={i}>{warning}</li>
+        ))}
+      </ul>
+      {warnings.length > 10 && (
+        <p>{warnings.length - 10} additional timing warnings.</p>
+      )}
+    </aside>
+  );
+}
 export function validateAnalysis(value: unknown, passages: Passage[]) {
   const a = value as Record<string, unknown>;
   const segments = new Set(
@@ -521,7 +578,7 @@ export function validateTranslation(value: unknown, passages: Passage[]) {
       speaker: p.body.split(": ")[0],
       text: item.text,
       original_segment: item.segment_id,
-      timestamp: p.locator,
+      timestamp: timingLocator(p.locator),
     };
   });
   return { target_language: tr.target_language, segments: turns };
@@ -624,6 +681,7 @@ function Recording({
     [tab, setTab] = useState(""),
     [preview, setPreview] = useState<unknown>(null),
     [passages, setPassages] = useState<Passage[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [segmentLinks, setSegmentLinks] = useState<Record<string, string[]>>(
     {},
   );
@@ -678,6 +736,7 @@ function Recording({
         setAudio("");
         setPreview(null);
         setPassages([]);
+        setWarnings([]);
         setFiles({});
         setProvenance(null);
         setSource(null);
@@ -699,6 +758,7 @@ function Recording({
     setPreview(null);
     setSegmentLinks({});
     setPassages([]);
+    setWarnings([]);
     setFiles({});
     setProvenance(null);
     setStatus("");
@@ -742,7 +802,10 @@ function Recording({
       const manifest = await verifiedManifest(notes, source!, space, signal);
       if (kind === "Transcript") {
         const rows = await transcriptPassages(notes, source!, space, signal);
-        if (current === epoch.current) setPassages(rows);
+        if (current === epoch.current) {
+          setPassages(rows);
+          setWarnings(timingWarnings(rows));
+        }
       } else if (kind === "Files and provenance") {
         const result: Record<string, Source> = {};
         for (const [role, sourceId] of Object.entries(notes.artifact_sources)) {
@@ -781,6 +844,7 @@ function Recording({
             const segment = /^segment (seg[0-9]+);/.exec(p.locator)?.[1];
             if (segment) (links[segment] ??= []).push(p.id);
           }
+          setWarnings(timingWarnings(native));
           setSegmentLinks(links);
           setPreview(value);
         }
@@ -901,6 +965,10 @@ function Recording({
             Processor: {bundle.processor}. Browsing another version does not
             change this publication.
           </p>
+          {page.properties?.timing_review_bundle_rendition_id === selected &&
+            typeof page.properties?.timing_review_note === "string" && (
+              <p>Published timing review: {page.properties.timing_review_note}</p>
+            )}
           <div className="audio-tabs" role="group" aria-label="Bundle views">
             {[
               "Transcript",
@@ -921,10 +989,11 @@ function Recording({
       )}
       {status && <p role="status">{status}</p>}
       {tab && <h3>{tab}</h3>}
+      <TimingWarnings warnings={warnings} />
       {passages.map((p) => (
         <article key={p.id}>
           <a href={evidenceHref("passages", p.id, "", publication)}>
-            {p.locator}
+            {timingLocator(p.locator)}
           </a>
           <p>{p.body}</p>
         </article>

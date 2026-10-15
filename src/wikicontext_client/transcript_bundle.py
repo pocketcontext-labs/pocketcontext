@@ -112,7 +112,7 @@ def _preflight(audio, manifest_path):
     raw = read(manifest_path, MAX_JSON)
     m = strict_json(raw)
     require(isinstance(m, dict) and m.get('schema_version') == 'gemini-transcribe.bundle/v2', 'unsupported manifest version.')
-    require(set(m) <= {'schema_version', 'run_id', 'created_at', 'status', 'source', 'extraction', 'stages', 'artifacts', 'errors', 'configuration', 'speaker_names', 'export_provenance'}, 'unknown manifest fields.')
+    require(set(m) <= {'schema_version', 'run_id', 'created_at', 'status', 'source', 'extraction', 'stages', 'artifacts', 'errors', 'configuration', 'speaker_names', 'export_provenance', 'timing_review'}, 'unknown manifest fields.')
     require(m.get('status') == 'complete', 'only complete bundles can be imported.')
     require(text(m.get('run_id'), 200), 'invalid run ID.')
     try:
@@ -179,13 +179,13 @@ def _preflight(audio, manifest_path):
     require(isinstance(t, dict) and t.get('schema_version') == 'gemini-transcribe.transcript/v1' and text(t.get('language'), 100), 'invalid transcript version or language.')
     for key in ('segments', 'audio_annotations', 'uncertainties', 'tone'):
         require(isinstance(t.get(key), list) and len(t[key]) <= 100000, 'invalid transcript arrays.')
-    ids, speakers, previous = set(), set(), -1
+    ids, speakers = set(), set()
     def timing(item):
-        require(isinstance(item, dict) and number(item.get('start')) and number(item.get('end')) and 0 <= item['start'] <= item['end'] <= measured + 2, 'invalid timestamps.')
+        require(isinstance(item, dict) and number(item.get('start')) and number(item.get('end')) and 0 <= item['start'] <= measured + 2 and 0 <= item['end'] <= measured + 2, 'invalid timestamps.')
     for i, seg in enumerate(t['segments'], 1):
         timing(seg)
-        require(seg.get('id') == f'seg{i:06d}' and text(seg.get('text')) and isinstance(seg.get('speaker'), str) and re.fullmatch(r'(?:SPEAKER_(?:0[1-9]|[1-9][0-9]+)|UNKNOWN)', seg['speaker']) is not None and seg['start'] >= previous, 'invalid segment.')
-        ids.add(seg['id']); speakers.add(seg['speaker']); previous = seg['start']
+        require(seg.get('id') == f'seg{i:06d}' and text(seg.get('text')) and isinstance(seg.get('speaker'), str) and re.fullmatch(r'(?:SPEAKER_(?:0[1-9]|[1-9][0-9]+)|UNKNOWN)', seg['speaker']) is not None, 'invalid segment.')
+        ids.add(seg['id']); speakers.add(seg['speaker'])
     def refs(item):
         require(isinstance(item, dict), 'invalid referenced claim.')
         r = item.get('segment_ids')
@@ -197,7 +197,22 @@ def _preflight(audio, manifest_path):
         refs(item); require(item.get('kind') in ('wording', 'speaker', 'timing', 'other') and text(item.get('description')), 'invalid uncertainty.')
     for item in t['tone']:
         refs(item); require(item.get('subjective') is True and text(item.get('label')) and text(item.get('cues')), 'invalid subjective tone.')
-    documents = {'transcript': t}
+    warnings = []
+    for field in ('segments', 'audio_annotations'):
+        previous = None
+        for index, item in enumerate(t[field]):
+            details = {'path': f'$.{field}[{index}]', 'index': index,
+                       'id': item['id'], 'start': item['start'], 'end': item['end']}
+            if item['start'] > item['end']:
+                warnings.append({'reason': 'timestamp_reversed', **details})
+            if field == 'segments' and previous is not None and item['start'] < previous['start']:
+                warnings.append({'reason': 'timestamp_backward', **details,
+                                 'previous_id': previous['id'], 'previous_start': previous['start'],
+                                 'backward_seconds': previous['start'] - item['start']})
+            previous = item
+    review = {'status': 'required' if warnings else 'not_required', 'warnings': warnings}
+    require('timing_review' not in m or json.dumps(m['timing_review'], sort_keys=True) == json.dumps(review, sort_keys=True), 'timing review differs from transcript.')
+    documents = {'transcript': t, 'timing_review': review}
     if 'analysis' in files:
         a = strict_json(files['analysis'][1]); documents['analysis'] = a
         require(isinstance(a, dict) and a.get('schema_version') == 'gemini-transcribe.analysis/v1', 'invalid analysis version.')
@@ -280,7 +295,8 @@ def import_bundle(cfg, audio, manifest_path, title, version, audio_provenance=No
                 body = 'Model extraction uncertainty (not spoken text): ' + item['kind'] + '\n' + item['description']
             body += '\nReferenced transcript segments: ' + ', '.join(refs)
             first = len(observation_chunks)
-            observation_chunks += ing.chunks(body, f'observation {key}; seconds {start:.3f}-{end:.3f}')
+            timing = f'seconds {start:.3f}-{end:.3f}' if all(indexed[ref]['start'] <= indexed[ref]['end'] for ref in refs) else 'timing unavailable (reversed interval)'
+            observation_chunks += ing.chunks(body, f'observation {key}; {timing}')
             observation_ordinals[key] = list(range(first, len(observation_chunks)))
     require(all(len(p['locator']) <= 500 and len(p['body']) <= 30000 for p in observation_chunks), 'model observation exceeds passage bounds.')
     digest = sha(raw)
@@ -293,6 +309,9 @@ def import_bundle(cfg, audio, manifest_path, title, version, audio_provenance=No
     source = get_source(Path(m['source']['name']), content, title)
     # Establish the immutable import identity before auxiliary uploads.
     base_notes = {'bundle_sha256': digest, 'source_sha256': sha(content), 'schema_version': m['schema_version']}
+    warnings = docs['timing_review']['warnings']
+    if warnings:
+        base_notes.update(timing_review_required=True, timing_warning_count=len(warnings), timing_warnings=warnings[:10])
     if audio_provenance is not None:
         base_notes['audio'] = audio_provenance
     def rendition(source_id, kind, passages, extra=None):
@@ -342,7 +361,8 @@ def import_bundle(cfg, audio, manifest_path, title, version, audio_provenance=No
         start = len(passages)
         name = docs['resolved_speaker_names'].get(seg['speaker'])
         label = f"{name} ({seg['speaker']})" if name else seg['speaker']
-        passages += ing.chunks(label + ': ' + seg['text'], f"segment {seg['id']}; seconds {seg['start']:.3f}-{seg['end']:.3f}")
+        timing = f"seconds {seg['start']:.3f}-{seg['end']:.3f}" if seg['start'] <= seg['end'] else 'timing unavailable (reversed interval)'
+        passages += ing.chunks(label + ': ' + seg['text'], f"segment {seg['id']}; {timing}")
         segment_ordinals[seg['id']] = list(range(start, len(passages)))
     # Full mapping evidence and review reasons stay in the protected manifest
     # and analysis sources linked by the transcript-bundle rendition.
@@ -354,7 +374,8 @@ def import_bundle(cfg, audio, manifest_path, title, version, audio_provenance=No
     annotation_passages, acoustic = {}, []
     for ann in t['audio_annotations']:
         start = len(acoustic)
-        acoustic += ing.chunks(ann['kind'] + ': ' + ann['description'], f"annotation {ann['id']}; seconds {ann['start']:.3f}-{ann['end']:.3f}")
+        timing = f"seconds {ann['start']:.3f}-{ann['end']:.3f}" if ann['start'] <= ann['end'] else 'timing unavailable (reversed interval)'
+        acoustic += ing.chunks(ann['kind'] + ': ' + ann['description'], f"annotation {ann['id']}; {timing}")
         annotation_passages[ann['id']] = list(range(start, len(acoustic)))
     arid, aids = rendition(source, 'audio-annotations', acoustic)
     orid, oids = rendition(source, 'model-observations', observation_chunks)
@@ -365,4 +386,4 @@ def import_bundle(cfg, audio, manifest_path, title, version, audio_provenance=No
             derived[role], _ = rendition(artifact_sources[role], 'derived-' + role, chunks, {'audio_source': source, 'transcript_rendition': rid, 'independent_evidence': False})
     # Final link record is immutable and reconstructible after any interrupted phase.
     link_rid, _ = rendition(source, 'transcript-bundle', [], {'artifact_sources': artifact_sources, 'transcript_rendition': rid, 'annotations_rendition': arid, 'observations_rendition': orid, 'derived_renditions': derived})
-    return {'space': space, 'source': source, 'sha256': sha(content), 'rendition': rid, 'bundle_rendition': link_rid, 'artifact_sources': artifact_sources, 'derived_renditions': derived, 'annotations_rendition': arid, 'observations_rendition': orid, 'observation_passages': {k: [oids[i] for i in v] for k, v in observation_ordinals.items()}, 'segment_passages': {k: [passage_ids[i] for i in v] for k, v in segment_ordinals.items()}, 'annotation_passages': {k: [aids[i] for i in v] for k, v in annotation_passages.items()}, 'passages': len(passages), 'status': 'extracted', 'next': 'Review original evidence, synthesize cited revisions in a staging run, then publish.'}
+    return {'timing_review': docs['timing_review'], 'space': space, 'source': source, 'sha256': sha(content), 'rendition': rid, 'bundle_rendition': link_rid, 'artifact_sources': artifact_sources, 'derived_renditions': derived, 'annotations_rendition': arid, 'observations_rendition': orid, 'observation_passages': {k: [oids[i] for i in v] for k, v in observation_ordinals.items()}, 'segment_passages': {k: [passage_ids[i] for i in v] for k, v in segment_ordinals.items()}, 'annotation_passages': {k: [aids[i] for i in v] for k, v in annotation_passages.items()}, 'passages': len(passages), 'status': 'extracted', 'next': 'Review original evidence, synthesize cited revisions in a staging run, then publish.'}

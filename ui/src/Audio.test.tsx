@@ -2,6 +2,9 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import {
   AudioCatalog,
+  TimingWarnings,
+  timingWarnings,
+  timingLocator,
   bundleNotes,
   filterAudio,
   readAudioBytes,
@@ -211,4 +214,70 @@ it("bounds streamed protected file reads before buffering oversized content", as
   await expect(readAudioBytes({ ok: false } as Response, 4)).rejects.toThrow(
     "unavailable",
   );
+});
+
+it("preserves segment order and text while warning on backwards and reversed timing", () => {
+  const passages = [
+    {
+      id: "a",
+      ordinal: 1,
+      locator: "segment seg000001; seconds 10.000-15.000",
+      body: "First",
+    },
+    {
+      id: "b",
+      ordinal: 2,
+      locator: "segment seg000002; seconds 9.000-12.000",
+      body: "Second",
+    },
+    {
+      id: "c",
+      ordinal: 3,
+      locator: "segment seg000003; seconds 15.000-10.000",
+      body: "Third",
+    },
+    {
+      id: "d",
+      ordinal: 4,
+      locator: "segment seg000004; timing unavailable (reversed interval)",
+      body: "Fourth",
+    },
+  ];
+  const original = JSON.stringify(passages);
+  const warnings = timingWarnings(passages);
+  expect(warnings).toHaveLength(3);
+  expect(warnings[0]).toContain("seg000002: Start precedes");
+  expect(timingLocator(passages[2].locator)).toBe(
+    "segment seg000003; timing unavailable (reversed interval)",
+  );
+  expect(JSON.stringify(passages)).toBe(original);
+  render(<TimingWarnings warnings={warnings} />);
+  expect(
+    screen.getByRole("note", { name: "Transcript timing warnings" }),
+  ).toHaveTextContent("Review affected passages");
+  expect(screen.queryByRole("link")).toBeNull();
+});
+it("accepts overlap and ignores repeated chunks of a single segment", () => {
+  const passages = [
+    {
+      id: "a",
+      ordinal: 1,
+      locator: "segment seg000001; seconds 10.000-15.000",
+      body: "One",
+    },
+    {
+      id: "b",
+      ordinal: 2,
+      locator: "segment seg000002; seconds 12.000-16.000",
+      body: "Two",
+    },
+    {
+      id: "c",
+      ordinal: 3,
+      locator: "segment seg000002; seconds 12.000-16.000",
+      body: "continued",
+    },
+  ];
+  expect(timingWarnings(passages)).toEqual([]);
+  expect(timingLocator(passages[0].locator)).toBe(passages[0].locator);
 });

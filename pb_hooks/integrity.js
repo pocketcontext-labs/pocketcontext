@@ -8,6 +8,12 @@ function local(app,t,id,space){
  if(r.getString('space')!==space)spaces().missing();
  return r;
 }
+function timingRequired(notes){
+ if(!notes||typeof notes!=='object')return false;
+ if(notes.timing_review_required===undefined&&notes.timing_warning_count===undefined)return false;
+ if(typeof notes.timing_review_required!=='boolean'||!Number.isInteger(notes.timing_warning_count)||notes.timing_warning_count<0||notes.timing_review_required!==(notes.timing_warning_count>0))invalid('Invalid timing review provenance');
+ return notes.timing_review_required;
+}
 function audioCatalog(app,r,p,space){
  if(p.catalog_type!=='audio_recording')return;
  if(local(app,'pages',r.getString('page'),space).getString('kind')!=='entity')invalid('Audio recording catalogs require entity pages');
@@ -19,10 +25,11 @@ function audioCatalog(app,r,p,space){
  if(bundle.getString('kind')!=='transcript-bundle'||bundle.getString('source')!==audio.id)invalid('Bundle must belong to selected audio');
  let notes;try{notes=JSON.parse(bundle.getString('notes'));}catch(_){invalid('Invalid bundle provenance');}
  if(!notes||notes.schema_version!=='gemini-transcribe.bundle/v2'||notes.source_sha256!==audio.getString('sha256')||! /^[a-f0-9]{64}$/.test(notes.bundle_sha256||''))invalid('Invalid bundle source provenance');
+ timingRequired(notes);
  const artifacts=notes.artifact_sources;
  if(!artifacts||typeof artifacts!=='object'||Array.isArray(artifacts)||!artifacts.manifest||!artifacts.transcript||!artifacts.transcript_txt||!artifacts.transcript_srt||Object.keys(artifacts).some(role=>!['manifest','transcript','transcript_txt','transcript_srt','analysis','analysis_md','translation','translation_txt','translation_srt'].includes(role)))invalid('Invalid bundle artifacts');
  for(const group of [['analysis','analysis_md'],['translation','translation_txt','translation_srt']])if(group.some(role=>artifacts[role])&&!group.every(role=>artifacts[role]))invalid('Incomplete bundle artifact group');
- const linkedNotes=linked=>{let n;try{n=JSON.parse(linked.getString('notes'));}catch(_){invalid('Invalid linked rendition provenance');}if(!n||n.bundle_sha256!==notes.bundle_sha256||n.source_sha256!==notes.source_sha256||n.schema_version!==notes.schema_version)invalid('Mismatched extraction provenance');return n;};
+ const linkedNotes=linked=>{let n;try{n=JSON.parse(linked.getString('notes'));}catch(_){invalid('Invalid linked rendition provenance');}if(!n||n.bundle_sha256!==notes.bundle_sha256||n.source_sha256!==notes.source_sha256||n.schema_version!==notes.schema_version)invalid('Mismatched extraction provenance');if(timingRequired(n)!==timingRequired(notes)||(n.timing_warning_count||0)!==(notes.timing_warning_count||0))invalid('Mismatched timing review provenance');return n;};
  for(const role of Object.keys(artifacts))local(app,'sources',artifacts[role],space);
  if(local(app,'sources',artifacts.manifest,space).getString('sha256')!==notes.bundle_sha256)invalid('Invalid bundle manifest hash');
  for(const [key,kind] of [['transcript_rendition','transcript'],['annotations_rendition','audio-annotations'],['observations_rendition','model-observations']]){
@@ -84,7 +91,23 @@ function publish(app,run){
    if(!target||app.findRecordById('page_revisions',target).getBool('archived'))invalid('Link target is not published');
   }
  }
- const destinationKeys=new Set(),audioKeys=new Set();
+ const destinationKeys=new Set(),audioKeys=new Set(),reviewedTiming=new Set();
+ // Load historical reviews only when a citation needs one. Legacy databases
+ // predating revision properties have no timing-warning evidence to review.
+ let historicalTimingLoaded=false;
+ function loadHistoricalTiming(){
+  if(historicalTimingLoaded)return;
+  historicalTimingLoaded=true;
+ for(const reviewed of rows(app,'page_revisions','space = {:space} && run.status = "published" && properties ~ {:key}',{space,key:'timing_review_bundle_rendition_id'})){
+  if(reviewed.getBool('archived'))continue;
+  const p=require(`${__hooks}/properties.js`).validate(reviewed).properties;
+  if(p.catalog_type!=='audio_recording'||!p.timing_review_note||p.timing_review_bundle_rendition_id!==p.selected_bundle_rendition_id)continue;
+  const bundle=local(app,'renditions',p.selected_bundle_rendition_id,space);
+  if(bundle.getString('kind')!=='transcript-bundle'||bundle.getString('source')!==p.audio_source_id)continue;
+  const notes=JSON.parse(bundle.getString('notes'));
+  if(timingRequired(notes))reviewedTiming.add(notes.bundle_sha256);
+ }
+ }
  // Archiving cannot leave links from unchanged published pages dangling.
  for(const page in manifest){const r=app.findRecordById('page_revisions',manifest[page]);if(r.getBool('archived'))continue;
   const metadata=require(`${__hooks}/properties.js`),properties=metadata.validate(r).properties;
@@ -95,6 +118,13 @@ function publish(app,run){
    if(target.getBool('archived')||metadata.validate(target).properties.catalog_type!==metadata.targetCatalogs[key])invalid('Relationship target has invalid catalog type: '+key);
   }
   audioCatalog(app,r,properties,space);
+  if(properties.catalog_type==='audio_recording'&&properties.selected_bundle_rendition_id){
+   const bundle=local(app,'renditions',properties.selected_bundle_rendition_id,space),notes=JSON.parse(bundle.getString('notes'));
+   if(timingRequired(notes)){
+    if(properties.timing_review_bundle_rendition_id!==bundle.id||typeof properties.timing_review_note!=='string'||!properties.timing_review_note.trim())invalid('Audio timestamp warnings require a review note for the selected bundle before publication');
+    reviewedTiming.add(notes.bundle_sha256);
+   }
+  }
   if(properties.catalog_type==='audio_recording'){if(audioKeys.has(properties.audio_source_id))invalid('Duplicate active audio recording');audioKeys.add(properties.audio_source_id);}
   if(properties.catalog_type==='repository_document'&&properties.output_mode==='exact_copy')local(app,'sources',properties.source_id,space);
   if(properties.catalog_type==='repository_destination'&&properties.lifecycle_status!=='retired'){
@@ -114,6 +144,20 @@ function publish(app,run){
   for(const l of rows(app,'page_links','page_revision = {:id}',{id:r.id})){
    const target=manifest[l.getString('target')];
    if(!target||app.findRecordById('page_revisions',target).getBool('archived'))invalid('Publication would leave a broken link');
+  }
+ }
+ // Evidence can be cited without an Audio catalog link. Apply the same review
+ // requirement to every published citation, including derived analysis.
+ for(const page in manifest){
+  const r=app.findRecordById('page_revisions',manifest[page]);if(r.getBool('archived'))continue;
+  for(const citation of rows(app,'citations','page_revision = {:id}',{id:r.id})){
+   const passage=local(app,'passages',citation.getString('passage'),space);
+   const rendition=local(app,'renditions',passage.getString('rendition'),space);
+   let notes;try{notes=JSON.parse(rendition.getString('notes'));}catch(_){continue;}
+   if(timingRequired(notes)&&!reviewedTiming.has(notes.bundle_sha256)){
+    loadHistoricalTiming();
+    if(!reviewedTiming.has(notes.bundle_sha256))invalid('Cited timestamp-warning evidence requires a published review for its bundle');
+   }
   }
  }
  if(Object.keys(manifest).length>10000)invalid('Publication page budget exceeded');

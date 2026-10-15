@@ -220,6 +220,63 @@ class BundleTests(unittest.TestCase):
         self.assertIn('Subjective model tone inference (not spoken text)', passages[0]['body'])
         self.assertIn('seg000001', passages[1]['body'])
         self.assertEqual(result, self.run_import())
+    def test_timing_warnings_preserve_order_and_suppress_invalid_locators(self):
+        t = json.loads((self.root / 'transcript.json').read_text())
+        t['segments'][0].update(start=1, end=0.5)
+        t['segments'].append(dict(t['segments'][0], id='seg000002', start=0, end=1))
+        t['audio_annotations'][0].update(start=1, end=0)
+        t['uncertainties'] = [{'segment_ids': ['seg000001'], 'kind': 'timing', 'description': 'Review.'}]
+        self.set_transcript(t)
+        result = self.run_import()
+        self.assertEqual([w['reason'] for w in result['timing_review']['warnings']],
+                         ['timestamp_reversed', 'timestamp_backward', 'timestamp_reversed'])
+        passages = [p for p in self.store.tables['passages'] if p['rendition'] == result['rendition']]
+        self.assertIn('seg000001; timing unavailable', passages[0]['locator'])
+        self.assertIn('seg000002; seconds 0.000-1.000', passages[1]['locator'])
+        for p in self.store.tables['passages']:
+            if p['rendition'] in (result['annotations_rendition'], result['observations_rendition']):
+                self.assertNotIn('seconds', p['locator'])
+        for r in self.store.tables['renditions']:
+            self.assertEqual(json.loads(r['notes'])['timing_warning_count'], 3)
+        self.assertEqual(result, self.run_import())
+
+    def test_invalid_numeric_and_out_of_duration_timestamps_remain_fatal(self):
+        original = json.loads((self.root / 'transcript.json').read_text())
+        for value in (-1, True, '1', float('inf'), float('nan'), 4):
+            t = copy.deepcopy(original)
+            t['segments'][0]['start'] = value
+            self.set_transcript(t)
+            with self.assertRaises(ingest.wc.Fail): self.run_import()
+            self.assertFalse(self.store.tables['sources'])
+
+    def test_warning_samples_are_bounded_without_losing_receipt_details(self):
+        t = json.loads((self.root / 'transcript.json').read_text())
+        t['segments'] = [dict(t['segments'][0], id=f'seg{i:06d}', start=1, end=0) for i in range(1, 51)]
+        self.set_transcript(t)
+        result = self.run_import()
+        self.assertEqual(len(result['timing_review']['warnings']), 50)
+        for record in self.store.tables['renditions']:
+            notes = json.loads(record['notes'])
+            self.assertEqual(notes['timing_warning_count'], 50)
+            self.assertEqual(len(notes['timing_warnings']), 10)
+
+    def test_warning_metadata_boolean_cannot_impersonate_numeric_index(self):
+        t = json.loads((self.root / 'transcript.json').read_text())
+        t['segments'][0].update(start=1, end=0)
+        self.set_transcript(t)
+        review = bundle.preflight(self.audio, self.manifest)[4]['timing_review']
+        review['warnings'][0]['index'] = False
+        self.m['timing_review'] = review
+        self.save()
+        with self.assertRaises(ingest.wc.Fail): self.run_import()
+        self.assertFalse(self.store.tables['sources'])
+
+    def test_forged_timing_review_rejected(self):
+        self.m['timing_review'] = {'status': 'required', 'warnings': []}
+        self.save()
+        with self.assertRaises(ingest.wc.Fail): self.run_import()
+        self.assertFalse(self.store.tables['sources'])
+
     def test_unexpected_passage(self):
         result = self.run_import()
         self.store.tables['passages'].append({'id': 'unexpected', 'rendition': result['rendition'], 'ordinal': 2, 'locator': 'extra', 'body': 'extra'})

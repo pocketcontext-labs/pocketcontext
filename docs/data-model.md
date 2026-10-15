@@ -8,6 +8,23 @@ Sources store immutable protected original bytes and server-computed SHA-256. Id
 
 `stage-audio` prepares an entity revision selecting validated imported evidence and linking reviewed transcript/summary pages in a staging run. It reuses stable published recording identities and preserves immutable history. Review and atomic publication remain separate, explicit steps; extraction alone is incomplete ingestion.
 
+Backward segment starts and reversed intervals are preserved as timestamp warnings,
+without sorting segments or changing their IDs. Invalid numbers, negative values and
+timestamps beyond the duration tolerance remain fatal. The importer independently
+recomputes warnings, preserves originals, and marks reversed native ranges as timing
+unavailable. Immutable rendition notes carry `timing_review_required`,
+`timing_warning_count` and at most ten diagnostic samples; the receipt carries the
+full warning list. No warning sample contains spoken text.
+
+Before publication, `stage-audio --timing-review-note` records the review outcome in
+`timing_review_note`, bound to `timing_review_bundle_rendition_id`. The server requires
+this review for warning-bearing Audio selections and citations, including derived
+analysis cited without an Audio link. A review note records the reviewer's conclusion;
+it does not repair timestamps or prove acoustic accuracy. Corrected evidence needs a
+new extraction version. Selecting another bundle requires its own review; immutable
+published reviews continue to cover the older evidence. Impossible ranges remain
+unavailable in the reader even after review.
+
 Reviewed image ingestion preserves original static PNG/JPEG/WebP bytes. An `image-review` rendition records its processor and version; JSON notes bind the review to the image SHA-256, format, encoded dimensions and review digest. Optional `related_source` and `sequence` notes identify a supplementary source and ordering, not a server-enforced relationship or recording timestamp. Use these notes to supplement audio without `supersedes`. Passage locators record a transcription, description or caption kind and a pixel region in the original encoded orientation before EXIF rotation. Corrections create a new rendition version; earlier evidence remains immutable. No schema migration or automated OCR service is required.
 
 External transcript ingestion (`--transcript-bundle MANIFEST --audio-storage original`)

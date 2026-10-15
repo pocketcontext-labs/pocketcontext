@@ -85,6 +85,18 @@ class Catalog(unittest.TestCase):
         self.assertEqual(properties['language'], 'Italian')
         self.assertNotIn('duration_seconds', json.loads(revision['property_evidence']))
 
+    def test_timing_review_uses_stored_bundle_not_receipt(self):
+        self.db.execute("UPDATE renditions SET notes=? WHERE kind='transcript-bundle'",
+                        (json.dumps({'transcript_rendition': self.transcript,
+                                     'timing_review_required': True, 'timing_warning_count': 2}),))
+        self.receipt['timing_review'] = {'status': 'not_required', 'warnings': []}
+        with self.assertRaises(wc.Fail): self.stage()
+        self.assertEqual(self.writes, [])
+        result = self.stage(timing_review_note='Listened to affected ranges; timing unavailable retained.')
+        props = json.loads(self.rows({}, "SELECT properties FROM page_revisions WHERE id='" + result['revision'] + "'")[0]['properties'])
+        self.assertEqual(props['timing_review_bundle_rendition_id'], self.bundle)
+        self.assertIn('Listened', props['timing_review_note'])
+
     def test_changed_retry_fails_without_overwrite(self):
         self.stage(title='Reviewed title')
         count = len(self.writes)

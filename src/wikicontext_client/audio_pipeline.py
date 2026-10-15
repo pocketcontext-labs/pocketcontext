@@ -12,7 +12,7 @@ import tempfile
 from . import cli as wc
 from . import ingest as ing
 
-GEMINI_COMMIT = 'bd5745046c05a9eb67cdb6fbafbe191bfb85e86d'
+GEMINI_COMMIT = '659ba6dcc11bce636b2beb31dc550522c160f822'
 GEMINI_PACKAGE = 'gemini-transcribe @ git+https://github.com/pocketcontext/gemini-transcribe.git@' + GEMINI_COMMIT
 PROFILE = 'mono-24khz-32kbps-opus-v1'
 

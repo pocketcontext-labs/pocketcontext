@@ -1,5 +1,6 @@
 """Stage a reviewed audio catalog selection; never synthesize or publish it."""
 import math
+import json
 from . import cli as wc, knowledge as k, properties as props
 
 
@@ -33,7 +34,7 @@ def ensure(cfg, table, where, payload):
 
 
 def stage(cfg, run_id, receipt, transcript_page, summary_page, *, title=None,
-          language=None, duration_seconds=None):
+          language=None, duration_seconds=None, timing_review_note=None):
     space = wc.space_id(cfg)
     for value in (run_id, transcript_page, summary_page):
         identifier(value)
@@ -58,7 +59,7 @@ def stage(cfg, run_id, receipt, transcript_page, summary_page, *, title=None,
     runs = k.rows(cfg, f'SELECT status FROM ingestion_runs WHERE id={q(run_id)} AND space={q(space)}')
     if len(runs) != 1 or runs[0]['status'] != 'staging':
         raise wc.Fail(4, 'Audio catalog requires an existing staging run in the selected space')
-    evidence = k.rows(cfg, 'SELECT p.id FROM passages p JOIN renditions t ON t.id=p.rendition '
+    evidence = k.rows(cfg, 'SELECT p.id, b.notes AS bundle_notes FROM passages p JOIN renditions t ON t.id=p.rendition '
         'JOIN sources s ON s.id=t.source JOIN renditions b ON b.source=s.id '
         f'WHERE p.id={q(passage)} AND t.id={q(rendition)} AND t.kind=\'transcript\' '
         f'AND s.id={q(source)} AND s.space={q(space)} AND s.media_type LIKE \'audio/%\' '
@@ -66,6 +67,13 @@ def stage(cfg, run_id, receipt, transcript_page, summary_page, *, title=None,
         f'AND json_extract(b.notes, \'$.transcript_rendition\')={q(rendition)}')
     if len(evidence) != 1:
         raise wc.Fail(2, 'Receipt audio, bundle and transcript evidence do not match')
+    notes = json.loads(evidence[0]['bundle_notes'])
+    review_required = notes.get('timing_review_required') is True
+    if timing_review_note is not None and (not isinstance(timing_review_note, str) or
+            not timing_review_note.strip() or len(timing_review_note) > 2048):
+        raise wc.Fail(2, 'Timing review note must contain 1–2048 characters')
+    if review_required and not timing_review_note:
+        raise wc.Fail(2, 'Timing warnings require review and an explicit --timing-review-note for this bundle')
     _, published = k.published(cfg)
     selected = {r['page']: r for r in published}
     for page, kind in ((transcript_page, 'transcript'), (summary_page, 'summary')):
@@ -86,6 +94,12 @@ def stage(cfg, run_id, receipt, transcript_page, summary_page, *, title=None,
     properties.update(catalog_type='audio_recording', audio_source_id=source,
                       selected_bundle_rendition_id=bundle,
                       transcript_pages=[transcript_page], summary_pages=[summary_page])
+    for key in ('timing_review_bundle_rendition_id', 'timing_review_note'):
+        properties.pop(key, None)
+        property_evidence.pop(key, None)
+    if timing_review_note:
+        properties.update(timing_review_bundle_rendition_id=bundle,
+                          timing_review_note=timing_review_note.strip())
     # A transcript passage establishes source provenance, not technical duration
     # or human-reviewed language metadata. Do not manufacture evidence for those.
     for key, value in (('language', language), ('duration_seconds', duration_seconds)):

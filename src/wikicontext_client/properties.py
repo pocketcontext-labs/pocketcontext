@@ -65,13 +65,19 @@ def validate_repository(p):
     for key, owner in (('documents', 'repository_destination'), ('destinations', 'repository_sync')):
         if key in p and catalog != owner:
             raise ValueError()
-    for key in ('audio_source_id', 'selected_bundle_rendition_id', 'transcript_pages', 'summary_pages'):
+    for key in ('audio_source_id', 'selected_bundle_rendition_id', 'transcript_pages', 'summary_pages',
+                'timing_review_bundle_rendition_id', 'timing_review_note'):
         if key in p and catalog != 'audio_recording':
             raise ValueError()
     if catalog == 'audio_recording':
         required('audio_source_id', '[a-z0-9]{15}')
         if p.get('selected_bundle_rendition_id') is not None:
             required('selected_bundle_rendition_id', '[a-z0-9]{15}')
+        if p.get('timing_review_bundle_rendition_id') is not None or p.get('timing_review_note') is not None:
+            required('timing_review_bundle_rendition_id', '[a-z0-9]{15}')
+            if (p['timing_review_bundle_rendition_id'] != p.get('selected_bundle_rendition_id')
+                    or not isinstance(p.get('timing_review_note'), str) or not p['timing_review_note'].strip()):
+                raise ValueError()
         if p.get('recorded_at') is not None:
             required('recorded_at', r'\d{4}-\d{2}-\d{2}')
             datetime.date.fromisoformat(p['recorded_at'])

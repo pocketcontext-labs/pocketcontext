@@ -36,6 +36,9 @@ transcript = {'language':'English','segments':[
     {'start':1.0,'end':1.8,'speaker':'SPEAKER_02','text':'I will send it.'}],
     'audio_annotations':[{'start':0.9,'end':1.0,'kind':'pause','description':'Brief pause between turns.','speakers':[]}],
     'uncertainties':[], 'tone':[{'segment_ids':['seg000002'],'label':'neutral','cues':'Even delivery.','subjective':True}]}
+if pipeline == 'long-decode' and os.environ.get('WIKICONTEXT_TEST_TIMING_WARNINGS') == '1':
+    transcript['segments'][0].update(start=1.0, end=0.5)
+    transcript['segments'][1].update(start=0.5)
 analysis = {'summary':[{'text':'The speakers discuss delivering a report.','segment_ids':['seg000001','seg000002']}],
     'topics':[{'title':'Report','text':'Report delivery timing.','segment_ids':['seg000001']}],
     'decisions':[{'text':'Deliver on Monday.','segment_ids':['seg000001']}],
@@ -88,6 +91,8 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--binary',required=True)
     parser.add_argument('--gemini-python',required=True)
+    parser.add_argument('--timing-warnings', action='store_true',
+                        help='Exercise timing warnings with the changed Gemini source package; requires warning-policy support.')
     args=parser.parse_args()
     for pipeline in ('standard','long-decode'):
         check_pipeline(args,pipeline)
@@ -95,10 +100,12 @@ def main():
 
 
 def check_pipeline(args,pipeline):
+    timing_warnings = args.timing_warnings and pipeline == 'long-decode'
     with tempfile.TemporaryDirectory(prefix='gemini-wiki-handoff-') as temp:
         root=Path(temp)
         generated=subprocess.run([str(Path(args.gemini_python).absolute()),'-c',PRODUCE,str(root),pipeline],
-                                 cwd=root,capture_output=True,text=True,timeout=60)
+                                 cwd=root,capture_output=True,text=True,timeout=60,
+                                 env={**os.environ, 'WIKICONTEXT_TEST_TIMING_WARNINGS': '1' if timing_warnings else '0'})
         assert generated.returncode==0, generated.stderr
         receipt=json.loads(generated.stdout)
         assert receipt['status']=='complete'
@@ -153,7 +160,11 @@ def check_pipeline(args,pipeline):
             first=ingest.rows(cfg,"SELECT body, locator FROM passages WHERE id = '"+result['segment_passages']['seg000001'][0]+"'")[0]
             second=ingest.rows(cfg,"SELECT body FROM passages WHERE id = '"+result['segment_passages']['seg000002'][0]+"'")[0]
             assert first['body'].startswith('Alice (SPEAKER_01):')
-            assert 'segment seg000001; seconds 0.000-0.900' in first['locator']
+            if timing_warnings:
+                assert 'timing unavailable' in first['locator']
+                assert [w['reason'] for w in result['timing_review']['warnings']] == ['timestamp_reversed', 'timestamp_backward']
+            else:
+                assert 'segment seg000001; seconds 0.000-0.900' in first['locator']
             assert second['body'].startswith('SPEAKER_02:')
             assert b'Alice (SPEAKER_01)' in originals['transcript_txt']
             assert b'Alice (SPEAKER_01)' in originals['translation_txt']
@@ -188,6 +199,14 @@ def check_pipeline(args,pipeline):
             stage_args = (cfg, run['id'], result, pages['synthetic-transcript']['id'],
                           pages['synthetic-summary']['id'])
             stage_options = {'title': 'Synthetic recording', 'language': 'English', 'duration_seconds': 2}
+            if timing_warnings:
+                try:
+                    audio_catalog.stage(*stage_args, **stage_options)
+                except wc.Fail:
+                    pass
+                else:
+                    raise AssertionError('Warning-bearing bundle staged without timing review')
+                stage_options['timing_review_note'] = 'Reviewed synthetic warning ranges; reversed interval remains unavailable.'
             # An interrupted graph write must reconcile immutable staging on retry.
             def interrupted_link(cfg, method, url, body=None):
                 if url == wc.records('page_links'):
@@ -233,6 +252,8 @@ def check_pipeline(args,pipeline):
             # A catalog selection must bind the complete receipt to its own audio and space.
             invalid_run = create('ingestion_runs', {'key': 'invalid-audio-catalog', 'status': 'staging', 'description': 'Synthetic invalid selections'})
             def rejected(props, expected=400):
+                if 'timing_review_bundle_rendition_id' in props:
+                    props['timing_review_bundle_rendition_id'] = props['selected_bundle_rendition_id']
                 request('POST', '/api/collections/page_revisions/records', {'run': invalid_run['id'], 'page': recording['id'],
                     'base_revision': recording_revision['id'], 'title': 'Invalid recording', 'body': '[needs verification]',
                     'properties': props}, token, expected)

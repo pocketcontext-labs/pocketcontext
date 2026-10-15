@@ -54,7 +54,7 @@ class Client(unittest.TestCase):
         args = wc.parse(['stage-audio', 'r'*15, '--receipt', '-', '--transcript-page', 't'*15, '--summary-page', 's'*15])
         with patch.object(wc, 'config', return_value={}), patch.object(wc.sys, 'stdin', io.StringIO('{"space":"companyspace001"}')), patch.object(audio_catalog, 'stage', return_value={}) as stage, patch.object(wc, 'must') as write, patch.object(wc, 'say'):
             wc.run(args)
-        stage.assert_called_once_with({}, 'r'*15, {'space': 'companyspace001'}, 't'*15, 's'*15, title=None, language=None, duration_seconds=None)
+        stage.assert_called_once_with({}, 'r'*15, {'space': 'companyspace001'}, 't'*15, 's'*15, title=None, language=None, duration_seconds=None, timing_review_note=None)
         write.assert_not_called()
 
     def test_throttled_read(self):

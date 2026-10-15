@@ -524,7 +524,7 @@ def run(args):
         if not isinstance(receipt, dict):
             raise Fail(2, 'Audio receipt must be a JSON object.')
         result = audio_catalog.stage(cfg, args.run_id, receipt, args.transcript_page, args.summary_page,
-                                     title=args.title, language=args.language, duration_seconds=args.duration_seconds)
+                                     title=args.title, language=args.language, duration_seconds=args.duration_seconds, timing_review_note=args.timing_review_note)
         say(dump(result, args.pretty), sys.stdout)
         return 0
     if args.command == 'export-repository-file':
@@ -690,6 +690,7 @@ def parse(argv):
     audio.add_argument('--title')
     audio.add_argument('--language')
     audio.add_argument('--duration-seconds', type=float)
+    audio.add_argument('--timing-review-note', help='Describe reviewed timing warnings and remaining uncertainty for this selected bundle.')
     repository = commands.add_parser('export-repository-file', parents=[pretty], help='create a new repository copy from an explicit publication')
     repository.add_argument('destination_id', help='repository_destination page ID')
     repository.add_argument('output', help='new output file; parent directories must exist')

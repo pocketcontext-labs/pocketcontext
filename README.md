@@ -157,7 +157,7 @@ wikicontext ingest recording.m4a --language Italian --version gemini-standard-1
 wikicontext ingest recording.m4a --language Italian --version gemini-standard-1 --resume /private/workflow/receipt.json
 ```
 
-The default Gemini `standard` pipeline produces a v2 transcript/analysis/translation bundle. Translation defaults to English; `--translation-language` changes it independently of the original transcript. The experimental `--pipeline long-decode` remains explicit. Safe validation diagnostics identify failed stages/reasons without exposing transcript text or provider responses. Completed work is reused, interrupted work remains resumable, and no automatic generation retry or provider fallback occurs. The explicit legacy `--audio-provider groq` route retains `WIKICONTEXT_GROQ_API_KEY`, 16 kHz/16 kbps Opus and its 25 MB transcription limit.
+The default Gemini `standard` pipeline produces a v2 transcript/analysis/translation bundle. Translation defaults to English; `--translation-language` changes it independently of the original transcript. The experimental `--pipeline long-decode` remains explicit. Safe validation diagnostics identify failed stages/reasons without exposing transcript text or provider responses. Backward segment starts and reversed intervals preserve the candidate evidence with timing warnings; invalid numeric values and out-of-duration timestamps remain fatal. Native passages omit impossible playback ranges. Warning-bearing evidence requires a bundle-specific review note before publication; pass `--timing-review-note` to `stage-audio` after reviewing affected audio. Completed work is reused, interrupted work remains resumable, and no automatic generation retry or provider fallback occurs. The explicit legacy `--audio-provider groq` route retains `WIKICONTEXT_GROQ_API_KEY`, 16 kHz/16 kbps Opus and its 25 MB transcription limit.
 
 After extraction, the agent reviews evidence and stages cited transcript/summary pages. `wikicontext stage-audio RUN_ID --receipt /private/ingest.json --transcript-page ID --summary-page ID` stages the matching Audio catalog entry and bundle selection. It validates existing evidence and preserves published identities; it does not generate prose or publish. The skill continues through atomic publication and verifies the catalog, selected extraction, protected playback/artifacts and page links before reporting ingestion complete. See the [audio workflow](skills/wikicontext/references/workflows.md#audio).
 
@@ -337,6 +337,7 @@ python3 tests/audio_pipeline.py
 python3 tests/audio_catalog.py
 python3 tests/transcript_bundle.py
 python3 tests/transcript_bundle_integration.py --binary /absolute/path/to/pinned/pocketcontext
+python3 tests/timing_review.py --binary /absolute/path/to/pinned/pocketcontext
 python3 tests/exporter.py
 python3 tests/repository_files.py
 python3 tests/bootstrap.py
@@ -354,6 +355,13 @@ python3 tests/gemini_handoff.py --binary /absolute/path/to/pinned/pocketcontext 
 This uses mocked Gemini responses and synthetic audio, then verifies native
 passages, cited publication, protected downloads and byte-exact artifact export
 against an isolated WikiContext server. It makes no transcription-provider calls.
+When validating changes to the timing-warning policy, repeat this command with
+`--timing-warnings` and `--gemini-python` pointing to the changed Gemini source
+environment. This adds reversed-interval and backward-start evidence, review
+requirements and publication checks. The default fixture stays compatible with
+older published Gemini packages. CI now runs `--timing-warnings` against the
+verified warning-capable Gemini pin. Future adoption must publish and verify the
+Gemini release before updating runtime or CI pins; never pin an unpublished commit.
 
 After building the reader, install Chromium once and exercise the production
 assets against a synthetic isolated database:
