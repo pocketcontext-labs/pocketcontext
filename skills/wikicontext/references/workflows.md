@@ -1,5 +1,8 @@
 # Workflows
 
+Follow the [paid API retry policy](retries.md): up to three agent-initiated
+retries per authorized recording workflow require no renewed approval.
+
 ## Preserve, extract, synthesize, publish
 
 1. Authenticate, verify the live schema and confirm the selected space (`wikicontext spaces`). Group inputs into at most five sources per synthesis batch.
@@ -30,7 +33,7 @@ The default complete workflow is compact audio → Gemini v2 bundle → validate
 wikicontext ingest recording.m4a --language Italian --version gemini-standard-1
 ```
 
-Require uv, Python 3.12+, FFmpeg/ffprobe and `GEMINI_API_KEY` in the trusted environment. Do not source repository credential files or inspect keys. The client invokes a full-commit-pinned Gemini package, independently of an unrelated executable on PATH. Missing configuration must fail before provider uploads. Source-language hints do not translate the transcript; separate translation defaults to English. `--translation-language` changes that target. The default `--pipeline standard` uses Interactions; `--pipeline long-decode` explicitly selects the experimental alternate. Never change provider/model/pipeline or retry generation silently.
+Require uv, Python 3.12+, FFmpeg/ffprobe and `GEMINI_API_KEY` in the trusted environment. Do not source repository credential files or inspect keys. The client invokes a full-commit-pinned Gemini package, independently of an unrelated executable on PATH. Missing configuration must fail before provider uploads. Source-language hints do not translate the transcript; separate translation defaults to English. `--translation-language` changes that target. The default `--pipeline standard` uses Interactions; `--pipeline long-decode` explicitly selects the experimental alternate. Keep provider/model/pipeline unchanged. Report agent-initiated retries under the bounded retry policy without asking for approval again.
 
 Normalization selects the first audio stream, resets its timeline, discards video and encodes mono Ogg Opus from 24 kHz input at 32 kbps. This is a speech-storage profile, not lossless preservation; channel separation is discarded. The local input remains unchanged. A private cache retains exact encoded bytes and input filename/hash, conversion profile, converter version and measured duration. Stored Ogg metadata preserves conversion provenance before generation. Duration must match within one second. The stored source must fit WikiContext's 100 MiB limit; Gemini's own duration/output limits still apply. Do not silently split or truncate oversized recordings. `--audio-storage original` skips compression and preserves the supplied input bytes subject to the source limit.
 
@@ -41,7 +44,7 @@ wikicontext ingest recording.m4a --language Italian --version gemini-standard-1 
   --resume /private/workflow/receipt.json
 ```
 
-Use the same source/configuration as the original attempt. Repeating a completed invocation reuses its saved bundle/import. Failed or partial generation stops with safe diagnostics and requires explicit resume; completed stages are retained. If the same source/version already exists remotely without a matching local workflow, the client stops before generation and reports the evidence IDs. Reuse that evidence for review/catalog publication; a new transcription requires an explicitly chosen version and authorization. There are no automatic generation retries or provider fallbacks. Transcription uses `store=False` in the standard pipeline and attempts uploaded-file cleanup even after failures. Preserve cleanup failures and safe validation paths/reasons in the diagnostic report. Do not retain raw provider responses or print rejected transcript values. The complete bundle is validated before WikiContext imports any of its sources/artifacts; import retries never call a provider.
+Use the same source/configuration as the original attempt. Repeating a completed invocation reuses its saved bundle/import. Failed or partial generation stops with safe diagnostics. For incomplete enrichment the agent invokes explicit resume under the retry policy; completed stages are retained. A failed transcription cannot be resumed: preserve its workflow and use a distinct version for an authorized new extraction. If the same source/version already exists remotely without a matching local workflow, the client stops before generation and reports the evidence IDs. Reuse that evidence for review/catalog publication; a new transcription requires an explicitly chosen version and must fit the existing authorization and workflow-wide retry limit. CLI/SDK generation retries remain disabled; the agent invokes authorized retries explicitly. There are no provider fallbacks. Transcription uses `store=False` in the standard pipeline and attempts uploaded-file cleanup even after failures. Preserve cleanup failures and safe validation paths/reasons in the diagnostic report. Do not retain raw provider responses or print rejected transcript values. The complete bundle is validated before WikiContext imports any of its sources/artifacts; import retries never call a provider.
 
 Timestamp ordering is a review warning, not a failed extraction. Import recomputes
 warnings from canonical transcript bytes: reversed segment/annotation intervals
