@@ -10,3 +10,4 @@ ui/test-results/
 ui/playwright-report/
 ui/*.tsbuildinfo
 bin/
+dist/
