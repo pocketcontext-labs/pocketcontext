@@ -100,11 +100,12 @@ jobs:
 
       # tailcat prints its address on stderr; keep its output in files that are
       # never shown.
-      - name: Serve RDP through tailcat
+      - name: Serve RDP through tailcat until the session ends
         env:
           TAILCAT_SERVER_KEY: ${{ secrets.TAILCAT_SERVER_KEY }}
           TAILCAT_ADDRESS: ${{ secrets.TAILCAT_ADDRESS }}
           TAILCAT_ALLOW: ${{ vars.TAILCAT_ALLOW }}
+          MINUTES: ${{ inputs.minutes }}
         run: |
           $key = Join-Path $env:RUNNER_TEMP 'runner.private.json'
           [IO.File]::WriteAllBytes($key, [Convert]::FromBase64String($env:TAILCAT_SERVER_KEY))
@@ -122,16 +123,12 @@ jobs:
           if (-not (Select-String -Quiet -SimpleMatch 'Server listening' $log)) { throw 'tailcat did not start listening' }
           if (-not (Select-String -Quiet -SimpleMatch $env:TAILCAT_ADDRESS $log)) { throw 'tailcat is not serving the expected address' }
           Remove-Item $key
-          'tailcat is serving RDP to the allowed client'
-
-      - name: Keep the session open
-        env:
-          MINUTES: ${{ inputs.minutes }}
-        run: |
+          # The runner ends a step's processes when the step exits, so the
+          # session waits here.
           $deadline = (Get-Date).AddMinutes([int]$env:MINUTES)
-          "Session open until $($deadline.ToUniversalTime().ToString('HH:mm')) UTC; create C:\end-session to finish early."
+          "tailcat is serving RDP to the allowed client until $($deadline.ToUniversalTime().ToString('HH:mm')) UTC; create C:\end-session to finish early."
           while ((Get-Date) -lt $deadline -and -not (Test-Path 'C:\end-session')) {
-            if (-not (Get-Process -Id $env:TAILCAT_PID -ErrorAction SilentlyContinue)) { throw 'tailcat stopped' }
+            if ($p.HasExited) { throw "tailcat exited with code $($p.ExitCode)" }
             Start-Sleep 60
             "$([int]($deadline - (Get-Date)).TotalMinutes) minutes left"
           }
