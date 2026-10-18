@@ -1,5 +1,7 @@
 # Knowledge schema
 
+This build ingests UTF-8 text only; audio, image, PDF and repository-file workflows are not available, although their properties remain in the schema.
+
 Use `wikicontext schema` for live SQL columns and `wikicontext check` for differences from `schema.json`. Business reads use explicit columns. SQL returns `{columns, rows, truncated}`; never act on a truncated result as if complete. Page or narrow the query.
 
 Every domain table has an immutable `space`. SQL returns only rows of spaces where you are an active member. Filter by `space` when you mean one space.
@@ -8,8 +10,8 @@ Every domain table has an immutable `space`. SQL returns only rows of spaces whe
 | --- | --- |
 | spaces | `kind` (`personal`, `group`), `name`, `created_by`, `revision`. One personal space per account. Server-managed: personal creation uses the explicit `/api/wiki/spaces/personal` endpoint; membership changes require operator maintenance. |
 | space_members | `space`, `account`, `role` (`owner`, `editor`, `reader`), `active`. Your memberships and your co-members' memberships of shared spaces. |
-| sources | `space` (required on create; defaults to the company space), `title`, `original_name`, `media_type`, `source_date`, `sha256`, optional same-space `supersedes`, protected required `original`. Immutable. Server computes SHA-256 from stored bytes, unique per space. Default audio sources contain mono 24 kHz encoder-input/32 kbps Opus `.ogg` bytes processed by Gemini, not the input recording bytes; explicit legacy Groq retains 16 kHz/16 kbps. |
-| renditions | `source`, `kind`, `processor`, `version_label`, `notes`. Immutable extraction provenance. Unique source/kind/version. Client notes contain extraction count/hash for retry checks. Default normalized audio notes also contain input filename/hash, conversion settings and converter version; the stored Ogg already embeds the input hash, profile and converter version before transcription. |
+| sources | `space` (required on create; defaults to the company space), `title`, `original_name`, `media_type`, `source_date`, `sha256`, optional same-space `supersedes`, protected required `original`. Immutable. Server computes SHA-256 from stored bytes, unique per space. This build stores UTF-8 text originals only, in `storage/` beside the database. |
+| renditions | `source`, `kind`, `processor`, `version_label`, `notes`. Immutable extraction provenance. Unique source/kind/version. Client notes contain extraction count/hash for retry checks. |
 | passages | `rendition`, positive `ordinal`, `locator`, `body` (30,000 characters maximum). Immutable, unique rendition/ordinal. |
 | ingestion_runs | `space` (as for sources), `key` unique per space, `status` (`staging`, `published`, `cancelled`), `description`, `sources` (up to 100), `issue`, optional `home` page ID, `home_base` expected previous home page ID, and `clear_home`. Home and clear are mutually exclusive; empty home with clear false carries the previous choice. New runs must be staging. Only staging runs can change. |
 | pages | `space` (as for sources), stable `slug` unique per space, `kind` (`summary`, `concept`, `entity`, `transcript`, `answer`, `legacy`). Immutable identities; slug uses lowercase ASCII words and hyphens. `index` and `log` are reserved. |

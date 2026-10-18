@@ -1,0 +1,52 @@
+# Installs a fixed WikiContext bundle release on Windows.
+# Usage: irm https://github.com/pocketcontext/wikicontext-bundle/releases/download/v@VERSION@/install.ps1 | iex
+# Target folder: $env:WIKICONTEXT_INSTALL_DIR, for example inside OneDrive, iCloud
+# Drive, Dropbox or Google Drive; default %LOCALAPPDATA%\Programs\WikiContext.
+& {
+    $ErrorActionPreference = 'Stop'
+    Set-StrictMode -Version 3
+    $version = '@VERSION@'
+    if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'wikicontext: invalid release version' }
+    if (-not [Environment]::Is64BitOperatingSystem) { throw 'wikicontext: 64-bit Windows is required' }
+    $arch = $env:PROCESSOR_ARCHITEW6432
+    if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
+    # Windows on ARM runs the amd64 build through emulation.
+    if ($arch -notin @('AMD64', 'ARM64')) { throw "wikicontext: unsupported architecture $arch" }
+    $dir = $env:WIKICONTEXT_INSTALL_DIR
+    if (-not $dir) { $dir = Join-Path $env:LOCALAPPDATA 'Programs\WikiContext' }
+    if (-not [System.IO.Path]::IsPathRooted($dir)) { throw 'wikicontext: the installation directory must be an absolute path' }
+    $archive = "wikicontext_${version}_windows_amd64.zip"
+    $base = "https://github.com/pocketcontext/wikicontext-bundle/releases/download/v$version"
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("wikicontext-install-" + [Guid]::NewGuid())
+    New-Item -ItemType Directory -Path $tmp | Out-Null
+    $stage = $null
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -UseBasicParsing -Uri "$base/checksums.txt" -OutFile "$tmp\checksums.txt"
+        $lines = @(Get-Content "$tmp\checksums.txt" | Where-Object { $_ -match "^([0-9a-f]{64})  $([regex]::Escape($archive))$" })
+        if ($lines.Count -ne 1) { throw 'wikicontext: archive is missing from checksums.txt' }
+        $expected = ($lines[0] -split '  ')[0]
+        Invoke-WebRequest -UseBasicParsing -Uri "$base/$archive" -OutFile "$tmp\$archive"
+        $actual = (Get-FileHash -Algorithm SHA256 "$tmp\$archive").Hash.ToLowerInvariant()
+        if ($actual -ne $expected) { throw 'wikicontext: archive checksum mismatch' }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $zip = [System.IO.Compression.ZipFile]::OpenRead("$tmp\$archive")
+        try {
+            $names = @($zip.Entries | ForEach-Object { $_.FullName } | Sort-Object)
+            if (($names -join ',') -ne 'THIRD_PARTY_NOTICES.txt,wikicontext.exe') { throw 'wikicontext: unexpected release archive layout' }
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $destination = Join-Path $dir 'wikicontext.exe'
+            $stage = Join-Path $dir ('.wikicontext-' + [Guid]::NewGuid() + '.exe')
+            # Extract only the executable into our own file name.
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($zip.GetEntry('wikicontext.exe'), $stage)
+        } finally { $zip.Dispose() }
+        if ((Get-Item $stage).Length -eq 0) { throw 'wikicontext: archive executable is empty' }
+        Unblock-File -Path $stage
+        Move-Item -Force -Path $stage -Destination $destination
+        Write-Output "Installed WikiContext bundle $version at $destination"
+        Write-Output "Next: & '$destination' init --email you@wiki.localhost   (the database wiki.db is created beside the binary)"
+    } finally {
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
+        if ($stage -and (Test-Path $stage)) { Remove-Item -Force $stage }
+    }
+}

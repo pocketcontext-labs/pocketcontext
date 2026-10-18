@@ -1,13 +1,7 @@
-name: Wiki integration
+name: Test
 on:
-  # Release publication requires this complete application test suite.
-  workflow_call:
-    inputs:
-      verify_published_launcher:
-        description: Resolve and test the unchanged launcher against its published Git commit
-        required: false
-        type: boolean
-        default: false
+  push:
+  pull_request:
 permissions:
   contents: read
 jobs:
@@ -15,135 +9,43 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025]
     runs-on: ${{ matrix.runner }}
+    env:
+      PY: ${{ matrix.runner == 'windows-2025' && 'python' || 'python3' }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: wikicontext
-          # The populated migration fixture archives its immutable pre-spaces baseline.
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install packaged CLI
-        run: |
-          python3 -m venv "$RUNNER_TEMP/client-venv"
-          "$RUNNER_TEMP/client-venv/bin/python" -m pip install uv==0.12.21 ./wikicontext
-          echo "$RUNNER_TEMP/client-venv/bin" >> "$GITHUB_PATH"
-      - name: Test standalone launcher
-        run: python3 wikicontext/tests/launcher.py
-      - name: Test deployment orchestration
-        run: python3 wikicontext/tests/deploy_workflow.py
-      - name: Test candidate publication isolation
-        run: python3 wikicontext/tests/candidate_workflow.py
-      - name: Test isolated rehearsal configuration and packaging
-        run: python3 -B -m unittest discover -s wikicontext/deploy/rehearsal/tests
-      - name: Test immutable-file migration tooling
-        run: python3 wikicontext/tests/migrate_files.py
-      - name: Test retired bootstrap refusal
-        run: python3 wikicontext/tests/bootstrap.py
-      - name: Test Python container startup and verification
-        run: python3 wikicontext/tests/entrypoint.py
-      - name: Install audio and image ingestion test tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg python3-pil iproute2 age
-      - name: Test encrypted checkpoint capture and recovery
-        run: |
-          python3 wikicontext/tests/checkpoint.py
-          python3 wikicontext/tests/capture_checkpoint.py
-          python3 wikicontext/tests/verify_checkpoint_replica.py
-          python3 wikicontext/tests/mint_maintenance_token.py
-          python3 wikicontext/tests/activate_checkpoint.py
-      - name: Read server revision
-        id: server
-        shell: bash
-        run: |
-          revision=$(cat wikicontext/POCKETCONTEXT_VERSION)
-          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
-          echo "revision=$revision" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: pocketcontext/pocketcontext
-          ref: ${{ steps.server.outputs.revision }}
-          path: pocketcontext
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: pocketcontext/go.mod
-          cache-dependency-path: pocketcontext/go.sum
-      - name: Build server
-        working-directory: pocketcontext
-        # The flags of pocketcontext's Makefile.
-        run: CGO_ENABLED=1 go build -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 -o bin/pocketcontext ./cmd/pocketcontext
+          go-version-file: go.mod
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-      - name: Build and test reader
-        working-directory: wikicontext/ui
+      - name: Build and test the reader
+        working-directory: ui
         run: |
           npm install --global pnpm@10.33.2
           pnpm install --frozen-lockfile
           pnpm typecheck
           pnpm test
           pnpm build
-          pnpm exec playwright install --with-deps chromium
-      - name: Test reader in a real browser
-        run: python3 wikicontext/tests/ui_browser.py --binary pocketcontext/bin/pocketcontext
-      - name: Test wiki
-        run: python3 wikicontext/tests/integration.py --binary pocketcontext/bin/pocketcontext
-      - name: Test space privacy and populated company migration
+      # Windows runners provide MinGW-w64 gcc for CGO. The vendored server's
+      # upstream tests assume POSIX permissions, so Windows runs the bundle's own.
+      - name: Unit tests
         run: |
-          python3 wikicontext/tests/spaces.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/spaces_migration.py --binary pocketcontext/bin/pocketcontext
-      - name: Test isolated frozen clone preparation
-        run: python3 wikicontext/tests/clone_preparation.py --binary pocketcontext/bin/pocketcontext
-      - name: Test Google OAuth claims and Workspace signup
-        run: python3 wikicontext/tests/oauth_integration.py --binary pocketcontext/bin/pocketcontext
-      - name: Test first-start deployment settings
-        run: python3 wikicontext/tests/deploy.py --binary pocketcontext/bin/pocketcontext
-      - name: Test durable runtime maintenance freeze
-        run: python3 wikicontext/tests/maintenance.py --binary pocketcontext/bin/pocketcontext
-      - name: Test installable skill
-        run: python3 wikicontext/tests/skill.py --binary pocketcontext/bin/pocketcontext
-      - name: Verify published portable package
-        if: inputs.verify_published_launcher
+          packages=./...
+          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client"; fi
+          CGO_ENABLED=1 go test -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 $packages
+      - name: Build the binary
         run: |
-          mkdir -p "$RUNNER_TEMP/published-skill"
-          cp wikicontext/skills/wikicontext/wikicontext "$RUNNER_TEMP/published-skill/wikicontext"
-          chmod +x "$RUNNER_TEMP/published-skill/wikicontext"
-          python3 wikicontext/tests/skill.py --binary pocketcontext/bin/pocketcontext --client "$RUNNER_TEMP/published-skill/wikicontext"
-      - name: Test instrumented uploads and commands
-        run: python3 wikicontext/tests/skill.py --binary pocketcontext/bin/pocketcontext --trace
-      - name: Test access, publication and evidence workflows
-        run: |
-          python3 wikicontext/tests/auth.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/realtime_access.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/realtime_publication.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/publication_review.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/properties.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/home.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/knowledge_integration.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/search_integration.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/ingest_integration.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/ingest_concurrency.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/export_integration.py --binary pocketcontext/bin/pocketcontext
-      - name: Test clients, exports and deployment preparation
-        run: |
-          python3 wikicontext/tests/oauth.py
-          python3 wikicontext/tests/client.py
-          python3 wikicontext/tests/knowledge.py
-          python3 wikicontext/tests/ingest.py
-          python3 wikicontext/tests/audio_pipeline.py
-          python3 wikicontext/tests/audio_catalog.py
-          python3 wikicontext/tests/transcript_bundle.py
-          python3 wikicontext/tests/transcript_bundle_integration.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/timing_review.py --binary pocketcontext/bin/pocketcontext
-          python3 wikicontext/tests/exporter.py
-          python3 wikicontext/tests/repository_files.py
-      - name: Test opt-in trace isolation
-        run: python3 wikicontext/tests/tracing.py --binary pocketcontext/bin/pocketcontext
-      - name: Test published Gemini bundle handoff
-        run: |
-          uv venv "$RUNNER_TEMP/gemini-venv" --python 3.12
-          uv pip install --python "$RUNNER_TEMP/gemini-venv/bin/python" 'gemini-transcribe @ git+https://github.com/pocketcontext/gemini-transcribe.git@02f00c38db0a779199222dc0e29a4dd1abd2a29d'
-          python3 wikicontext/tests/gemini_handoff.py --binary pocketcontext/bin/pocketcontext --gemini-python "$RUNNER_TEMP/gemini-venv/bin/python" --timing-warnings
+          exe=wikicontext
+          if [ "$RUNNER_OS" = Windows ]; then exe=wikicontext.exe; fi
+          CGO_ENABLED=1 go build -trimpath -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 -o "bin/$exe" ./cmd/wikicontext
+          echo "EXE=bin/$exe" >> "$GITHUB_ENV"
+      - name: End-to-end test with synthetic notes
+        run: $PY tests/e2e.py --binary "$EXE"

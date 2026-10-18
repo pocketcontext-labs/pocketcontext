@@ -163,7 +163,7 @@
   "maxRows": 500,
   "maxBytes": 1048576,
   "tracing": {
-    "enabled": true,
+    "enabled": false,
     "service": "wikicontext",
     "delivery": "buffer",
     "captureSql": true,
