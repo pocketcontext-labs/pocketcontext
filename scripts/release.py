@@ -46,7 +46,8 @@ def run(args, **kwargs):
 
 
 def output(args, **kwargs):
-    return run(args, text=True, capture_output=True, **kwargs).stdout.strip()
+    # Tool output (go list JSON, pnpm) is UTF-8; Windows would otherwise decode it as cp1252.
+    return run(args, text=True, encoding="utf-8", capture_output=True, **kwargs).stdout.strip()
 
 
 def version(value):
