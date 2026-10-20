@@ -54,6 +54,25 @@ Only one computer may run a project at a time. `wiki.db.lease` carries a heartbe
 
 If the synced `wiki.db` changes while this computer has unsaved changes, nothing is overwritten. This computer's version is kept in `wiki.db.conflict-<host>-<time>.db`, the server reports it, and the next start asks for `wikicontext recover --keep local` (the other computer's file is saved as `wiki.db.replaced-<time>.db`) or `--keep synced` (this computer's work stays in the conflict copy). Keep the folder available offline: online-only placeholders make the database or originals unavailable.
 
+## Remote client
+
+The server can run on one always-on computer (the agent computer) while a person uses the same binary on their own computer as a client only. On the agent computer, create the person's own account so the audit history separates them from the agent:
+
+```sh
+./wikicontext account --email you@wiki.localhost --name "Your Name"    # asks for a password
+```
+
+On the person's computer, forward the same port and sign in:
+
+```sh
+tailcat forward <agent-address> 8096:8096        # or ssh -L 8096:127.0.0.1:8096 <agent>
+wikicontext login --url http://127.0.0.1:8096 --email you@wiki.localhost
+wikicontext search "budget" --url http://127.0.0.1:8096
+wikicontext skill --url http://127.0.0.1:8096
+```
+
+A different local port is refused by the server's Host check. `--url` (or `WIKICONTEXT_BUNDLE_URL`; an explicit `--db` overrides it) accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. Remote mode never resolves or creates a database, never starts a server and never reads the local key; if the server does not answer it fails and says so. `login` stores only the token, in `os.UserCacheDir()/wikicontext-bundle/remote-<hash>/session.json` (private), refreshes it daily and asks for a new `login` when it expires (7 days) or when the URL serves a different WikiContext. `logout` deletes it. Server commands (`serve`, `start`, `ensure-running`, `stop`, `flush`, `recover`, `init`, `password`, `account`) run on the agent computer only.
+
 ## Scope
 
 Ingestion accepts UTF-8 text notes only (`.txt .md .markdown .csv .json .rst .log` or no extension); anything else is rejected before upload. Audio, image and PDF ingestion, Gemini/Groq, Obsidian and repository-file export, Google sign-in, S3 storage and the hosted deployment tooling are removed. The schema, hooks and reader are otherwise upstream WikiContext, so spaces, immutable revisions, citations, atomic publication and full-text search behave the same.
@@ -83,5 +102,5 @@ Releases follow PocketContext's process (`scripts/release.py`, `.github/workflow
 | `internal/client` | CLI commands, text ingestion, search, lint, skill installation |
 | `internal/pocketcontext` | vendored PocketContext server; see `VENDORED.md` |
 | `embed.go` | embeds `pb_hooks`, `pb_migrations`, `pocketcontext.json`, `ui/dist` and `skills/wikicontext` |
-| `skills/wikicontext` | skill template; `wikicontext skill` fills in absolute paths |
+| `skills/wikicontext` | skill template (`SKILL.remote.md` for `skill --url`); `wikicontext skill` fills in absolute paths |
 | `tests/e2e.py` | end-to-end test (standard-library Python) |

@@ -1,0 +1,242 @@
+package client
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/pocketcontext/wikicontext-bundle/internal/bundle"
+)
+
+// Remote client mode: the server runs on another computer (the agent
+// computer) and this computer reaches it through a port forward on the same
+// loopback port. It never resolves or creates a database, never starts a
+// server and never reads the local key; it signs in with email and password
+// and keeps only the resulting token in a private session file.
+
+// refreshAfter is how old a stored token may be before it is refreshed. Tokens
+// are valid for seven days.
+const refreshAfter = 24 * time.Hour
+
+// session is the stored sign-in for one server URL. It never holds a password.
+type session struct {
+	URL       string    `json:"url"`
+	Instance  string    `json:"instance"`
+	Email     string    `json:"email"`
+	Token     string    `json:"token"`
+	Refreshed time.Time `json:"refreshed"`
+}
+
+// normalizeURL accepts only http://127.0.0.1:PORT or http://localhost:PORT.
+func normalizeURL(raw string) (string, error) {
+	bad := fail(2, "--url must be http://127.0.0.1:PORT or http://localhost:PORT; only loopback URLs are accepted (forward the server's port with tailcat or SSH)")
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
+		return "", bad
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", bad
+	}
+	host, port := u.Hostname(), u.Port()
+	if host != "127.0.0.1" && host != "localhost" {
+		return "", bad
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port {
+		return "", bad
+	}
+	return "http://" + host + ":" + port, nil
+}
+
+// sessionPath is the private session file for a normalized URL.
+func sessionPath(base string) (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("no user cache directory: %w", err)
+	}
+	sum := sha256.Sum256([]byte(base))
+	return filepath.Join(cache, "wikicontext-bundle", "remote-"+hex.EncodeToString(sum[:])[:16], "session.json"), nil
+}
+
+// loadSession returns the stored session, or nil when there is none.
+func loadSession(base string) (*session, error) {
+	path, err := sessionPath(base)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var s session
+	if err := json.Unmarshal(data, &s); err != nil || s.Token == "" || s.URL != base {
+		return nil, fail(2, "the session file %s is damaged; run `wikicontext login --url %s`", path, base)
+	}
+	return &s, nil
+}
+
+func saveSession(s *session) error {
+	path, err := sessionPath(s.URL)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	_ = os.Chmod(filepath.Dir(path), 0700)
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return bundle.WriteAtomic(path, append(data, '\n'), 0600)
+}
+
+func deleteSession(base string) error {
+	path, err := sessionPath(base)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+// probe asks the remote URL which server answers. It never starts anything.
+func probe(base string) (*bundle.Instance, error) {
+	quick := &http.Client{Timeout: 5 * time.Second, CheckRedirect: noRedirect}
+	resp, err := quick.Get(base + "/api/bundle/instance")
+	if err != nil {
+		return nil, fail(1, "the WikiContext server at %s is not reachable. The server runs on the agent computer: check that it runs there and that the tailcat or SSH forward of the same port is active (for example `tailcat forward ADDR %s:%s`). Nothing was started here.",
+			base, port(base), port(base))
+	}
+	defer resp.Body.Close()
+	var i bundle.Instance
+	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&i) != nil || i.App != "wikicontext" {
+		return nil, fail(1, "%s is answered by another program, not WikiContext (HTTP %d). Forward the server's own port to the same local port; the server refuses other ports.", base, resp.StatusCode)
+	}
+	return &i, nil
+}
+
+func port(base string) string {
+	_, p, _ := strings.Cut(strings.TrimPrefix(base, "http://"), ":")
+	return p
+}
+
+// checkRemote probes the server and compares it with the stored session.
+func checkRemote(base string, s *session) (*bundle.Instance, error) {
+	i, err := probe(base)
+	if err != nil {
+		return nil, err
+	}
+	if s != nil && s.Instance != i.Instance {
+		return nil, fail(1, "%s now serves a different WikiContext than the one you signed in to; run `wikicontext login --url %s` again", base, base)
+	}
+	return i, nil
+}
+
+func expired(base string) error {
+	return fail(2, "session expired; run `wikicontext login --url %s`", base)
+}
+
+// NewRemote returns a client for a server reached through a port forward,
+// using the stored session.
+func NewRemote(base, space string) (*Client, error) {
+	c, err := newClient(base, space)
+	if err != nil {
+		return nil, err
+	}
+	s, err := loadSession(base)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := checkRemote(base, s); err != nil {
+		return nil, err
+	}
+	if s == nil {
+		return nil, fail(2, "not signed in to %s; run `wikicontext login --url %s --email EMAIL` first", base, base)
+	}
+	c.remote, c.token = true, s.Token
+	if time.Since(s.Refreshed) > refreshAfter {
+		status, data, err := c.send("POST", "/api/collections/users/auth-refresh", nil, nil, "", nil)
+		if err != nil {
+			return nil, err
+		}
+		token, _ := dig(data, "token").(string)
+		if status != 200 || token == "" {
+			return nil, fail(1, "refreshing the session failed (HTTP %d): %s", status, message(data))
+		}
+		s.Token, s.Refreshed, c.token = token, time.Now().UTC(), token
+		if err := saveSession(s); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
+// login signs in with email and password and stores only the token.
+func login(base, email string, passwordStdin bool) (map[string]any, error) {
+	if !emailPattern.MatchString(email) {
+		return nil, fail(2, "usage: wikicontext login --url URL --email EMAIL [--password-stdin]")
+	}
+	email = strings.ToLower(email)
+	i, err := checkRemote(base, nil)
+	if err != nil {
+		return nil, err
+	}
+	password, err := readPassword(passwordStdin, false)
+	if err != nil {
+		return nil, err
+	}
+	c, err := newClient(base, "")
+	if err != nil {
+		return nil, err
+	}
+	status, data, err := c.send("POST", "/api/collections/users/auth-with-password", map[string]string{"identity": email, "password": password}, nil, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	token, _ := dig(data, "token").(string)
+	if status != 200 || token == "" {
+		return nil, fail(1, "sign-in to %s failed (HTTP %d): %s", base, status, message(data))
+	}
+	if err := saveSession(&session{URL: base, Instance: i.Instance, Email: email, Token: token, Refreshed: time.Now().UTC()}); err != nil {
+		return nil, err
+	}
+	return map[string]any{"url": base, "email": email, "instance": i.Instance}, nil
+}
+
+// remoteStatus reports reachability and sign-in without failing when unreachable.
+func remoteStatus(base string) (map[string]any, error) {
+	s, err := loadSession(base)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"url": base, "reachable": false, "instance": "", "email": "", "loggedIn": false}
+	if s != nil {
+		out["email"] = s.Email
+	}
+	i, probeErr := probe(base)
+	if probeErr == nil {
+		out["reachable"], out["instance"] = true, i.Instance
+	} else {
+		out["error"] = probeErr.Error()
+	}
+	out["loggedIn"] = s != nil && (i == nil || i.Instance == s.Instance)
+	return out, nil
+}

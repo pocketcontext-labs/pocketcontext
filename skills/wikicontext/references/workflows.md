@@ -2,7 +2,7 @@
 
 ## Preserve, extract, synthesize, publish
 
-1. Run `wikicontext ensure-running`, verify the live schema (`wikicontext check`) and confirm the selected space (`wikicontext spaces`). Group inputs into at most five sources per synthesis batch.
+1. Verify the live schema (`wikicontext check`) and confirm the selected space (`wikicontext spaces`). Group inputs into at most five sources per synthesis batch.
 2. Run `wikicontext ingest PATH` for each file. Exact bytes deduplicate by server SHA-256 within the space, even after lost upload responses. This build accepts UTF-8 text notes only: `.txt`, `.md`, `.markdown`, `.csv`, `.json`, `.rst`, `.log` and extension-less text. Any other file type is rejected before upload; tell the user and suggest converting it to text or Markdown first. Git LFS pointer files fail before upload.
 3. A complete rendition is reused across machines. Partial extraction resumes against immutable passage ordinals; rerun the same command after an interruption.
 4. Retrieve passages with SQL, ordered by rendition and ordinal. Read all chunks. Retrieve the latest publication manifest of the space (`WHERE space = ...`) and the published pages relevant to the new sources. Use scoped full-text search for title/summary/body matches, then traverse citations and links with SQL. Keep the returned publication pinned when paging and retrieving evidence. Do not assume latest-created page revisions are published.

@@ -63,7 +63,7 @@ func (s *Store) saveState() error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(s.statePath(), data, 0600)
+	return WriteAtomic(s.statePath(), data, 0600)
 }
 
 // current describes the synced file, hashing only when size or time changed.
@@ -318,7 +318,7 @@ func ReadLease(p *Project) (*Lease, error) {
 func writeLease(p *Project) error {
 	host, _ := os.Hostname()
 	data, _ := json.Marshal(Lease{Host: host, PID: os.Getpid(), Instance: p.Config.Instance, Heartbeat: time.Now().UTC()})
-	return writeAtomic(p.LeaseFile(), data, 0644)
+	return WriteAtomic(p.LeaseFile(), data, 0644)
 }
 
 // claimLease fails if another computer used the project recently.

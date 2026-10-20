@@ -138,7 +138,7 @@ func Serve(p *Project, opts ServeOptions) error {
 		return err
 	}
 	key := RandomHex(32)
-	if err := writeAtomic(p.KeyFile(), []byte(key), 0600); err != nil {
+	if err := WriteAtomic(p.KeyFile(), []byte(key), 0600); err != nil {
 		return err
 	}
 	defer os.Remove(p.KeyFile())

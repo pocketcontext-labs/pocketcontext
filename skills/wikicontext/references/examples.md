@@ -1,9 +1,8 @@
 # Examples
 
-`wikicontext` below means the absolute binary path and `--db` given in SKILL.md. Never paste tokens into examples.
+`wikicontext` below means the command line given in SKILL.md (the absolute binary path with its database or server URL option). Never paste tokens into examples.
 
 ```sh
-wikicontext ensure-running
 wikicontext check
 wikicontext spaces
 wikicontext ingest /path/to/source.md --title 'Source title'

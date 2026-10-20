@@ -33,7 +33,7 @@ type args struct {
 func parseArgs(argv []string, values, booleans []string) (*args, error) {
 	a := &args{flags: map[string]string{}, bools: map[string]bool{}}
 	isValue, isBool := map[string]bool{}, map[string]bool{}
-	for _, v := range append(values, "db", "space") {
+	for _, v := range append(values, "db", "space", "url") {
 		isValue[v] = true
 	}
 	for _, b := range append(booleans, "pretty") {
@@ -223,9 +223,9 @@ func run(argv []string) error {
 		switch {
 		case name == "pretty":
 			global, argv = append(global, argv[0]), argv[1:]
-		case (name == "db" || name == "space") && hasValue:
+		case (name == "db" || name == "space" || name == "url") && hasValue:
 			global, argv = append(global, argv[0]), argv[1:]
-		case (name == "db" || name == "space") && len(argv) > 1:
+		case (name == "db" || name == "space" || name == "url") && len(argv) > 1:
 			global, argv = append(global, argv[0], argv[1]), argv[2:]
 		default:
 			goto parsed
@@ -280,6 +280,9 @@ parsed:
 		"lint":                  {nil, nil},
 		"publish":               {{"expected-revision", "home", "home-base"}, {"clear-home"}},
 		"stage-home":            {{"expected-revision", "home", "home-base"}, {"clear-home"}},
+		"account":               {{"email", "name"}, {"password-stdin"}},
+		"login":                 {{"email"}, {"password-stdin"}},
+		"logout":                {nil, nil},
 	}
 	s, known := spec[command]
 	if !known {
@@ -290,6 +293,24 @@ parsed:
 		return err
 	}
 	pretty := a.bools["pretty"]
+	// --url, or WIKICONTEXT_BUNDLE_URL without an explicit --db, selects remote mode.
+	remote, fromFlag := a.flags["url"], a.has("url")
+	if fromFlag && a.has("db") {
+		return fail(2, "choose --url or --db, not both")
+	}
+	if !fromFlag && !a.has("db") {
+		remote = os.Getenv("WIKICONTEXT_BUNDLE_URL")
+	}
+	if fromFlag || remote != "" {
+		base, err := normalizeURL(remote)
+		if err != nil {
+			return err
+		}
+		return runRemote(base, command, a, pretty)
+	}
+	if command == "login" || command == "logout" {
+		return fail(2, "usage: wikicontext %s --url http://127.0.0.1:PORT", command)
+	}
 	p, err := bundle.Resolve(a.flags["db"])
 	if err != nil {
 		return fail(2, "%v", err)
@@ -376,15 +397,80 @@ parsed:
 		}
 		Print(map[string]any{"url": p.URL(), "signInLink": link, "note": "single-use link, valid for 2 minutes"}, pretty)
 		return nil
+	case "account":
+		return createAccount(p, a, pretty)
 	case "skill":
-		return installSkills(p, a.flags["agent"], a.flags["dir"], pretty)
+		return installSkills(p.DB, p.URL(), a.flags["agent"], a.flags["dir"], pretty)
 	}
-
 	c, err := New(p, a.flags["space"])
 	if err != nil {
 		return err
 	}
+	return runData(c, command, a, pretty)
+}
+
+// localOnly are the server and project commands that need the local database.
+var localOnly = map[string]bool{"serve": true, "start": true, "ensure-running": true, "stop": true, "flush": true,
+	"recover": true, "init": true, "password": true, "account": true}
+
+// runRemote runs a command against a forwarded server. It never resolves a
+// database or starts a server.
+func runRemote(base, command string, a *args, pretty bool) error {
+	if localOnly[command] {
+		return fail(2, "%s is not available with --url: the server and its database live on the agent computer; run it there", command)
+	}
+	switch command {
+	case "logout":
+		if err := deleteSession(base); err != nil {
+			return err
+		}
+		Print(map[string]any{"url": base, "loggedOut": true}, pretty)
+		return nil
+	case "status":
+		out, err := remoteStatus(base)
+		if err != nil {
+			return err
+		}
+		Print(out, pretty)
+		return nil
+	case "login":
+		out, err := login(base, a.flags["email"], a.bools["password-stdin"])
+		if err != nil {
+			return err
+		}
+		Print(out, pretty)
+		return nil
+	}
+	s, err := loadSession(base)
+	if err != nil {
+		return err
+	}
+	if _, err := checkRemote(base, s); err != nil {
+		return err
+	}
+	switch command {
+	case "open":
+		if !a.bools["no-browser"] {
+			if err := bundle.OpenBrowser(base); err != nil {
+				fmt.Fprintln(os.Stderr, "could not open a browser:", err)
+			}
+		}
+		Print(map[string]any{"url": base, "note": "sign in with your email and password"}, pretty)
+		return nil
+	case "skill":
+		return installSkills("", base, a.flags["agent"], a.flags["dir"], pretty)
+	}
+	c, err := NewRemote(base, a.flags["space"])
+	if err != nil {
+		return err
+	}
+	return runData(c, command, a, pretty)
+}
+
+// runData runs the knowledge commands, which work locally and remotely.
+func runData(c *Client, command string, a *args, pretty bool) error {
 	var data any
+	var err error
 	switch command {
 	case "whoami":
 		me, err := c.Must("POST", "/api/collections/users/auth-refresh", nil)
@@ -395,7 +481,11 @@ parsed:
 		if err != nil {
 			return err
 		}
-		data = map[string]any{"id": dig(me, "record", "id"), "name": dig(me, "record", "name"), "email": dig(me, "record", "email"), "url": p.URL(), "db": p.DB, "space": space}
+		out := map[string]any{"id": dig(me, "record", "id"), "name": dig(me, "record", "name"), "email": dig(me, "record", "email"), "url": c.Base, "space": space}
+		if c.DB != "" {
+			out["db"] = c.DB
+		}
+		data = out
 	case "spaces":
 		me, err := c.Must("POST", "/api/collections/users/auth-refresh", nil)
 		if err != nil {
@@ -605,6 +695,28 @@ parsed:
 		return err
 	}
 	Print(data, pretty)
+	return nil
+}
+
+// createAccount creates another account on this server, or resets its
+// password, so that a person working remotely signs in as themselves.
+func createAccount(p *bundle.Project, a *args, pretty bool) error {
+	email := strings.ToLower(a.flags["email"])
+	if !emailPattern.MatchString(email) {
+		return fail(2, "usage: wikicontext account --email EMAIL [--name NAME] [--password-stdin]")
+	}
+	password, err := readPassword(a.bools["password-stdin"], true)
+	if err != nil {
+		return err
+	}
+	if err := bundle.EnsureRunning(p, bundle.StartOptions{}); err != nil {
+		return fail(1, "%v", err)
+	}
+	result, err := bundle.LocalCall(p, "/api/bundle/account", map[string]string{"email": email, "name": a.flags["name"], "password": password})
+	if err != nil {
+		return fail(1, "%v", err)
+	}
+	Print(map[string]any{"id": result["id"], "email": result["email"], "created": result["created"]}, pretty)
 	return nil
 }
 

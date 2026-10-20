@@ -112,7 +112,7 @@ func (p *Project) SaveConfig() error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(p.ConfigPath, append(data, '\n'), 0644)
+	return WriteAtomic(p.ConfigPath, append(data, '\n'), 0644)
 }
 
 // EnsureInstance gives the project a stable identifier shared by every computer.
@@ -142,8 +142,8 @@ func RandomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// writeAtomic replaces path through a temporary file in the same folder.
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
+// WriteAtomic replaces path through a temporary file in the same folder.
+func WriteAtomic(path string, data []byte, mode os.FileMode) error {
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err

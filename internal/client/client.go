@@ -1,6 +1,7 @@
 // Package client is the WikiContext command-line client: SQL reads, records API
 // writes, text ingestion, search and lint. It talks to the local server with a
-// token obtained through the private local key, never with a stored password.
+// token obtained through the private local key, or, in remote mode (--url), to
+// a forwarded server with a stored session token; never with a stored password.
 package client
 
 import (
@@ -37,32 +38,42 @@ func fail(code int, format string, args ...any) error {
 	return &Fail{code, fmt.Sprintf(format, args...)}
 }
 
-// Client is one authenticated session against the project's server.
+// Client is one authenticated session against a WikiContext server.
 type Client struct {
-	P           *bundle.Project
+	Base        string // server URL without a trailing slash
+	DB          string // local database; empty in remote mode
 	Space       string
 	token       string
+	remote      bool
 	spaceOK     bool
 	http        *http.Client
 	LongTimeout time.Duration
 }
 
-// New ensures the server is running and obtains a token for the local account.
-func New(p *bundle.Project, space string) (*Client, error) {
+func newClient(base, space string) (*Client, error) {
 	if space != "" && !idPattern.MatchString(space) {
 		return nil, fail(2, "--space must be a 15-character space ID")
 	}
 	if space == "" {
 		space = os.Getenv("WIKICONTEXT_SPACE")
 	}
+	return &Client{Base: base, Space: space, http: &http.Client{
+		Timeout: 30 * time.Second,
+		// A followed redirect could send the token elsewhere.
+		CheckRedirect: noRedirect,
+	}}, nil
+}
+
+// New ensures the server is running and obtains a token for the local account.
+func New(p *bundle.Project, space string) (*Client, error) {
+	c, err := newClient(p.URL(), space)
+	if err != nil {
+		return nil, err
+	}
+	c.DB = p.DB
 	if err := bundle.EnsureRunning(p, bundle.StartOptions{}); err != nil {
 		return nil, fail(1, "%v", err)
 	}
-	c := &Client{P: p, Space: space, http: &http.Client{
-		Timeout: 30 * time.Second,
-		// A followed redirect could send the token elsewhere.
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}}
 	key, err := bundle.ReadKey(p)
 	if err != nil {
 		return nil, fail(1, "%v", err)
@@ -103,7 +114,7 @@ func (c *Client) send(method, path string, body any, headers map[string]string, 
 		reader = bytes.NewReader(encoded)
 		contentType = "application/json"
 	}
-	req, err := http.NewRequest(method, c.P.URL()+path, reader)
+	req, err := http.NewRequest(method, c.Base+path, reader)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -125,9 +136,15 @@ func (c *Client) send(method, path string, body any, headers map[string]string, 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, nil, fail(1, "cannot reach the WikiContext server at %s: %v", c.P.URL(), err)
+		if c.remote {
+			return 0, nil, fail(1, "the WikiContext server at %s is not reachable: %v; check the forward to the agent computer", c.Base, err)
+		}
+		return 0, nil, fail(1, "cannot reach the WikiContext server at %s: %v", c.Base, err)
 	}
 	defer resp.Body.Close()
+	if c.remote && resp.StatusCode == http.StatusUnauthorized {
+		return 0, nil, expired(c.Base)
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
 	if err != nil {
 		return 0, nil, fail(1, "reading the response: %v", err)

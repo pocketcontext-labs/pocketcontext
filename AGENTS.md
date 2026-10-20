@@ -6,6 +6,7 @@ Local, text-only fork of WikiContext built as one Go binary. Read README.md and 
 - Never let the server open the synced database directly. Copy it in on start and write back only through consistent snapshots and atomic renames. Never overwrite a synced file that changed elsewhere; keep both and require an explicit `recover`.
 - Ingestion accepts UTF-8 text only. Do not add dependencies on external tools, Python or network services.
 - Keep authentication on: loopback only, Host check, own-origin CORS, ordinary `users` tokens. The local key never leaves the private cache.
+- Remote mode (`--url`) is a client only: it never resolves or creates a database, never starts a server and never reads the local key. It accepts loopback URLs only and stores a token, never a password.
 - Hooks and migrations come from upstream WikiContext. Keep them unchanged unless the bundle requires it, so upstream fixes can be adopted. Review upstream security fixes to hooks and to PocketContext (`internal/pocketcontext/VENDORED.md`).
 - Windows is a supported platform: use `filepath`, `sqliteuri.File` for SQLite URIs, and platform files for locks and process creation.
 - Tests use synthetic notes in temporary folders. Run `go test ./...` (CGO, tags in the Makefile) and `python3 tests/e2e.py --binary bin/wikicontext` after changes; rebuild `ui/dist` first when the reader changes.
