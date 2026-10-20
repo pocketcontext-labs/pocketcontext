@@ -32,8 +32,9 @@
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip = [System.IO.Compression.ZipFile]::OpenRead("$tmp\$archive")
         try {
-            $names = @($zip.Entries | ForEach-Object { $_.FullName } | Sort-Object)
-            if (($names -join ',') -ne 'THIRD_PARTY_NOTICES.txt,pocketcontext.exe') { throw 'pocketcontext: unexpected release archive layout' }
+            # Compare as a set: Sort-Object orders names case-insensitively.
+            $names = @($zip.Entries | ForEach-Object { $_.FullName })
+            if ($names.Count -ne 2 -or -not ($names -ccontains 'pocketcontext.exe') -or -not ($names -ccontains 'THIRD_PARTY_NOTICES.txt')) { throw 'pocketcontext: unexpected release archive layout' }
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
             $destination = Join-Path $dir 'pocketcontext.exe'
             $stage = Join-Path $dir ('.pocketcontext-' + [Guid]::NewGuid() + '.exe')
