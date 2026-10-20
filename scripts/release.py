@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Build, assemble and publish the WikiContext bundle release assets.
+"""Build, assemble and publish the PocketContext release assets.
 
-Adapted from PocketContext's scripts/release.py, with a native Windows build.
+Adapted from the vendored server's release process (github.com/pocketcontext/pocketcontext),
+with a native Windows build.
 """
 
 import argparse
@@ -22,12 +23,12 @@ import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = "pocketcontext/wikicontext-bundle"
+REPOSITORY = "pocketcontext-labs/pocketcontext"
 PLATFORMS = ("linux_amd64", "linux_arm64", "darwin_arm64", "windows_amd64")
 TAGS = "sqlite_math_functions,sqlite_percentile,sqlite_fts5"
 GO_VERSION = "go1.27.1"
 GO_IMAGE = "golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414"
-PACKAGE = "github.com/pocketcontext/wikicontext-bundle/internal/bundle"
+PACKAGE = "github.com/pocketcontext-labs/pocketcontext/internal/bundle"
 VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}\Z")
 # A static MinGW build may only import Windows system libraries.
@@ -61,12 +62,12 @@ def commit(value):
 
 
 def executable(target):
-    return "wikicontext.exe" if target.startswith("windows_") else "wikicontext"
+    return "pocketcontext.exe" if target.startswith("windows_") else "pocketcontext"
 
 
 def archive_name(release_version, target):
     suffix = "zip" if target.startswith("windows_") else "tar.gz"
-    return f"wikicontext_{release_version}_{target}.{suffix}"
+    return f"pocketcontext_{release_version}_{target}.{suffix}"
 
 
 def sha256(path):
@@ -91,14 +92,14 @@ def legal_files(directory):
 def third_party_notices(target):
     """License and notice files of linked Go modules, bundled reader packages and runtimes."""
     environment = dict(os.environ, GOOS=target.split("_")[0], GOARCH=target.split("_")[1], CGO_ENABLED="1")
-    packages = json_objects(output(["go", "list", "-deps", "-json", "-tags", TAGS, "./cmd/wikicontext"], cwd=ROOT, env=environment))
+    packages = json_objects(output(["go", "list", "-deps", "-json", "-tags", TAGS, "./cmd/pocketcontext"], cwd=ROOT, env=environment))
     modules = {}
     for package in packages:
         module = package.get("Module")
         if module and not module.get("Main"):
             require("Replace" not in module, "Release dependencies must not use local module replacements")
             modules[module["Path"]] = module
-    sections = ["WikiContext bundle third-party license and copyright notices\n",
+    sections = ["PocketContext third-party license and copyright notices\n",
                 "\n--- PocketContext (vendored in internal/pocketcontext) ---\n\n"
                 + (ROOT / "internal/pocketcontext/LICENSE").read_text(encoding="utf-8")]
     for name, module in sorted(modules.items()):
@@ -246,8 +247,8 @@ def build(args):
         # native musl compiler; CGO remains enabled for the SQLite authorizer.
         script = f'''apk add --no-cache build-base
 test "$(go env GOVERSION)" = {GO_VERSION}
-CGO_ENABLED=1 go build -trimpath -buildvcs=false -tags "$1" -ldflags "$2" -o /out/wikicontext ./cmd/wikicontext
-chown "$3:$4" /out/wikicontext
+CGO_ENABLED=1 go build -trimpath -buildvcs=false -tags "$1" -ldflags "$2" -o /out/pocketcontext ./cmd/pocketcontext
+chown "$3:$4" /out/pocketcontext
 '''
         run(["docker", "run", "--rm", "--mount", f"type=bind,src={ROOT},dst=/src,readonly",
              "--mount", f"type=bind,src={binary_dir},dst=/out", "--workdir", "/src",
@@ -264,7 +265,7 @@ chown "$3:$4" /out/wikicontext
             environment.update(MACOSX_DEPLOYMENT_TARGET="15.0",
                                CGO_CFLAGS="-mmacosx-version-min=15.0", CGO_LDFLAGS="-mmacosx-version-min=15.0")
         run(["go", "build", "-trimpath", "-buildvcs=false", "-tags", TAGS,
-             "-ldflags", flags, "-o", str(binary), "./cmd/wikicontext"], cwd=ROOT, env=environment)
+             "-ldflags", flags, "-o", str(binary), "./cmd/pocketcontext"], cwd=ROOT, env=environment)
         if target.startswith("darwin_"):
             run(["codesign", "--force", "--sign", "-", str(binary)])
     verify_binary(binary, target)
@@ -303,7 +304,7 @@ def check_archive(archive, target):
                     and all(not e.is_dir() and e.file_size > 0 for e in entries), f"Unexpected archive layout: {archive.name}")
             require(bundle.testzip() is None, f"Corrupt archive: {archive.name}")
         return
-    modes = {"wikicontext": 0o755, "THIRD_PARTY_NOTICES.txt": 0o644}
+    modes = {"pocketcontext": 0o755, "THIRD_PARTY_NOTICES.txt": 0o644}
     with tarfile.open(archive, "r:gz") as bundle:
         entries = bundle.getmembers()
         require(len(entries) == len(expected) and {entry.name for entry in entries} == expected
@@ -394,7 +395,7 @@ def verify_remote(release, tag, expected):
     require(len(assets) == len(expected) and {a["name"] for a in assets} == set(expected),
             "Remote release assets are incomplete or unexpected")
     require(all(asset["state"] == "uploaded" for asset in assets), "Remote upload is incomplete")
-    with tempfile.TemporaryDirectory(prefix="wikicontext-release-verify-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="pocketcontext-release-verify-") as temporary:
         run(["gh", "release", "download", tag, "--repo", REPOSITORY, "--dir", temporary], capture_output=True)
         require({p.name for p in Path(temporary).iterdir()} == set(expected), "Downloaded assets differ from expected assets")
         for name, digest in expected.items():
@@ -428,7 +429,7 @@ def publish(args):
     require(remote_commit(tag) == revision, "Remote tag changed since validation")
     directory = Path(args.assets)
     expected = validate_assets(directory, release_version)
-    marker = f"<!-- wikicontext-bundle-release:{revision} -->"
+    marker = f"<!-- pocketcontext-release:{revision} -->"
     release = find_release(tag)
     if release is not None:
         require(marker in (release.get("body") or ""), "Existing release was not created for this validated commit")
@@ -439,16 +440,16 @@ def publish(args):
             return
     else:
         base = f"https://github.com/{REPOSITORY}/releases/download/{tag}"
-        body = (f"WikiContext bundle {release_version}: a local, text-only WikiContext server, reader and CLI in one binary.\n\n"
+        body = (f"PocketContext {release_version}: a local, text-only knowledge base: server, reader and CLI in one binary.\n\n"
                 "Linux amd64 and arm64: static musl binaries. macOS arm64: macOS 15 or later, ad hoc signed. "
                 "Windows amd64: statically linked MinGW build, unsigned.\n\n"
                 f"Install on Linux or macOS: `curl -fsSL {base}/install.sh | sh`\n\n"
                 f"Install on Windows (PowerShell): `irm {base}/install.ps1 | iex`\n\n"
                 "Both installers accept a target folder (for example inside iCloud Drive, OneDrive, Dropbox or Google Drive): "
-                "`WIKICONTEXT_INSTALL_DIR=...` or `$env:WIKICONTEXT_INSTALL_DIR=...`.\n\n"
+                "`POCKETCONTEXT_INSTALL_DIR=...` or `$env:POCKETCONTEXT_INSTALL_DIR=...`.\n\n"
                 f"See the [README](https://github.com/{REPOSITORY}/blob/{tag}/README.md).\n\n{marker}")
         release = api("releases", "POST", {"tag_name": tag, "target_commitish": revision,
-                      "name": f"WikiContext bundle {release_version}", "body": body, "draft": True, "prerelease": False})
+                      "name": f"PocketContext {release_version}", "body": body, "draft": True, "prerelease": False})
     require({asset["name"] for asset in release.get("assets", [])} <= set(expected), "Draft contains unexpected assets")
     # Retry only repairs this unpublished, commit-marked draft. Published assets
     # never pass this branch and are never overwritten or deleted.

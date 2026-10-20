@@ -164,7 +164,7 @@
   "maxBytes": 1048576,
   "tracing": {
     "enabled": false,
-    "service": "wikicontext",
+    "service": "pocketcontext",
     "delivery": "buffer",
     "captureSql": true,
     "maxBytes": 16777216

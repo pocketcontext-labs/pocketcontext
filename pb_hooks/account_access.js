@@ -6,13 +6,13 @@ function request(e) {
   // PocketBase treats an invalid bearer as anonymous; make revoked sessions an
   // explicit failure rather than returning anonymous filtered collection lists.
   if (!e.auth && e.request.header.get("Authorization")) {
-    throw new UnauthorizedError("The WikiContext session is invalid or expired.");
+    throw new UnauthorizedError("The session is invalid or expired.");
   }
   if (isUser(e.auth)) {
     // Re-read so this guard also applies when an earlier handler supplied auth.
     const current = e.app.findRecordById("users", e.auth.id);
     if (current.getBool("disabled") || current.tokenKey() !== e.auth.tokenKey()) {
-      throw new ForbiddenError("This WikiContext account is disabled or its session was revoked.");
+      throw new ForbiddenError("This account is disabled or its session was revoked.");
     }
   }
   return e.next();
@@ -20,7 +20,7 @@ function request(e) {
 
 function authenticate(e) {
   if (e.record.getBool("disabled")) {
-    throw new ForbiddenError("This WikiContext account is disabled.");
+    throw new ForbiddenError("This account is disabled.");
   }
   return e.next();
 }
@@ -35,7 +35,7 @@ function update(e) {
 }
 
 function remove() {
-  throw new ForbiddenError("WikiContext accounts cannot be deleted; disable the account to preserve assignments and history.");
+  throw new ForbiddenError("Accounts cannot be deleted; disable the account to preserve assignments and history.");
 }
 
 function realtime(e) {

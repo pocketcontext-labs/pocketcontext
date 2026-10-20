@@ -30,7 +30,7 @@ const prompt: PageSummary = {
     output_mode: "markdown",
     purpose: "Install tools",
     target_agents: ["codex"],
-    required_skills: ["wikicontext"],
+    required_skills: ["pocketcontext"],
   },
 };
 const state: CatalogState = {
@@ -56,7 +56,7 @@ it("filters prompt subtype and searches metadata without treating other reposito
   expect(
     filterPrompts([prompt, other], {
       ...state,
-      query: "install wikicontext",
+      query: "install pocketcontext",
       targetAgent: "codex",
     }),
   ).toEqual([prompt]);
@@ -161,14 +161,14 @@ it("checks SHA-256, rejects invalid UTF-8 and preserves BOM and CRLF", async () 
   await expect(decodePrompt(invalid.buffer, badHash)).rejects.toThrow();
 });
 
-it("refuses wiki-only markup and oversized markdown or streaming originals", async () => {
+it("refuses page-link markup and oversized markdown or streaming originals", async () => {
   for (const text of [
     "[[internal]]",
     "citation[^1]",
     "[needs verification]",
     "> [!note] private",
   ])
-    expect(() => portableMarkdown(text)).toThrow("wiki-only");
+    expect(() => portableMarkdown(text)).toThrow("page-link markup");
   expect(() => portableMarkdown("a".repeat(8 * 1024 * 1024 + 1))).toThrow(
     "8 MiB",
   );

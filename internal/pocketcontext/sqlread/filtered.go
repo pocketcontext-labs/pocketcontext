@@ -10,7 +10,7 @@ import (
 	"time"
 
 	sqlite3 "github.com/mattn/go-sqlite3"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/tracing"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/tracing"
 )
 
 // FilteredReadSpec describes a trusted, startup-validated read of selected

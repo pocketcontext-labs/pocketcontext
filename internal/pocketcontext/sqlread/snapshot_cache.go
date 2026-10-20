@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/tracing"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/tracing"
 )
 
 // Time functions can change policy results without a database commit. Even

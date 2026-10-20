@@ -1,76 +1,19 @@
-# Company and optional personal spaces
+# Spaces
 
-Existing knowledge belongs to the stable Company space `companyspace001`.
-Unqualified agent writes and browser page links continue to target Company.
-The display name is not used to identify the company boundary.
+Spaces are the access boundary. Knowledge belongs to the company space `companyspace001` unless a request names another space. Every domain record carries a required `space`; references, citations, links, publication manifests, home choices and catalog relationships stay within one space. Source hashes, run keys, page slugs and publication sequence numbers are unique per space.
 
-Each domain record carries a required `space` relation. Active owner/editor
-memberships permit writes; active reader memberships permit reads. SQL filtered
-snapshots, ordinary REST, realtime and protected originals independently enforce
-membership. Foreign and missing records have the same not-found behavior.
-References, citations, links, publication manifests, home choices and catalog
-relationships must remain within one space. Source hashes, run keys, page slugs
-and publication sequence numbers are unique per space.
+## Membership
 
-## Membership and admission
+Active `owner` and `editor` memberships permit writes; active `reader` memberships permit reads. SQL snapshots, REST, realtime and protected originals check membership independently. A record in another space and a missing record produce the same not-found response.
 
-The populated migration gives existing enabled users company editor membership.
-Disabled users receive inactive membership. No person is inferred to be a company
-owner. The company membership API remains operator-only, with revision checks and
-audit history. Operators may revoke or restore company membership; login and token
-refresh never reinstate a revoked membership. Newly created enabled Workspace
-accounts receive company editor membership in the account-creation transaction.
-Workspace verification and blocked public signup remain unchanged.
+Every account created on the server (`init`, `account`) receives company editor membership in the same transaction. An inactive membership is a revocation and is never reactivated by sign-in. Ordinary users cannot create group spaces or change memberships; the collection rules are superuser-only and the hooks validate those trusted writes with revision checks and audit entries.
 
-Personal spaces are explicit opt-in. The browser's Create personal space button
-or `wikicontext create-personal-space` calls authenticated
-`POST /api/wiki/spaces/personal`. It returns `{ "id": "SPACE_ID" }` and is
-idempotent. Each personal space has one fixed owner. Creation does not change the
-CLI default or move existing knowledge. Ordinary callers cannot create group
-spaces or manage memberships. Catalog People/Groups remain knowledge identities
-and accountability metadata, not authentication or membership records.
+## Personal spaces
 
-A superuser is trusted provisioning authority, but an ordinary user's SQL session
-never inherits superuser visibility. Membership is rechecked for requests; already
-exported files and content previously delivered to a browser cannot be recalled.
+Personal spaces are explicit. The reader's Create personal space button and `pocketcontext create-personal-space` call the authenticated `POST /api/spaces/personal`, which returns `{"id": "SPACE_ID"}` and is idempotent. A personal space has one fixed owner and is visible only to that owner. Creating one does not change the CLI default or move existing knowledge.
 
 ## Reader and client
 
-The reader starts in Company. The selector appears when multiple spaces are
-available, and explicitly requested unavailable spaces produce an error instead
-of silently selecting another space. Personal links retain `space` in URL state.
-Old unscoped slug links select Company; explicit publication/source/passage IDs
-resolve to their own authorized space. Switching clears stale page/evidence state.
+The reader starts in the company space and shows a selector when more than one space is available; a requested space that is not available is an error, never a silent switch. Links to a personal space keep `space` in the URL.
 
-`--space ID` overrides `WIKICONTEXT_SPACE`; otherwise the client uses Company.
-`wikicontext spaces` lists visible memberships. Raw SQL can see all authorized
-spaces and must explicitly filter for one space. Child writes inherit their
-parent's space; roots without a space retain the company default.
-
-Exports and repository-file exports pin a publication within the selected space.
-Obsidian destination manifests record space identity and reject cross-space reuse.
-A legacy manifest without space identity can be adopted only by Company, after
-existing server/ownership/local-edit checks. Use separate export destinations.
-The new package must be published, then the production launcher repinned and
-verified from an unrelated directory before release. Older installed clients
-assume a single shared publication history and must not be used with personal data.
-
-## Populated migration and release
-
-Migration `1791500000_spaces.js` runs transactionally. It adds only space metadata
-to existing domain rows, preserving IDs, revision numbers, timestamps, citations,
-publication manifests, home choices, audit entries and original-file bytes. It
-creates memberships and scoped uniqueness, then removes the derived shared FTS
-index. It does not republish, re-ingest or move evidence to a personal space.
-Private search requires the server commit in `POCKETCONTEXT_VERSION`.
-
-`tests/spaces_migration.py` starts the exact pre-spaces source `7cf5d45`, seeds
-synthetic records through REST, applies the migration and compares every original
-domain field and file hash. It also injects a late migration failure to prove
-transactional rollback. `tests/spaces.py` exercises independent access paths,
-references, membership revocation, role checks and per-space publication.
-
-There is no down migration: restore the verified pre-migration checkpoint together
-with its old image. Do not start an old image on a database containing spaces, or
-use a demo reset/empty-database migration on production. Follow the
-[predeployment recovery and clone assessment](predeployment-recovery.md).
+`--space ID` overrides `POCKETCONTEXT_SPACE`; otherwise the client uses the company space. `pocketcontext spaces` lists visible memberships. Raw SQL spans every space the account can read, so filter by `space`. Child records inherit their parent's space; root records without a space use the company space.

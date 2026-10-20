@@ -41,7 +41,7 @@ export function classifyWelcomePage(page: PageSummary): WelcomeTopicId {
   if (/\b(security|platform|architecture|infrastructure|deployment|authentication|authorization|oauth|backup|recovery|server|hosting|network|database|privacy)\b/.test(value)) return "platform-security";
   if (/\b(people|team|teams|employee|employees|customer|customers|partner|partners|investor|investors|contact|contacts|relationship|relationships|hiring|personnel)\b/.test(value)) return "people-relationships";
   if (/\b(company|strategy|strategic|vision|mission|roadmap|business|organization|fundraising|pricing|market|marketing|positioning)\b/.test(value)) return "company-strategy";
-  if (/\b(app|apps|application|applications|workflow|workflows|process|processes|operations|guide|guides|skill|skills|crm|expense|expenses|accounting|task|tasks|wiki|notification|notifications)\b/.test(value)) return "apps-workflows";
+  if (/\b(app|apps|application|applications|workflow|workflows|process|processes|operations|guide|guides|skill|skills|crm|expense|expenses|accounting|task|tasks|notification|notifications)\b/.test(value)) return "apps-workflows";
   return "other";
 }
 

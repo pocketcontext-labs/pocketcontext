@@ -1,10 +1,10 @@
 package client
 
 // Usage is the help text.
-const Usage = `wikicontext — local WikiContext knowledge base in one binary
+const Usage = `pocketcontext — local knowledge base in one binary
 
-The project is the database file (default: wiki.db beside this binary, or
---db PATH, or WIKICONTEXT_DB), the storage/ folder and wikicontext.json beside
+The project is the database file (default: pocketcontext.db beside this binary, or
+--db PATH, or POCKETCONTEXT_DB), the storage/ folder and pocketcontext.json beside
 it. They may live in iCloud Drive, OneDrive, Dropbox or Google Drive.
 
 Setup and server:
@@ -51,7 +51,7 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
   publish RUN_ID --expected-revision N [--home SLUG | --clear-home --home-base ID]
 
 Remote client (the server runs on another computer, reached through a
-tailcat or SSH forward of the same port; --url URL or WIKICONTEXT_BUNDLE_URL):
+tailcat or SSH forward of the same port; --url URL or POCKETCONTEXT_URL):
   login --url URL --code-stdin
                        sign in with a one-time code from ` + "`login-code`" + ` on the
                        agent computer, read from standard input; stores only
@@ -72,6 +72,6 @@ tailcat or SSH forward of the same port; --url URL or WIKICONTEXT_BUNDLE_URL):
   account and login-code are not available with --url.
 
 Options for every command: --db PATH or --url URL, --space ID, --pretty.
---url and --db exclude each other; --db overrides WIKICONTEXT_BUNDLE_URL.
+--url and --db exclude each other; --db overrides POCKETCONTEXT_URL.
 Exit codes: 0 ok, 1 HTTP or transport error, 2 usage, 3 check differences, 4 HTTP 409.
 `

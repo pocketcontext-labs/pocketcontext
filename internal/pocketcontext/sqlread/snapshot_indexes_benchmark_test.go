@@ -12,12 +12,12 @@ import (
 	"time"
 )
 
-// BenchmarkSnapshotWikiJoins includes publication validation, page navigation,
+// BenchmarkSnapshotPageJoins includes publication validation, page navigation,
 // page detail, evidence and both link directions over synthetic immutable
 // history. Compare with/without persistent snapshot indexes on the same data;
 // SQLite remains free to build automatic query indexes in either case.
-func BenchmarkSnapshotWikiJoins(b *testing.B) {
-	path, cfg, sc := snapshotWikiJoinFixture(b)
+func BenchmarkSnapshotPageJoins(b *testing.B) {
+	path, cfg, sc := snapshotPageJoinFixture(b)
 	for _, indexed := range []bool{false, true} {
 		label := "without_indexes"
 		if indexed {
@@ -108,7 +108,7 @@ WHERE pub.id='pub' AND p.id IN (SELECT l.target FROM links l WHERE l.revision='r
 	}
 }
 
-func snapshotWikiJoinFixture(b *testing.B) (string, Config, SnapshotConfig) {
+func snapshotPageJoinFixture(b *testing.B) (string, Config, SnapshotConfig) {
 	b.Helper()
 	path := filepath.Join(b.TempDir(), "source.db")
 	db, err := sql.Open("sqlite3", path)

@@ -4,7 +4,7 @@ package database
 
 import (
 	"database/sql"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/sqliteuri"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqliteuri"
 	"path/filepath"
 
 	sqlite3 "github.com/mattn/go-sqlite3"

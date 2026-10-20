@@ -13,7 +13,7 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/database"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/database"
 )
 
 const maintenancePath = "/api/context/maintenance"

@@ -1,6 +1,5 @@
 import { spaceLink } from "./spaceLinks";
 import Prompts from "./Prompts";
-import { AudioCatalog } from "./Audio";
 import RepositoryFiles from "./RepositoryFiles";
 import { catalogValue, groupsFor, ids } from "./ownership";
 import { pageHref } from "./Markdown";
@@ -20,7 +19,6 @@ export const catalogTypes = [
   "group",
   "repository_document",
   "prompt",
-  "audio_recording",
 ] as const;
 export const catalogLabels = {
   resource: "Resources",
@@ -30,14 +28,11 @@ export const catalogLabels = {
   group: "Groups",
   repository_document: "Repository files",
   prompt: "Prompts",
-  audio_recording: "Audio",
 };
 export type CatalogType = (typeof catalogTypes)[number];
 export interface CatalogState {
   type: CatalogType;
   query: string;
-  language?: string;
-  bundle?: string;
   targetAgent?: string;
   requiredSkill?: string;
   repository?: string;
@@ -66,7 +61,6 @@ export function catalogHref(
 }
 const columns: Record<CatalogType, string[]> = {
   prompt: [],
-  audio_recording: [],
   repository_document: ["document_type", "output_mode", "accountable_owners"],
   person: ["role", "organization", "groups", "crm_url"],
   group: ["purpose", "members", "owned_resources", "owned_deployments"],
@@ -176,7 +170,6 @@ export default function Catalog({
   publication?: string;
   onNavigate?: (href: string) => void;
 }) {
-  if (state.type === "audio_recording") return <AudioCatalog pages={pages} state={state} publication={publication} onNavigate={onNavigate} />;
   if (state.type === "prompt") return <Prompts pages={pages} state={state} publication={publication} snapshotId={snapshotId} space={space} onNavigate={onNavigate} />;
   if (state.type === "repository_document") return <RepositoryFiles pages={pages} state={state} publication={publication} onNavigate={onNavigate} />;
   const update = (patch: Partial<CatalogState>) => {

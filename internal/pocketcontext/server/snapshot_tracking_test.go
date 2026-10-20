@@ -11,9 +11,9 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/database"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/snapshotstate"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/sqlread"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/database"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/snapshotstate"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqlread"
 )
 
 func TestSnapshotTrackingRestoredDatabaseLifecycle(t *testing.T) {

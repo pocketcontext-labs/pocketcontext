@@ -6,7 +6,7 @@ import (
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/snapshotstate"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/snapshotstate"
 )
 
 // Installation runs only for explicitly opted-in applications. An already

@@ -12,7 +12,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/tracing"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/tracing"
 )
 
 func TestTracingAuthenticatedRequest(t *testing.T) {

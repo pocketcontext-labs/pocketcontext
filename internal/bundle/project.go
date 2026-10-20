@@ -1,4 +1,4 @@
-// Package bundle runs WikiContext as one local binary: a project is a SQLite
+// Package bundle runs PocketContext as one local binary: a project is a SQLite
 // file, its storage folder and an optional configuration file, all of which may
 // live in a cloud-synced folder. Everything else stays in a per-machine cache.
 package bundle
@@ -16,14 +16,14 @@ import (
 	"strings"
 )
 
-// DefaultPort is WikiContext's dedicated loopback port, distinct from the
+// DefaultPort is PocketContext's dedicated loopback port, distinct from the
 // other Context applications so several can run at the same time.
 const DefaultPort = 8096
 
 // DefaultDatabase is the database file name used when only a folder is known.
-const DefaultDatabase = "wiki.db"
+const DefaultDatabase = "pocketcontext.db"
 
-// Config is the optional wikicontext.json beside the database. It is synced
+// Config is the optional pocketcontext.json beside the database. It is synced
 // with the project, so it never contains credentials or machine-specific paths.
 type Config struct {
 	Port     int    `json:"port"`
@@ -31,21 +31,21 @@ type Config struct {
 	Instance string `json:"instance,omitempty"`
 }
 
-// Project is one WikiContext database and the paths derived from it.
+// Project is one PocketContext database and the paths derived from it.
 type Project struct {
 	DB         string // absolute path of the synced database file
-	Dir        string // folder holding the database, storage/ and wikicontext.json
+	Dir        string // folder holding the database, storage/ and pocketcontext.json
 	ConfigPath string
 	Cache      string // private per-machine cache for this database
 	Key        string // stable per-machine identifier of this database path
 	Config     Config
 }
 
-// Resolve finds the project from an explicit path, WIKICONTEXT_DB, or the
-// wiki.db beside the executable, in that order. A directory selects its wiki.db.
+// Resolve finds the project from an explicit path, POCKETCONTEXT_DB, or the
+// pocketcontext.db beside the executable, in that order. A directory selects its pocketcontext.db.
 func Resolve(db string) (*Project, error) {
 	if db == "" {
-		db = os.Getenv("WIKICONTEXT_DB")
+		db = os.Getenv("POCKETCONTEXT_DB")
 	}
 	if db == "" {
 		exe, err := os.Executable()
@@ -65,7 +65,7 @@ func Resolve(db string) (*Project, error) {
 		abs = filepath.Join(abs, DefaultDatabase)
 	}
 	p := &Project{DB: abs, Dir: filepath.Dir(abs)}
-	p.ConfigPath = filepath.Join(p.Dir, "wikicontext.json")
+	p.ConfigPath = filepath.Join(p.Dir, "pocketcontext.json")
 	identity := abs
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		identity = strings.ToLower(identity) // case-insensitive filesystems
@@ -76,7 +76,7 @@ func Resolve(db string) (*Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no user cache directory: %w", err)
 	}
-	p.Cache = filepath.Join(base, "wikicontext-bundle", p.Key)
+	p.Cache = filepath.Join(base, "pocketcontext", p.Key)
 	p.Config = Config{Port: DefaultPort}
 	if err := p.loadConfig(); err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func (p *Project) loadConfig() error {
 	return nil
 }
 
-// SaveConfig writes wikicontext.json atomically.
+// SaveConfig writes pocketcontext.json atomically.
 func (p *Project) SaveConfig() error {
 	data, err := json.MarshalIndent(p.Config, "", "  ")
 	if err != nil {

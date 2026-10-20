@@ -14,11 +14,11 @@ import (
 	"github.com/pocketbase/pocketbase/tools/hook"
 )
 
-// Local routes replace Google sign-in. Reading the private key file proves the
+// Local routes provide sign-in without an identity provider. Reading the private key file proves the
 // caller is this computer's user, who can already read the database file.
 // Every other API still requires an ordinary users token.
 
-const keyHeader = "X-WikiContext-Local-Key"
+const keyHeader = "X-PocketContext-Local-Key"
 
 type localRoutes struct {
 	p     *Project
@@ -120,7 +120,7 @@ func (l *localRoutes) account(app core.App) (*core.Record, error) {
 		return nil, err
 	}
 	if len(records) != 1 {
-		return nil, apis.NewBadRequestError("Set the account email in wikicontext.json.", nil)
+		return nil, apis.NewBadRequestError("Set the account email in pocketcontext.json.", nil)
 	}
 	return records[0], nil
 }
@@ -128,7 +128,7 @@ func (l *localRoutes) account(app core.App) (*core.Record, error) {
 func (l *localRoutes) register(e *core.ServeEvent) {
 	// DNS rebinding protection: a web page cannot reach this server under another name.
 	e.Router.Bind(&hook.Handler[*core.RequestEvent]{
-		Id: "wikicontextLocalHost", Priority: -99999,
+		Id: "pocketcontextLocalHost", Priority: -99999,
 		Func: func(re *core.RequestEvent) error {
 			if !l.allowedHost(re.Request.Host) {
 				return re.ForbiddenError("Unexpected host.", nil)
@@ -139,7 +139,7 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 
 	e.Router.GET("/api/bundle/instance", func(re *core.RequestEvent) error {
 		return re.JSON(http.StatusOK, map[string]string{
-			"app": "wikicontext", "version": Version, "instance": l.p.Config.Instance, "key": l.p.Key,
+			"app": "pocketcontext", "version": Version, "instance": l.p.Config.Instance, "key": l.p.Key,
 		})
 	})
 
@@ -149,7 +149,7 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		}
 		user, err := l.account(re.App)
 		if err != nil {
-			return re.BadRequestError("No local account; run `wikicontext init`.", nil)
+			return re.BadRequestError("No local account; run `pocketcontext init`.", nil)
 		}
 		return apis.RecordAuthResponse(re, user, "local", nil)
 	})
@@ -223,10 +223,10 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		if email := strings.TrimSpace(body.Email); email != "" {
 			user, err = re.App.FindAuthRecordByEmail("users", strings.ToLower(email))
 			if err != nil || user.GetBool("disabled") {
-				return re.BadRequestError("No active account with that email; create it with `wikicontext account`.", nil)
+				return re.BadRequestError("No active account with that email; create it with `pocketcontext account`.", nil)
 			}
 		} else if user, err = l.account(re.App); err != nil {
-			return re.BadRequestError("No local account; run `wikicontext init`.", nil)
+			return re.BadRequestError("No local account; run `pocketcontext init`.", nil)
 		}
 		code, expires := l.codes.issue(user.Id, time.Duration(ttl)*time.Second)
 		return re.JSON(http.StatusOK, map[string]string{
@@ -299,7 +299,7 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 	})
 }
 
-const loginHTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WikiContext sign-in</title></head>
+const loginHTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PocketContext sign-in</title></head>
 <body><p id="status">Signing in…</p><script src="/bundle/login.js"></script></body></html>`
 
 // The code travels in the fragment, so it never reaches logs or the Referer.
@@ -311,9 +311,9 @@ const loginJS = `(async () => {
     const response = await fetch("/api/bundle/redeem", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({code})});
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || "Sign-in failed.");
-    localStorage.setItem("wikicontext.reader.auth", JSON.stringify({token: data.token, record: data.record}));
+    localStorage.setItem("pocketcontext.reader.auth", JSON.stringify({token: data.token, record: data.record}));
     location.replace("/");
   } catch (error) {
-    status.textContent = error.message + " Get a new link with wikicontext open, or sign in with your password.";
+    status.textContent = error.message + " Get a new link with pocketcontext open, or sign in with your password.";
   }
 })();`

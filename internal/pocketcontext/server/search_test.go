@@ -10,8 +10,8 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/searchread"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/sqlread"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/searchread"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqlread"
 )
 
 func searchFixture(t *testing.T) (*tests.TestApp, Config, string, string) {

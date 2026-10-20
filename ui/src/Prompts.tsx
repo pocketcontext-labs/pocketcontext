@@ -78,7 +78,7 @@ export function portableMarkdown(body: string) {
     /^\s*>\s*\[!/m.test(body)
   )
     throw new Error(
-      "Markdown contains wiki-only markup. Publish portable Markdown or use exact_copy.",
+      "Markdown contains page-link markup. Publish portable Markdown or use exact_copy.",
     );
   const bytes = new TextEncoder().encode(body);
   if (bytes.byteLength > maxPromptBytes)

@@ -1,14 +1,14 @@
 # Knowledge schema
 
-This build ingests UTF-8 text only; audio, image, PDF and repository-file workflows are not available, although their properties remain in the schema.
+Ingestion accepts UTF-8 text only. Repository-document properties remain in the schema, but this build never exports or pushes files.
 
-Use `wikicontext schema` for live SQL columns and `wikicontext check` for differences from `schema.json`. Business reads use explicit columns. SQL returns `{columns, rows, truncated}`; never act on a truncated result as if complete. Page or narrow the query.
+Use `pocketcontext schema` for live SQL columns and `pocketcontext check` for differences from `schema.json`. Business reads use explicit columns. SQL returns `{columns, rows, truncated}`; never act on a truncated result as if complete. Page or narrow the query.
 
 Every domain table has an immutable `space`. SQL returns only rows of spaces where you are an active member. Filter by `space` when you mean one space.
 
 | Collection | Content and invariants |
 | --- | --- |
-| spaces | `kind` (`personal`, `group`), `name`, `created_by`, `revision`. One personal space per account. Server-managed: personal creation uses the explicit `/api/wiki/spaces/personal` endpoint; membership changes require operator maintenance. |
+| spaces | `kind` (`personal`, `group`), `name`, `created_by`, `revision`. One personal space per account. Server-managed: personal creation uses the explicit `/api/spaces/personal` endpoint; membership changes require operator maintenance. |
 | space_members | `space`, `account`, `role` (`owner`, `editor`, `reader`), `active`. Your memberships and your co-members' memberships of shared spaces. |
 | sources | `space` (required on create; defaults to the company space), `title`, `original_name`, `media_type`, `source_date`, `sha256`, optional same-space `supersedes`, protected required `original`. Immutable. Server computes SHA-256 from stored bytes, unique per space. This build stores UTF-8 text originals only, in `storage/` beside the database. |
 | renditions | `source`, `kind`, `processor`, `version_label`, `notes`. Immutable extraction provenance. Unique source/kind/version. Client notes contain extraction count/hash for retry checks. |
@@ -28,13 +28,13 @@ Writable records have server-managed `revision`, `created_by`, `updated_by`, `cr
 
 Publishing changes the run status through the records API. In one transaction the server verifies page base revisions, expected home, citation markers, and links against the latest publication of the run's space, creates that space's next manifest, closes the run and records history. HTTP 409 means reassess against the current publication in a new run. Failed publication exposes no partial published pages. Staging records remain visible to active members of their space but are not published knowledge.
 
-Body markers use `[^1]`. Create corresponding citation records; do not embed footnote definitions in the body. The exporter renders definitions. Body `[[target-slug]]` links require page_links records. Link targets must be present and unarchived in the resulting publication. Uncited prose must explicitly contain `[needs verification]`; this structural allowance does not establish factual accuracy.
+Body markers use `[^1]`. Create corresponding citation records; do not embed footnote definitions in the body. The reader renders definitions. Body `[[target-slug]]` links require page_links records. Link targets must be present and unarchived in the resulting publication. Uncited prose must explicitly contain `[needs verification]`; this structural allowance does not establish factual accuracy.
 
 The authenticated search endpoint is separate from SQL. Index `pages` takes a required publication ID of a space you can read as `scope`; manifest values select revisions before pagination. The server builds a private index from your visible rows; its generation changes when your visible data changes. No FTS table is SQL-readable. Search results may be incomplete when `hasMore`/`truncated` is true; paginate using the same scope and generation.
 
 Revision properties follow the [catalog workflow](workflows.md#catalog-properties).
 Relationship properties contain stable page IDs and are checked against the resulting
-publication and require matching page_links records for each target. `catalog_type` supports resource, credential, deployment, person, group, repository_document, repository_destination, repository_sync and audio_recording entities.
+publication and require matching page_links records for each target. `catalog_type` supports resource, credential, deployment, person, group, repository_document, repository_destination and repository_sync entities.
 `members` links groups to people; `accountable_owners` and `backup_owners` link to
 groups. Membership is accountability metadata without authentication significance.
 Citation markers may be
@@ -48,13 +48,9 @@ exact copies. Destinations declare `github_repository`, `github_branch` and safe
 relative `github_path`. Sync observations pin `synced_document_revision` and
 `synced_destination_revision`, with intended-byte `rendered_sha256`, `checked_at`,
 `sync_status` and a Git commit (optional for pending/unknown). Exact-copy hashes
-must match the original source. See [repository files](workflows.md#repository-files).
+must match the original source. 
 
 Prompt catalog entries are repository documents with `document_type: prompt`, not
 an additional catalog type. Optional prompt metadata follows the flat property
-contract; see the prompt workflow. Destinations remain optional and copy/export
+contract; see [catalog properties](workflows.md#catalog-properties). Destinations remain optional and copying
 never executes the prompt.
-
-Audio recording entities reference an immutable `audio_source_id` and may pin a
-`selected_bundle_rendition_id`. `transcript_pages` and `summary_pages` are typed
-page relationships. See the [audio catalog workflow](workflows.md#audio-recording-catalog).

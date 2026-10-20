@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/sqliteuri"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqliteuri"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,7 +110,7 @@ func (s *Store) Open() error {
 	if haveLive && s.state.Dirty {
 		if !sameFile(synced, s.state.Base) {
 			return fmt.Errorf("%s changed (probably on another computer) while this computer had unsaved changes from an interrupted run; "+
-				"run `wikicontext recover --keep local` or `--keep synced`", s.p.DB)
+				"run `pocketcontext recover --keep local` or `--keep synced`", s.p.DB)
 		}
 		// Recover the interrupted run before anything else touches the files.
 		s.changes = 1
@@ -274,7 +274,7 @@ func (s *Store) writeBack() error {
 		s.saved = target
 		s.state.Dirty = true
 		_ = s.saveState()
-		return fmt.Errorf("%s changed on another computer; this computer's changes are kept in %s; run `wikicontext stop`, then `wikicontext recover`", s.p.DB, s.state.Conflict)
+		return fmt.Errorf("%s changed on another computer; this computer's changes are kept in %s; run `pocketcontext stop`, then `pocketcontext recover`", s.p.DB, s.state.Conflict)
 	}
 	if err := s.snapshotTo(s.p.DB); err != nil {
 		return err

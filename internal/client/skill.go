@@ -6,19 +6,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	wikicontextbundle "github.com/pocketcontext/wikicontext-bundle"
+	assets "github.com/pocketcontext-labs/pocketcontext"
 )
 
 // marker identifies skill directories written by this command, which may be replaced.
-const marker = ".wikicontext-bundle"
+const marker = ".pocketcontext"
 
 // skillTargets are the user-level skill directories of supported agents. An
 // agent is skipped when its configuration directory does not exist.
 func skillTargets(home string) map[string][2]string {
 	return map[string][2]string{
-		"claude-code": {filepath.Join(home, ".claude"), filepath.Join(home, ".claude", "skills", "wikicontext")},
-		"codex":       {filepath.Join(home, ".codex"), filepath.Join(home, ".codex", "skills", "wikicontext")},
-		"antigravity": {filepath.Join(home, ".gemini"), filepath.Join(home, ".gemini", "antigravity", "skills", "wikicontext")},
+		"claude-code": {filepath.Join(home, ".claude"), filepath.Join(home, ".claude", "skills", "pocketcontext")},
+		"codex":       {filepath.Join(home, ".codex"), filepath.Join(home, ".codex", "skills", "pocketcontext")},
+		"antigravity": {filepath.Join(home, ".gemini"), filepath.Join(home, ".gemini", "antigravity", "skills", "pocketcontext")},
 	}
 }
 
@@ -95,8 +95,8 @@ func writeSkill(dir, exe, db, url string) error {
 		}
 	}
 	replacer := strings.NewReplacer("{{BINARY}}", exe, "{{DB}}", db, "{{URL}}", url)
-	root := "skills/wikicontext"
-	err := fs.WalkDir(wikicontextbundle.Skill, root, func(name string, d fs.DirEntry, err error) error {
+	root := "skills/pocketcontext"
+	err := fs.WalkDir(assets.Skill, root, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func writeSkill(dir, exe, db, url string) error {
 		if d.IsDir() {
 			return os.MkdirAll(target, 0755)
 		}
-		data, err := wikicontextbundle.Skill.ReadFile(name)
+		data, err := assets.Skill.ReadFile(name)
 		if err != nil {
 			return err
 		}
@@ -121,7 +121,7 @@ func writeSkill(dir, exe, db, url string) error {
 		return err
 	}
 	if db == "" {
-		data, err := wikicontextbundle.Skill.ReadFile(root + "/" + remoteTemplate)
+		data, err := assets.Skill.ReadFile(root + "/" + remoteTemplate)
 		if err != nil {
 			return err
 		}

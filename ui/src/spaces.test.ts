@@ -21,7 +21,7 @@ describe("production space selection", () => {
   it("requests personal space only through its explicit idempotent endpoint", async () => {
     const send = vi.spyOn(pb, "send").mockResolvedValue({ id: personal.id });
     await expect(createPersonalSpace()).resolves.toEqual({ id: personal.id });
-    expect(send).toHaveBeenCalledWith("/api/wiki/spaces/personal", { method: "POST" });
+    expect(send).toHaveBeenCalledWith("/api/spaces/personal", { method: "POST" });
   });
   it("scopes publication history to selected space", async () => {
     const send = vi.spyOn(pb, "send").mockResolvedValue({ columns: [], rows: [], truncated: false });

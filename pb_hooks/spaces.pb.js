@@ -5,6 +5,6 @@ onRecordCreateRequest((e) => require(`${__hooks}/spaces.js`).createRequest(e), '
 onRecordUpdateRequest((e) => require(`${__hooks}/spaces.js`).updateRequest(e), 'spaces', 'space_members');
 onRecordDeleteRequest((e) => { throw new ForbiddenError('Spaces and memberships are retained; deactivate a membership instead.'); }, 'spaces', 'space_members');
 
-// Admission runs inside account creation, including verified Workspace JIT.
+// Admission runs inside account creation.
 onRecordCreateExecute((e) => require(`${__hooks}/spaces.js`).admitRequest(e), 'users');
-routerAdd('POST', '/api/wiki/spaces/personal', (e) => require(`${__hooks}/spaces.js`).personalRequest(e), $apis.requireAuth('users'));
+routerAdd('POST', '/api/spaces/personal', (e) => require(`${__hooks}/spaces.js`).personalRequest(e), $apis.requireAuth('users'));

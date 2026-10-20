@@ -777,30 +777,18 @@ select {
   line-height: 1.8;
   color: var(--muted);
 }
-.google-button {
-  width: 100%;
-  justify-content: space-between;
-  margin-top: 32px;
-}
 .login-card .login-hint {
   font-size: 11px;
   text-align: center;
   margin: 10px 0 23px;
   color: var(--quiet);
 }
-.login-card details {
-  border-top: 1px solid var(--border);
-  padding-top: 18px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.login-card summary {
-  cursor: pointer;
-}
 .login-card form {
   display: grid;
   gap: 14px;
-  margin-top: 20px;
+  margin-top: 28px;
+  font-size: 12px;
+  color: var(--muted);
 }
 .login-card label {
   display: grid;
@@ -992,33 +980,6 @@ select {
   color: inherit;
 }
 
-.image-preview {
-  margin: 1.25rem 0;
-  min-width: 0;
-}
-.image-preview > img {
-  display: block;
-  max-width: 100%;
-  max-height: 65vh;
-  object-fit: contain;
-  margin-bottom: .75rem;
-}
-.image-preview > img[hidden] { display: none; }
-.image-preview-dialog {
-  width: min(96vw, 1600px);
-  max-width: 96vw;
-  max-height: 94vh;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: .75rem;
-  background: var(--panel);
-  color: var(--text);
-}
-.image-preview-dialog::backdrop { background: rgb(0 0 0 / 75%); }
-.image-preview-dialog > button { display: block; margin-bottom: .75rem; }
-.image-preview-canvas { max-height: 70vh; overflow: auto; }
-.image-preview-canvas > img { display: block; max-width: 100%; height: auto; }
-.image-preview-canvas.actual-size > img { max-width: none; }
 
 /* Keep navigation readable while the complete catalog remains available. */
 .sidebar { width: 292px; }

@@ -88,9 +88,10 @@ jobs:
         run: $PY scripts/release.py build --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" --platform "$RELEASE_PLATFORM" --output dist
       - name: End-to-end test of the release binary
         run: |
-          exe=wikicontext
-          if [ "$RUNNER_OS" = Windows ]; then exe=wikicontext.exe; fi
-          "dist/$RELEASE_PLATFORM/$exe" version | grep -F "wikicontext $RELEASE_VERSION ($RELEASE_COMMIT)"
+          exe=pocketcontext
+          if [ "$RUNNER_OS" = Windows ]; then exe=pocketcontext.exe; fi
+          "dist/$RELEASE_PLATFORM/$exe" version | grep -F "pocketcontext $RELEASE_VERSION ($RELEASE_COMMIT)"
+          "$PY" tests/name_check.py --binary "dist/$RELEASE_PLATFORM/$exe"
           "$PY" tests/e2e.py --binary "dist/$RELEASE_PLATFORM/$exe"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -133,7 +134,7 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: wikicontext-bundle-release-publication
+      group: pocketcontext-release-publication
       cancel-in-progress: false
     env:
       RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
@@ -173,16 +174,16 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          dir="$RUNNER_TEMP/Cloud Drive/WikiContext"
-          curl -fsSL "https://github.com/pocketcontext/wikicontext-bundle/releases/download/v$RELEASE_VERSION/install.sh" | sh -s -- "$dir"
-          echo "EXE=$dir/wikicontext" >> "$GITHUB_ENV"
+          dir="$RUNNER_TEMP/Cloud Drive/PocketContext"
+          curl -fsSL "https://github.com/pocketcontext-labs/pocketcontext/releases/download/v$RELEASE_VERSION/install.sh" | sh -s -- "$dir"
+          echo "EXE=$dir/pocketcontext" >> "$GITHUB_ENV"
       - name: Install with install.ps1
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $env:WIKICONTEXT_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'Cloud Drive\WikiContext'
-          irm "https://github.com/pocketcontext/wikicontext-bundle/releases/download/v$env:RELEASE_VERSION/install.ps1" | iex
-          "EXE=$env:WIKICONTEXT_INSTALL_DIR\wikicontext.exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $env:POCKETCONTEXT_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'Cloud Drive\PocketContext'
+          irm "https://github.com/pocketcontext-labs/pocketcontext/releases/download/v$env:RELEASE_VERSION/install.ps1" | iex
+          "EXE=$env:POCKETCONTEXT_INSTALL_DIR\pocketcontext.exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: End-to-end test of the installed binary
         shell: bash
         run: $PY tests/e2e.py --binary "$EXE"

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/sqliteuri"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqliteuri"
 	"io"
 	"os"
 	"path/filepath"

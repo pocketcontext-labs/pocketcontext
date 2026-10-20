@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/pocketcontext/wikicontext-bundle/internal/bundle"
+	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
 )
 
 //go:embed schema.json
@@ -73,7 +73,7 @@ func (a *args) has(name string) bool { _, ok := a.flags[name]; return ok }
 
 func (a *args) need(n int, usage string) error {
 	if len(a.pos) != n {
-		return fail(2, "usage: wikicontext %s", usage)
+		return fail(2, "usage: pocketcontext %s", usage)
 	}
 	return nil
 }
@@ -206,17 +206,17 @@ func Run(argv []string) int {
 	if err := run(argv); err != nil {
 		var f *Fail
 		if errors.As(err, &f) {
-			fmt.Fprintln(os.Stderr, "wikicontext: "+f.Message)
+			fmt.Fprintln(os.Stderr, "pocketcontext: "+f.Message)
 			return f.Code
 		}
-		fmt.Fprintln(os.Stderr, "wikicontext: "+err.Error())
+		fmt.Fprintln(os.Stderr, "pocketcontext: "+err.Error())
 		return 1
 	}
 	return 0
 }
 
 func run(argv []string) error {
-	// Global options may precede the command: wikicontext --db PATH COMMAND ...
+	// Global options may precede the command: pocketcontext --db PATH COMMAND ...
 	var global []string
 	for len(argv) > 0 && strings.HasPrefix(argv[0], "--") {
 		name, _, hasValue := strings.Cut(argv[0][2:], "=")
@@ -241,7 +241,7 @@ parsed:
 	}
 	command, rest := argv[0], argv[1:]
 	if command == "version" || command == "--version" {
-		line := "wikicontext " + bundle.Version
+		line := "pocketcontext " + bundle.Version
 		if bundle.Commit != "" {
 			line += " (" + bundle.Commit + ")"
 		}
@@ -287,20 +287,20 @@ parsed:
 	}
 	s, known := spec[command]
 	if !known {
-		return fail(2, "unknown command %q; run `wikicontext help`", command)
+		return fail(2, "unknown command %q; run `pocketcontext help`", command)
 	}
 	a, err := parseArgs(rest, s[0], s[1])
 	if err != nil {
 		return err
 	}
 	pretty := a.bools["pretty"]
-	// --url, or WIKICONTEXT_BUNDLE_URL without an explicit --db, selects remote mode.
+	// --url, or POCKETCONTEXT_URL without an explicit --db, selects remote mode.
 	remote, fromFlag := a.flags["url"], a.has("url")
 	if fromFlag && a.has("db") {
 		return fail(2, "choose --url or --db, not both")
 	}
 	if !fromFlag && !a.has("db") {
-		remote = os.Getenv("WIKICONTEXT_BUNDLE_URL")
+		remote = os.Getenv("POCKETCONTEXT_URL")
 	}
 	if fromFlag || remote != "" {
 		base, err := normalizeURL(remote)
@@ -310,7 +310,7 @@ parsed:
 		return runRemote(base, command, a, pretty)
 	}
 	if command == "login" || command == "logout" {
-		return fail(2, "usage: wikicontext %s --url http://127.0.0.1:PORT", command)
+		return fail(2, "usage: pocketcontext %s --url http://127.0.0.1:PORT", command)
 	}
 	p, err := bundle.Resolve(a.flags["db"])
 	if err != nil {
@@ -354,7 +354,7 @@ parsed:
 	case "recover":
 		keep := a.flags["keep"]
 		if keep != "local" && keep != "synced" {
-			return fail(2, "usage: wikicontext recover --keep local|synced")
+			return fail(2, "usage: pocketcontext recover --keep local|synced")
 		}
 		if err := bundle.Recover(p, keep == "local"); err != nil {
 			return fail(1, "%v", err)
@@ -390,7 +390,7 @@ parsed:
 		if a.has("email") {
 			email := strings.ToLower(a.flags["email"])
 			if !emailPattern.MatchString(email) {
-				return fail(2, "usage: wikicontext open [--email EMAIL] [--no-browser]")
+				return fail(2, "usage: pocketcontext open [--email EMAIL] [--no-browser]")
 			}
 			body["email"] = email
 		}
@@ -449,7 +449,7 @@ func runRemote(base, command string, a *args, pretty bool) error {
 		var err error
 		if a.bools["code-stdin"] {
 			if a.has("email") || a.bools["password-stdin"] {
-				return fail(2, "usage: wikicontext login --url URL --code-stdin (the code names the account; no --email or --password-stdin)")
+				return fail(2, "usage: pocketcontext login --url URL --code-stdin (the code names the account; no --email or --password-stdin)")
 			}
 			out, err = loginWithCode(base)
 		} else {
@@ -462,7 +462,7 @@ func runRemote(base, command string, a *args, pretty bool) error {
 		return nil
 	}
 	if command == "open" && a.has("email") {
-		return fail(2, "open --email is not available with --url: run `wikicontext open --email EMAIL --no-browser` on the agent computer and open the printed link here")
+		return fail(2, "open --email is not available with --url: run `pocketcontext open --email EMAIL --no-browser` on the agent computer and open the printed link here")
 	}
 	s, err := loadSession(base)
 	if err != nil {
@@ -478,7 +478,7 @@ func runRemote(base, command string, a *args, pretty bool) error {
 				fmt.Fprintln(os.Stderr, "could not open a browser:", err)
 			}
 		}
-		Print(map[string]any{"url": base, "note": "sign in with your email and password, or open a sign-in link from `wikicontext open --email EMAIL --no-browser` on the agent computer"}, pretty)
+		Print(map[string]any{"url": base, "note": "sign in with your email and password, or open a sign-in link from `pocketcontext open --email EMAIL --no-browser` on the agent computer"}, pretty)
 		return nil
 	case "skill":
 		return installSkills("", base, a.flags["agent"], a.flags["dir"], pretty)
@@ -532,7 +532,7 @@ func runData(c *Client, command string, a *args, pretty bool) error {
 		}
 		data = rows
 	case "create-personal-space":
-		data, err = c.Must("POST", "/api/wiki/spaces/personal", map[string]any{})
+		data, err = c.Must("POST", "/api/spaces/personal", map[string]any{})
 	case "check":
 		return c.check()
 	case "schema":
@@ -726,7 +726,7 @@ func runData(c *Client, command string, a *args, pretty bool) error {
 func createAccount(p *bundle.Project, a *args, pretty bool) error {
 	email := strings.ToLower(a.flags["email"])
 	if !emailPattern.MatchString(email) {
-		return fail(2, "usage: wikicontext account --email EMAIL [--name NAME] [--password-stdin]")
+		return fail(2, "usage: pocketcontext account --email EMAIL [--name NAME] [--password-stdin]")
 	}
 	// Without --password-stdin no password is sent: a new account gets a random
 	// one nobody knows (sign in with `login-code`), an existing one keeps its own.
@@ -758,7 +758,7 @@ const loginCodeTTL = 600
 func loginCode(p *bundle.Project, a *args, pretty bool) error {
 	email := strings.ToLower(a.flags["email"])
 	if !emailPattern.MatchString(email) {
-		return fail(2, "usage: wikicontext login-code --email EMAIL [--ttl SECONDS]")
+		return fail(2, "usage: pocketcontext login-code --email EMAIL [--ttl SECONDS]")
 	}
 	ttl, err := a.intFlag("ttl", loginCodeTTL)
 	if err != nil {
@@ -783,7 +783,7 @@ func initProject(p *bundle.Project, a *args, pretty bool) error {
 	fresh := errors.Is(statErr, os.ErrNotExist)
 	if email := a.flags["email"]; email != "" {
 		if !emailPattern.MatchString(email) {
-			return fail(2, "--email must look like name@example.com (any local address works, e.g. you@wiki.localhost)")
+			return fail(2, "--email must look like name@example.com (any local address works, e.g. you@example.localhost)")
 		}
 		p.Config.Email = strings.ToLower(email)
 	}
@@ -795,7 +795,7 @@ func initProject(p *bundle.Project, a *args, pretty bool) error {
 		p.Config.Port = port
 	}
 	if p.Config.Email == "" {
-		return fail(2, "init needs --email for the local account (any address, e.g. you@wiki.localhost)")
+		return fail(2, "init needs --email for the local account (any address, e.g. you@example.localhost)")
 	}
 	if err := os.MkdirAll(p.Dir, 0755); err != nil {
 		return err
@@ -827,7 +827,7 @@ func initProject(p *bundle.Project, a *args, pretty bool) error {
 		return fail(1, "saving %s: %v", p.DB, err)
 	}
 	Print(map[string]any{"db": p.DB, "config": p.ConfigPath, "storage": p.StorageDir(), "url": p.URL(), "email": p.Config.Email,
-		"accountCreated": created, "newProject": fresh, "next": "Run `wikicontext open` to sign in to the reader, and `wikicontext skill` to install the agent skills."}, pretty)
+		"accountCreated": created, "newProject": fresh, "next": "Run `pocketcontext open` to sign in to the reader, and `pocketcontext skill` to install the agent skills."}, pretty)
 	return nil
 }
 

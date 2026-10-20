@@ -53,7 +53,9 @@ class AssembleTest(unittest.TestCase):
         self.assemble()
         names = {path.name for path in self.output.iterdir()}
         self.assertEqual(names, release.expected_names(VERSION))
-        self.assertIn("wikicontext_1.2.3_windows_amd64.zip", names)
+        self.assertEqual({name for name in names if name.startswith("pocketcontext_")}, {
+            "pocketcontext_1.2.3_linux_amd64.tar.gz", "pocketcontext_1.2.3_linux_arm64.tar.gz",
+            "pocketcontext_1.2.3_darwin_arm64.tar.gz", "pocketcontext_1.2.3_windows_amd64.zip"})
         for installer in release.INSTALLERS:
             text = (self.output / installer).read_text(encoding="utf-8")
             self.assertNotIn("@VERSION@", text)
@@ -85,6 +87,16 @@ class AssembleTest(unittest.TestCase):
         manifest.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError, "Inconsistent release manifest"):
             self.assemble()
+
+
+class NamesTest(unittest.TestCase):
+    def test_names(self):
+        self.assertEqual(release.REPOSITORY, "pocketcontext-labs/pocketcontext")
+        self.assertEqual(release.executable("linux_amd64"), "pocketcontext")
+        self.assertEqual(release.executable("darwin_arm64"), "pocketcontext")
+        self.assertEqual(release.executable("windows_amd64"), "pocketcontext.exe")
+        self.assertEqual(release.archive_name("0.4.0", "linux_arm64"), "pocketcontext_0.4.0_linux_arm64.tar.gz")
+        self.assertEqual(release.archive_name("0.4.0", "windows_amd64"), "pocketcontext_0.4.0_windows_amd64.zip")
 
 
 class VersionTest(unittest.TestCase):

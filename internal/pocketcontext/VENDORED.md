@@ -1,9 +1,9 @@
-# Vendored PocketContext
+# Vendored PocketContext server
 
 Copied from github.com/pocketcontext/pocketcontext at commit
-20843b7c888daaba55f0646dd77455b7b309d4cc (the server WikiContext pinned when
-this fork was made), under its MIT license (LICENSE). Import paths were
-rewritten to this module.
+20843b7c888daaba55f0646dd77455b7b309d4cc, under its MIT license (LICENSE).
+Import paths were rewritten to this module. For the origin of the application
+(hooks, migrations, reader) see [docs/origin.md](../../docs/origin.md).
 
 Local changes:
 
@@ -12,7 +12,8 @@ Local changes:
 - `database/` and `tracing/`: platform files. Windows has no `O_NOFOLLOW`, and
   its mode bits cannot prove that a file is private.
 - `server.RegisterDatabase`: reads SQL from an explicit database path, because
-  the bundle keeps its live database in a per-machine cache.
+  PocketContext keeps its live database in a per-machine cache.
+- Test and benchmark names and fixtures contain no application product names.
 
 Review upstream security fixes to the SQL authorizer, snapshots and search
-for adoption here.
+and port them here by hand.

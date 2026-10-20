@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/tracing"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/tracing"
 )
 
 func TestSnapshotCacheTracingDistinguishesWarmAcquisition(t *testing.T) {

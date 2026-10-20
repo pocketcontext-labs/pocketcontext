@@ -1,4 +1,4 @@
-// Package client is the WikiContext command-line client: SQL reads, records API
+// Package client is the PocketContext command-line client: SQL reads, records API
 // writes, text ingestion, search and lint. It talks to the local server with a
 // token obtained through the private local key, or, in remote mode (--url), to
 // a forwarded server with a stored session token; never with a stored password.
@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pocketcontext/wikicontext-bundle/internal/bundle"
+	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
 )
 
 // CompanySpace is the default space for knowledge and writes.
@@ -38,7 +38,7 @@ func fail(code int, format string, args ...any) error {
 	return &Fail{code, fmt.Sprintf(format, args...)}
 }
 
-// Client is one authenticated session against a WikiContext server.
+// Client is one authenticated session against a PocketContext server.
 type Client struct {
 	Base        string // server URL without a trailing slash
 	DB          string // local database; empty in remote mode
@@ -55,7 +55,7 @@ func newClient(base, space string) (*Client, error) {
 		return nil, fail(2, "--space must be a 15-character space ID")
 	}
 	if space == "" {
-		space = os.Getenv("WIKICONTEXT_SPACE")
+		space = os.Getenv("POCKETCONTEXT_SPACE")
 	}
 	return &Client{Base: base, Space: space, http: &http.Client{
 		Timeout: 30 * time.Second,
@@ -78,7 +78,7 @@ func New(p *bundle.Project, space string) (*Client, error) {
 	if err != nil {
 		return nil, fail(1, "%v", err)
 	}
-	status, data, err := c.send("POST", "/api/bundle/token", nil, map[string]string{"X-WikiContext-Local-Key": key}, "", nil)
+	status, data, err := c.send("POST", "/api/bundle/token", nil, map[string]string{"X-PocketContext-Local-Key": key}, "", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (c *Client) send(method, path string, body any, headers map[string]string, 
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	req.Header.Set("User-Agent", "WikiContext/"+bundle.Version)
+	req.Header.Set("User-Agent", "PocketContext/"+bundle.Version)
 	if c.token != "" {
 		req.Header.Set("Authorization", c.token)
 	}
@@ -137,9 +137,9 @@ func (c *Client) send(method, path string, body any, headers map[string]string, 
 	resp, err := client.Do(req)
 	if err != nil {
 		if c.remote {
-			return 0, nil, fail(1, "the WikiContext server at %s is not reachable: %v; check the forward to the agent computer", c.Base, err)
+			return 0, nil, fail(1, "the PocketContext server at %s is not reachable: %v; check the forward to the agent computer", c.Base, err)
 		}
-		return 0, nil, fail(1, "cannot reach the WikiContext server at %s: %v", c.Base, err)
+		return 0, nil, fail(1, "cannot reach the PocketContext server at %s: %v", c.Base, err)
 	}
 	defer resp.Body.Close()
 	if c.remote && resp.StatusCode == http.StatusUnauthorized {
@@ -267,9 +267,9 @@ func (c *Client) SpaceID() (string, error) {
 	}
 	if len(rows) != 1 {
 		if c.Space != "" {
-			return "", fail(2, "space not found or not accessible to this account; run `wikicontext spaces`")
+			return "", fail(2, "space not found or not accessible to this account; run `pocketcontext spaces`")
 		}
-		return "", fail(1, "company space not accessible to this account; select --space or run `wikicontext spaces`")
+		return "", fail(1, "company space not accessible to this account; select --space or run `pocketcontext spaces`")
 	}
 	c.Space, c.spaceOK = rows[0]["id"].(string), true
 	return c.Space, nil

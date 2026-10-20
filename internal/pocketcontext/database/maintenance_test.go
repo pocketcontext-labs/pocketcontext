@@ -11,7 +11,7 @@ import (
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/database"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/database"
 )
 
 func fixture(t *testing.T) (*database.Controller, *sql.DB, string) {

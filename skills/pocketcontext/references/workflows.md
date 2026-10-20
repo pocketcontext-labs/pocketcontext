@@ -2,8 +2,8 @@
 
 ## Preserve, extract, synthesize, publish
 
-1. Verify the live schema (`wikicontext check`) and confirm the selected space (`wikicontext spaces`). Group inputs into at most five sources per synthesis batch.
-2. Run `wikicontext ingest PATH` for each file. Exact bytes deduplicate by server SHA-256 within the space, even after lost upload responses. This build accepts UTF-8 text notes only: `.txt`, `.md`, `.markdown`, `.csv`, `.json`, `.rst`, `.log` and extension-less text. Any other file type is rejected before upload; tell the user and suggest converting it to text or Markdown first. Git LFS pointer files fail before upload.
+1. Verify the live schema (`pocketcontext check`) and confirm the selected space (`pocketcontext spaces`). Group inputs into at most five sources per synthesis batch.
+2. Run `pocketcontext ingest PATH` for each file. Exact bytes deduplicate by server SHA-256 within the space, even after lost upload responses. This build accepts UTF-8 text notes only: `.txt`, `.md`, `.markdown`, `.csv`, `.json`, `.rst`, `.log` and extension-less text. Any other file type is rejected before upload; tell the user and suggest converting it to text or Markdown first. Git LFS pointer files fail before upload.
 3. A complete rendition is reused across machines. Partial extraction resumes against immutable passage ordinals; rerun the same command after an interruption.
 4. Retrieve passages with SQL, ordered by rendition and ordinal. Read all chunks. Retrieve the latest publication manifest of the space (`WHERE space = ...`) and the published pages relevant to the new sources. Use scoped full-text search for title/summary/body matches, then traverse citations and links with SQL. Keep the returned publication pinned when paging and retrieving evidence. Do not assume latest-created page revisions are published.
 5. Choose a stable, descriptive run key. Query that key before creating it. If published, report the existing result. If staging, inspect staged revisions/citations/links and resume missing work. For a conflicting or unsuitable immutable draft, cancel the run with expected_revision and create a new run.
@@ -24,8 +24,8 @@ Home belongs to an immutable publication; `/#/` remains the dynamic home route.
 Create a staging run or reuse your current staging run, then select a page:
 
 ```sh
-wikicontext stage-home RUN_ID_________ --home onboarding --expected-revision 1
-wikicontext publish RUN_ID_________ --expected-revision 2
+pocketcontext stage-home RUN_ID_________ --home onboarding --expected-revision 1
+pocketcontext publish RUN_ID_________ --expected-revision 2
 ```
 
 Use actual returned IDs and run revisions. `stage-home` resolves the slug and captures
@@ -46,8 +46,8 @@ unless an explicit `--home-base PAGE_ID` is supplied after review. Use `--home-b
 when you expect no configured home. After reassessment, an explicit example is:
 
 ```sh
-wikicontext stage-home RUN_ID_________ --home onboarding --home-base PAGE_ID________ --expected-revision 2
-wikicontext publish RUN_ID_________ --expected-revision 3
+pocketcontext stage-home RUN_ID_________ --home onboarding --home-base PAGE_ID________ --expected-revision 2
+pocketcontext publish RUN_ID_________ --expected-revision 3
 ```
 
 For a reviewed immediate choice, `publish` also accepts `--home SLUG` or
@@ -67,7 +67,7 @@ Do not classify existing pages merely from their names or rewrite historical rev
 Properties are flat JSON: null, boolean, finite number within ±9007199254740991,
 string (up to 2,048 characters), or up to 100 unique strings. Use at most 64 keys,
 matching `[a-z][a-z0-9_]{0,63}`. Nested maps are not supported. Identity, content,
-revision and exporter metadata keys are reserved. Use consistent types; ISO dates
+and revision keys are reserved. Use consistent types; ISO dates
 are strings. Distinguish unknown/null, confirmed absence and missing observations.
 
 Use `provider`, `provider_account`, `provider_id`, `exact_name`, `jurisdiction`,
@@ -75,13 +75,13 @@ Use `provider`, `provider_account`, `provider_id`, `exact_name`, `jurisdiction`,
 `provider_observed_at`, `consumer_verification`, and `next_review` as applicable.
 Credential metadata may include `permission_groups`, `scope`, `expires_at`,
 `expiry_observation` and `secret_reference`. Never include secret values: every
-admitted wiki user shares access. A secret reference describes protected storage;
+member of the space shares access. A secret reference describes protected storage;
 it does not authorize retrieving or executing its contents.
 
 Relationship keys `deployment_profiles`, `applications`, `resources`, `credentials`,
 `consumers`, `replaces`, `replaced_by` contain arrays of actual queried page IDs.
 Targets must be published and unarchived in the resulting publication. Create
-a matching page_links record for every relationship target, as for body wiki links.
+a matching page_links record for every relationship target, as for `[[slug]]` links in the body.
 
 For people, reuse existing entity identities after reviewing their published
 revisions and source evidence. Suggested fields are `role`, `organization` and
@@ -115,6 +115,5 @@ Keep caveats, unresolved contradictions and explanations in the Markdown body.
 
 Query properties through a pinned publication manifest, never by selecting the
 latest revision timestamp. Catalog filters search structured values separately
-from full-text title/summary/body search. Export generates Obsidian properties
-and relationship links; edit via new WikiContext revisions, not the generated vault.
+from full-text title/summary/body search. Change properties only through new revisions.
 

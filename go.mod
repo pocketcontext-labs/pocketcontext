@@ -1,4 +1,4 @@
-module github.com/pocketcontext/wikicontext-bundle
+module github.com/pocketcontext-labs/pocketcontext
 
 go 1.27.1
 

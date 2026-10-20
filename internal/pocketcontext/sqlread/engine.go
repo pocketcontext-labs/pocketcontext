@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/sqliteuri"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqliteuri"
 	"io"
 	"path/filepath"
 	"sort"
@@ -18,7 +18,7 @@ import (
 	"time"
 
 	sqlite3 "github.com/mattn/go-sqlite3"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/tracing"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/tracing"
 )
 
 type Config struct {

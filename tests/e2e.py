@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end test of the wikicontext binary with synthetic notes.
+"""End-to-end test of the pocketcontext binary with synthetic notes.
 
 Runs on Linux, macOS and Windows with the standard library only. Every run uses
 a temporary project folder, home and cache, and a free loopback port.
@@ -19,6 +19,32 @@ import urllib.error
 import urllib.request
 
 PASSWORD = 'synthetic test password'
+# The retired product name, assembled from parts so this file never contains it.
+RETIRED = 'wi' + 'ki'
+# Inherited variables of this program and of its predecessor must not leak into the test.
+SCRUBBED_PREFIXES = ('POCKETCONTEXT_', RETIRED.upper() + 'CONTEXT_')
+
+
+def isolated_env(home):
+    """The inherited environment with a private home and cache and no product variables."""
+    env = {key: value for key, value in os.environ.items() if not key.upper().startswith(SCRUBBED_PREFIXES)}
+    env.update(HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / 'cache'),
+               LOCALAPPDATA=str(home / 'AppData' / 'Local'))
+    return env
+
+
+def user_cache(home):
+    """os.UserCacheDir() for the isolated environment."""
+    if sys.platform == 'win32':
+        return home / 'AppData' / 'Local'
+    if sys.platform == 'darwin':
+        return home / 'Library' / 'Caches'
+    return home / 'cache'
+
+
+def retired_names(root):
+    """Every file or directory below root (project, homes, caches, skills) named after the retired product."""
+    return [str(path) for path in root.rglob('*') if RETIRED in path.name.lower()]
 
 
 def free_port():
@@ -27,17 +53,15 @@ def free_port():
         return s.getsockname()[1]
 
 
-class Wiki:
+class Project:
     def __init__(self, binary, root):
         self.binary, self.root = binary, root
-        self.project = root / 'Cloud Drive' / 'WikiContext'
+        self.project = root / 'Cloud Drive' / 'PocketContext'
         self.project.mkdir(parents=True)
-        self.db = self.project / 'wiki.db'
-        home = root / 'home'
-        home.mkdir()
-        self.env = dict(os.environ, HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / 'cache'),
-                        LOCALAPPDATA=str(home / 'AppData' / 'Local'), WIKICONTEXT_DB='', WIKICONTEXT_SPACE='')
-        self.env.pop('WIKICONTEXT_BUNDLE_URL', None)
+        self.db = self.project / 'pocketcontext.db'
+        self.home = root / 'home'
+        self.home.mkdir()
+        self.env = isolated_env(self.home)
         self.port = free_port()
         self.url = f'http://127.0.0.1:{self.port}'
 
@@ -67,13 +91,11 @@ class Remote:
 
     def __init__(self, binary, root, url):
         self.binary, self.root, self.url = binary, root, url
-        home = root / 'home'
+        self.home = root / 'home'
         self.work = root / 'work'
-        home.mkdir(parents=True)
+        self.home.mkdir(parents=True)
         self.work.mkdir()
-        self.env = dict(os.environ, HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / 'cache'),
-                        LOCALAPPDATA=str(home / 'AppData' / 'Local'), WIKICONTEXT_DB='', WIKICONTEXT_SPACE='')
-        self.env.pop('WIKICONTEXT_BUNDLE_URL', None)
+        self.env = isolated_env(self.home)
 
     def run(self, *args, stdin=None, expect=0, url=None, env=None):
         flags = [] if url is False else ['--url', url or self.url]
@@ -88,7 +110,8 @@ class Remote:
         return json.loads(self.run(*args, **kwargs).stdout)
 
     def session(self):
-        sessions = [p for p in self.root.rglob('session.json') if p.parent.name.startswith('remote-')]
+        sessions = [p for p in self.root.rglob('session.json') if p.parent.name.startswith('remote-')
+                    and p.parent.parent == user_cache(self.home) / 'pocketcontext']
         if len(sessions) != 1:
             raise AssertionError(f'expected one remote session, found {sessions}')
         return sessions[0]
@@ -181,121 +204,142 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', required=True, type=Path)
     binary = parser.parse_args().binary.resolve()
-    with tempfile.TemporaryDirectory(prefix='wikicontext-e2e-') as temp:
-        w = Wiki(binary, Path(temp))
+    with tempfile.TemporaryDirectory(prefix='pocketcontext-e2e-') as temp:
+        pc = Project(binary, Path(temp))
         try:
-            scenario(w)
-            remote = Remote(binary, Path(temp) / 'other-computer', w.url)
-            remote_scenario(w, remote)
-            codes_scenario(w, remote)
+            scenario(pc)
+            remote = Remote(binary, Path(temp) / 'other-computer', pc.url)
+            remote_scenario(pc, remote)
+            codes_scenario(pc, remote)
+            pc.json('stop')
+            leftovers = retired_names(pc.root)
+            check(not leftovers, f'no file or directory name contains the retired product name: {leftovers}')
         finally:
-            subprocess.run([str(binary), '--db', str(w.db), 'stop'], env=w.env, capture_output=True, timeout=60)
+            subprocess.run([str(binary), '--db', str(pc.db), 'stop'], env=pc.env, capture_output=True, timeout=60)
     print('all end-to-end checks passed')
 
 
-def scenario(w):
-    init = w.json('init', '--email', 'tester@wiki.localhost', '--name', 'Tester', '--port', str(w.port),
-                  '--password-stdin', stdin=PASSWORD + '\n')
-    check(init['accountCreated'] and init['url'] == w.url, 'init creates the account and starts the server')
-    check(w.db.exists(), 'init writes the database to the project folder')
-    check('OK:' in w.run('check').stdout, 'live schema matches the reference schema')
+def scenario(pc):
+    usage = pc.run('help')
+    text = usage.stdout + usage.stderr
+    check('pocketcontext' in text and RETIRED not in text.lower(), 'help names pocketcontext and not the retired product')
 
-    notes = w.root / 'notes'
+    init = pc.json('init', '--email', 'tester@example.localhost', '--name', 'Tester', '--port', str(pc.port),
+                   '--password-stdin', stdin=PASSWORD + '\n')
+    check(init['accountCreated'] and init['url'] == pc.url, 'init creates the account and starts the server')
+    check(pc.db.exists(), 'init writes the database to the project folder')
+    check('OK:' in pc.run('check').stdout, 'live schema matches the reference schema')
+
+    notes = pc.root / 'notes'
     notes.mkdir()
     note = notes / 'coffee.md'
     note.write_text('# Coffee policy\n\nThe espresso machine is descaled every Friday. Café ✓ 😀\n', encoding='utf-8')
-    first = w.json('ingest', str(note), '--title', 'Coffee policy')
-    second = w.json('ingest', str(note))
+    first = pc.json('ingest', str(note), '--title', 'Coffee policy')
+    second = pc.json('ingest', str(note))
     check(first['status'] == 'extracted' and first['passages'] == 1, 'ingest stores a text note and extracts passages')
     check(first['source'] == second['source'] and first['rendition'] == second['rendition'], 'repeated ingest deduplicates')
     image = notes / 'photo.png'
     image.write_bytes(b'\x89PNG\r\n')
-    rejected = w.run('ingest', str(image), expect=2)
+    rejected = pc.run('ingest', str(image), expect=2)
     check('text notes only' in rejected.stderr, 'non-text sources are rejected before upload')
 
-    passage = w.json('sql', f"SELECT id FROM passages WHERE rendition = '{first['rendition']}' LIMIT 1")['rows'][0][0]
-    run = w.json('create', 'ingestion_runs', json.dumps({'key': 'coffee-v1', 'status': 'staging', 'description': 'Coffee', 'sources': [first['source']]}))
-    page = w.json('create', 'pages', '{"slug":"coffee-policy","kind":"summary"}')
-    revision = w.json('create', 'page_revisions', '-', stdin=json.dumps({
+    passage = pc.json('sql', f"SELECT id FROM passages WHERE rendition = '{first['rendition']}' LIMIT 1")['rows'][0][0]
+    run = pc.json('create', 'ingestion_runs', json.dumps({'key': 'coffee-v1', 'status': 'staging', 'description': 'Coffee', 'sources': [first['source']]}))
+    page = pc.json('create', 'pages', '{"slug":"coffee-policy","kind":"summary"}')
+    revision = pc.json('create', 'page_revisions', '-', stdin=json.dumps({
         'run': run['id'], 'page': page['id'], 'base_revision': '', 'title': 'Coffee policy',
         'summary': 'Espresso machine maintenance.', 'body': 'The espresso machine is descaled every Friday.[^1]'}))
-    w.json('create', 'citations', json.dumps({'page_revision': revision['id'], 'passage': passage, 'marker': '1'}))
-    current = w.json('get', 'ingestion_runs', run['id'])
-    published = w.json('publish', run['id'], '--expected-revision', str(current['revision']))
+    pc.json('create', 'citations', json.dumps({'page_revision': revision['id'], 'passage': passage, 'marker': '1'}))
+    current = pc.json('get', 'ingestion_runs', run['id'])
+    published = pc.json('publish', run['id'], '--expected-revision', str(current['revision']))
     check(published['status'] == 'published', 'a cited page publishes atomically')
-    stale = w.run('publish', run['id'], '--expected-revision', str(current['revision']), expect=4)
+    stale = pc.run('publish', run['id'], '--expected-revision', str(current['revision']), expect=4)
     check('409' in stale.stderr, 'a stale revision is rejected with exit 4')
-    results = w.json('search', 'espresso descaled')
+    results = pc.json('search', 'espresso descaled')
     check([p['slug'] for p in results['pages']] == ['coffee-policy'], 'full-text search finds the published page')
-    lint = w.json('lint')
+    lint = pc.json('lint')
     check({f['kind'] for f in lint['findings']} == {'orphan'}, 'lint reports structure only')
 
-    status, _ = w.http('GET', '/')
+    status, _ = pc.http('GET', '/')
     check(status == 200, 'the reader is served')
-    status, _ = w.http('GET', '/api/bundle/instance', headers={'Host': f'attacker.example:{w.port}'})
+    status, body = pc.http('GET', '/api/bundle/instance')
+    check(status == 200 and json.loads(body).get('app') == 'pocketcontext', 'the instance endpoint reports app pocketcontext')
+    cache = user_cache(pc.home) / 'pocketcontext'
+    working = [p for p in cache.iterdir() if p.is_dir() and p.name != 'app' and not p.name.startswith('remote-')] if cache.is_dir() else []
+    check(len(working) == 1 and any(working[0].iterdir()), f'the working copy lives in the per-machine pocketcontext cache: {working}')
+    status, _ = pc.http('GET', '/api/bundle/instance', headers={'Host': f'attacker.example:{pc.port}'})
     check(status == 403, 'foreign Host headers are refused')
-    status, _ = w.http('POST', '/api/context/query', {'sql': 'SELECT 1'})
+    status, _ = pc.http('POST', '/api/context/query', {'sql': 'SELECT 1'})
     check(status == 401, 'SQL requires authentication')
-    status, _ = w.http('POST', '/api/bundle/token')
+    status, _ = pc.http('POST', '/api/bundle/token')
     check(status == 403, 'local tokens require the private key')
-    link = w.json('open', '--no-browser')['signInLink']
+    link = pc.json('open', '--no-browser')['signInLink']
     code = link.split('#', 1)[1]
-    status, body = w.http('POST', '/api/bundle/redeem', {'code': code})
-    check(status == 200 and json.loads(body)['record']['email'] == 'tester@wiki.localhost', 'the sign-in link signs in')
-    status, _ = w.http('POST', '/api/bundle/redeem', {'code': code})
+    status, body = pc.http('POST', '/api/bundle/redeem', {'code': code})
+    check(status == 200 and json.loads(body)['record']['email'] == 'tester@example.localhost', 'the sign-in link signs in')
+    status, _ = pc.http('POST', '/api/bundle/redeem', {'code': code})
     check(status == 401, 'the sign-in link is single-use')
-    status, _ = w.http('POST', '/api/collections/users/auth-with-password', {'identity': 'tester@wiki.localhost', 'password': PASSWORD})
+    status, _ = pc.http('POST', '/api/collections/users/auth-with-password', {'identity': 'tester@example.localhost', 'password': PASSWORD})
     check(status == 200, 'the reader password works')
 
-    w.json('stop')
-    names = sorted(p.name for p in w.project.iterdir())
-    check(names == ['storage', 'wiki.db', 'wikicontext.json'], f'only the project files remain after stop: {names}')
-    originals = [p for p in (w.project / 'storage').rglob('*') if p.is_file() and not p.name.endswith('.attrs')]
+    pc.json('stop')
+    names = sorted(p.name for p in pc.project.iterdir())
+    check(names == ['pocketcontext.db', 'pocketcontext.json', 'storage'], f'only the project files remain after stop: {names}')
+    originals = [p for p in (pc.project / 'storage').rglob('*') if p.is_file() and not p.name.endswith('.attrs')]
     check(len(originals) == 1 and originals[0].read_bytes() == note.read_bytes(), 'the original is stored beside the database')
-    again = w.json('search', 'espresso')
+    again = pc.json('search', 'espresso')
     check(len(again['pages']) == 1, 'knowledge survives a restart')
 
     # Another computer is using the project.
-    w.json('stop')
-    w.db.with_name('wiki.db.lease').write_text(json.dumps({'host': 'other-laptop', 'pid': 1, 'heartbeat': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}))
-    blocked = w.run('ensure-running', expect=1)
+    pc.json('stop')
+    pc.db.with_name('pocketcontext.db.lease').write_text(json.dumps({'host': 'other-laptop', 'pid': 1, 'heartbeat': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}))
+    blocked = pc.run('ensure-running', expect=1)
     check('other-laptop' in blocked.stderr, 'a fresh lease from another computer blocks start')
-    w.json('ensure-running', '--take-over')
-    check(w.json('status')['running'], '--take-over starts the server')
+    pc.json('ensure-running', '--take-over')
+    check(pc.json('status')['running'], '--take-over starts the server')
 
-    skills = w.root / 'skill'
-    installed = w.json('skill', '--dir', str(skills))
+    skills = pc.root / 'skill'
+    installed = pc.json('skill', '--dir', str(skills))
     text = (skills / 'SKILL.md').read_text(encoding='utf-8')
-    check(str(w.binary) in text and str(w.db) in text and '{{' not in text, 'the skill names the absolute binary and database')
-    check(installed["binary"] == str(w.binary), 'skill install reports the binary')
+    check(str(pc.binary) in text and str(pc.db) in text and '{{' not in text, 'the skill names the absolute binary and database')
+    check(installed["binary"] == str(pc.binary), 'skill install reports the binary')
+    check((skills / '.pocketcontext').is_file(), 'the skill directory carries the .pocketcontext marker')
+    check('name: pocketcontext' in text, 'the skill is named pocketcontext')
+    mentions = [str(p) for p in skills.rglob('*') if p.is_file() and RETIRED in p.read_bytes().decode('utf-8', 'replace').lower()]
+    check(not mentions, f'no installed skill file mentions the retired product: {mentions}')
+    (pc.home / '.claude').mkdir()
+    agent = pc.json('skill', '--agent', 'claude-code')
+    target = pc.home / '.claude' / 'skills' / 'pocketcontext'
+    check(agent['installed'].get('claude-code') == str(target) and (target / 'SKILL.md').is_file()
+          and (target / '.pocketcontext').is_file(), 'the Claude Code skill is installed as pocketcontext')
 
 
-def remote_scenario(w, r):
-    instance = json.loads((w.project / 'wikicontext.json').read_text(encoding='utf-8'))['instance']
+def remote_scenario(pc, r):
+    instance = json.loads((pc.project / 'pocketcontext.json').read_text(encoding='utf-8'))['instance']
     user_password = 'synthetic user password'
-    account = w.json('account', '--email', 'user@wiki.localhost', '--name', 'User', '--password-stdin', stdin='first password\n')
-    check(account['created'] and account['email'] == 'user@wiki.localhost', 'account creates another server account')
-    again = w.json('account', '--email', 'user@wiki.localhost', '--name', 'User', '--password-stdin', stdin=user_password + '\n')
+    account = pc.json('account', '--email', 'user@example.localhost', '--name', 'User', '--password-stdin', stdin='first password\n')
+    check(account['created'] and account['email'] == 'user@example.localhost', 'account creates another server account')
+    again = pc.json('account', '--email', 'user@example.localhost', '--name', 'User', '--password-stdin', stdin=user_password + '\n')
     check(not again['created'] and again['id'] == account['id'], 'account resets the password of an existing account')
 
     missing = r.run('whoami', expect=2)
-    check('wikicontext login' in missing.stderr, 'remote data commands require login')
+    check('pocketcontext login' in missing.stderr, 'remote data commands require login')
     status = r.json('status')
-    check(status['url'] == w.url and status['reachable'] and not status['loggedIn'], 'remote status reports reachable and logged out')
-    r.run('login', '--email', 'user@wiki.localhost', '--password-stdin', stdin='wrong password\n', expect=1)
-    login = r.json('login', '--email', 'user@wiki.localhost', '--password-stdin', stdin=user_password + '\n')
-    check(login == {'url': w.url, 'email': 'user@wiki.localhost', 'instance': instance}, 'remote login reports the instance')
+    check(status['url'] == pc.url and status['reachable'] and not status['loggedIn'], 'remote status reports reachable and logged out')
+    r.run('login', '--email', 'user@example.localhost', '--password-stdin', stdin='wrong password\n', expect=1)
+    login = r.json('login', '--email', 'user@example.localhost', '--password-stdin', stdin=user_password + '\n')
+    check(login == {'url': pc.url, 'email': 'user@example.localhost', 'instance': instance}, 'remote login reports the instance')
     session = r.session()
-    check(session.parent.name == 'remote-' + hashlib.sha256(w.url.encode()).hexdigest()[:16], 'the session is keyed by the URL')
+    check(session.parent.name == 'remote-' + hashlib.sha256(pc.url.encode()).hexdigest()[:16], 'the session is keyed by the URL')
     if os.name != 'nt':
         check(session.stat().st_mode & 0o777 == 0o600, 'the remote session is private')
     status = r.json('status')
-    check(status['loggedIn'] and status['email'] == 'user@wiki.localhost' and status['instance'] == instance, 'remote status reports the session')
-    env_status = r.json('status', url=False, env={'WIKICONTEXT_BUNDLE_URL': w.url})
-    check(env_status['url'] == w.url and env_status['loggedIn'], 'WIKICONTEXT_BUNDLE_URL selects remote mode')
+    check(status['loggedIn'] and status['email'] == 'user@example.localhost' and status['instance'] == instance, 'remote status reports the session')
+    env_status = r.json('status', url=False, env={'POCKETCONTEXT_URL': pc.url})
+    check(env_status['url'] == pc.url and env_status['loggedIn'], 'POCKETCONTEXT_URL selects remote mode')
 
     me = r.json('whoami')
-    check(me['email'] == 'user@wiki.localhost' and me['id'] == account['id'] and me['url'] == w.url and 'db' not in me,
+    check(me['email'] == 'user@example.localhost' and me['id'] == account['id'] and me['url'] == pc.url and 'db' not in me,
           'remote whoami reports the account without a database')
     check(me['space'] == 'companyspace001', 'remote commands default to the company space')
     spaces = {s['id']: s for s in r.json('spaces')}
@@ -317,23 +361,23 @@ def remote_scenario(w, r):
     current = r.json('get', 'ingestion_runs', run['id'])
     check(r.json('publish', run['id'], '--expected-revision', str(current['revision']))['status'] == 'published', 'remote publish works')
     check([p['slug'] for p in r.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'remote search finds the remote page')
-    check([p['slug'] for p in w.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'the server sees the remote page')
+    check([p['slug'] for p in pc.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'the server sees the remote page')
 
-    for args in (['stop'], ['ensure-running'], ['flush'], ['recover'], ['init', '--email', 'x@wiki.localhost'],
-                 ['password', '--password-stdin'], ['account', '--email', 'x@wiki.localhost', '--password-stdin']):
+    for args in (['stop'], ['ensure-running'], ['flush'], ['recover'], ['init', '--email', 'x@example.localhost'],
+                 ['password', '--password-stdin'], ['account', '--email', 'x@example.localhost', '--password-stdin']):
         refused = r.run(*args, expect=2)
         check('not available with --url' in refused.stderr, f'{args[0]} is refused in remote mode')
-    check(w.json('status')['running'], 'the server keeps running after refused remote commands')
-    check(r.run('whoami', '--db', str(w.db), expect=None).returncode == 2, '--url with --db is refused')
+    check(pc.json('status')['running'], 'the server keeps running after refused remote commands')
+    check(r.run('whoami', '--db', str(pc.db), expect=None).returncode == 2, '--url with --db is refused')
     for url in ('http://example.com:8096', 'http://10.0.0.1:8096'):
         check(r.run('status', url=url, expect=None).returncode == 2, f'non-loopback URL {url} is refused')
 
-    with Forward(w.port) as forward:
+    with Forward(pc.port) as forward:
         via = f'http://127.0.0.1:{forward.port}'
         check(http_status(via + '/api/bundle/instance') == 403, 'a forward on a different port fails the Host check')
         check(not r.json('status', url=via)['reachable'], 'remote status through a wrong-port forward is not reachable')
         check(r.run('whoami', url=via, expect=None).returncode == 1, 'remote whoami through a wrong-port forward fails')
-        login = r.run('login', '--email', 'user@wiki.localhost', '--password-stdin', stdin=user_password + '\n', url=via, expect=None)
+        login = r.run('login', '--email', 'user@example.localhost', '--password-stdin', stdin=user_password + '\n', url=via, expect=None)
         check(login.returncode == 1, 'remote login through a wrong-port forward fails')
 
     closed = free_port()
@@ -346,55 +390,55 @@ def remote_scenario(w, r):
     forged['instance'] = 'f' * len(instance)
     session.write_text(json.dumps(forged), encoding='utf-8')
     other = r.run('whoami', expect=1)
-    check('different WikiContext' in other.stderr, 'a session for another instance is refused')
+    check('different' in other.stderr and 'sign in again' in other.stderr, 'a session for another instance is refused')
     session.write_text(original, encoding='utf-8')
     check(r.json('whoami')['id'] == account['id'], 'the restored session works again')
 
     skills = r.root / 'skill'
     r.json('skill', '--dir', str(skills))
     text = (skills / 'SKILL.md').read_text(encoding='utf-8')
-    check(w.url in text and '--url' in text and '--db' not in text and 'ensure-running' not in text,
+    check(pc.url in text and '--url' in text and '--db' not in text and 'ensure-running' not in text,
           'the remote skill names the URL and no local lifecycle')
     opened = r.json('open', '--no-browser')
-    check(opened['url'] == w.url and opened.get('note'), 'remote open prints the server URL')
+    check(opened['url'] == pc.url and opened.get('note'), 'remote open prints the server URL')
 
-    check(r.json('logout') == {'url': w.url, 'loggedOut': True}, 'remote logout ends the session')
+    check(r.json('logout') == {'url': pc.url, 'loggedOut': True}, 'remote logout ends the session')
     r.run('whoami', expect=2)
     check(not r.json('status')['loggedIn'], 'after logout the remote is logged out')
 
-    leftovers = [p for p in r.root.rglob('*') if p.name in ('wiki.db', 'wikicontext.json', 'local.key') or p.suffix in ('.db', '.lease')]
+    leftovers = [p for p in r.root.rglob('*') if p.name in ('pocketcontext.db', 'pocketcontext.json', 'local.key') or p.suffix in ('.db', '.lease')]
     check(not leftovers, f'remote mode creates no database, project or key: {leftovers}')
     check(sorted(p.name for p in r.work.iterdir()) == ['tea.md'], 'remote mode writes nothing to the working folder')
 
 
-def codes_scenario(w, r):
+def codes_scenario(pc, r):
     """One-time sign-in codes and accounts without a password."""
     # Started first so the 30-second expiry overlaps the other checks.
-    expiring = w.json('login-code', '--email', 'tester@wiki.localhost', '--ttl', '30')
+    expiring = pc.json('login-code', '--email', 'tester@example.localhost', '--ttl', '30')
     expiring_at = time.monotonic()
-    check(expiring['email'] == 'tester@wiki.localhost' and expiring['code'] and expiring['expires'],
+    check(expiring['email'] == 'tester@example.localhost' and expiring['code'] and expiring['expires'],
           'login-code accepts the minimum lifetime of 30 seconds')
 
-    coder = w.json('account', '--email', 'coder@wiki.localhost', '--name', 'Coder', stdin='')
-    check(coder['created'] and coder['email'] == 'coder@wiki.localhost', 'account without a password creates the account')
-    coder_again = w.json('account', '--email', 'coder@wiki.localhost', '--name', 'Coder', stdin='')
+    coder = pc.json('account', '--email', 'coder@example.localhost', '--name', 'Coder', stdin='')
+    check(coder['created'] and coder['email'] == 'coder@example.localhost', 'account without a password creates the account')
+    coder_again = pc.json('account', '--email', 'coder@example.localhost', '--name', 'Coder', stdin='')
     check(not coder_again['created'] and coder_again['id'] == coder['id'], 'account without a password is repeatable')
-    r.run('login', '--email', 'coder@wiki.localhost', '--password-stdin', stdin='synthetic guess\n', expect=1)
+    r.run('login', '--email', 'coder@example.localhost', '--password-stdin', stdin='synthetic guess\n', expect=1)
     check(not r.json('status')['loggedIn'], 'an account created without a password has no known password')
 
-    user = w.json('account', '--email', 'user@wiki.localhost', stdin='')
+    user = pc.json('account', '--email', 'user@example.localhost', stdin='')
     check(not user['created'], 'account without a password finds the existing account')
-    login = r.json('login', '--email', 'user@wiki.localhost', '--password-stdin', stdin='synthetic user password\n')
-    check(login['email'] == 'user@wiki.localhost', 'account without a password keeps the existing password')
+    login = r.json('login', '--email', 'user@example.localhost', '--password-stdin', stdin='synthetic user password\n')
+    check(login['email'] == 'user@example.localhost', 'account without a password keeps the existing password')
     r.json('logout')
 
-    issued = w.json('login-code', '--email', 'coder@wiki.localhost')
-    check(issued['email'] == 'coder@wiki.localhost' and issued['code'] and issued['expires'], 'login-code issues a code')
-    instance = json.loads((w.project / 'wikicontext.json').read_text(encoding='utf-8'))['instance']
+    issued = pc.json('login-code', '--email', 'coder@example.localhost')
+    check(issued['email'] == 'coder@example.localhost' and issued['code'] and issued['expires'], 'login-code issues a code')
+    instance = json.loads((pc.project / 'pocketcontext.json').read_text(encoding='utf-8'))['instance']
     login = r.json('login', '--code-stdin', stdin=issued['code'] + '\n')
-    check(login == {'url': w.url, 'email': 'coder@wiki.localhost', 'instance': instance}, 'remote login redeems a code')
+    check(login == {'url': pc.url, 'email': 'coder@example.localhost', 'instance': instance}, 'remote login redeems a code')
     me = r.json('whoami')
-    check(me['email'] == 'coder@wiki.localhost' and me['id'] == coder['id'], 'the code signs in its own account')
+    check(me['email'] == 'coder@example.localhost' and me['id'] == coder['id'], 'the code signs in its own account')
     rows = r.json('query', "SELECT slug FROM pages WHERE slug = 'tea-policy'")['rows']
     check(rows == [['tea-policy']], 'a code session reads with SQL')
     r.json('logout')
@@ -404,29 +448,29 @@ def codes_scenario(w, r):
     check('used or expired' in unknown.stderr, 'an unknown code is refused')
     check(not r.json('status')['loggedIn'], 'a refused code leaves the remote logged out')
 
-    log = Path(w.json('status')['log'])
+    log = Path(pc.json('status')['log'])
     if log.exists():
         check(issued['code'] not in log.read_text(encoding='utf-8', errors='replace'), 'the server log does not contain the code')
 
-    w.run('login-code', '--email', 'nobody@wiki.localhost', expect=1)
+    pc.run('login-code', '--email', 'nobody@example.localhost', expect=1)
     check(True, 'login-code refuses an unknown email')
     for ttl in ('10', '601'):
-        w.run('login-code', '--email', 'coder@wiki.localhost', '--ttl', ttl, expect=2)
+        pc.run('login-code', '--email', 'coder@example.localhost', '--ttl', ttl, expect=2)
         check(True, f'login-code refuses --ttl {ttl}')
 
-    opened = w.json('open', '--email', 'coder@wiki.localhost', '--no-browser')
-    check(opened['signInLink'].startswith(w.url + '/bundle/login#'), 'open --email prints a sign-in link')
+    opened = pc.json('open', '--email', 'coder@example.localhost', '--no-browser')
+    check(opened['signInLink'].startswith(pc.url + '/bundle/login#'), 'open --email prints a sign-in link')
     code = opened['signInLink'].split('#', 1)[1]
-    status, body = w.http('POST', '/api/bundle/redeem', {'code': code})
-    check(status == 200 and json.loads(body)['record']['email'] == 'coder@wiki.localhost', 'open --email signs in that account')
-    status, _ = w.http('POST', '/api/bundle/redeem', {'code': code})
+    status, body = pc.http('POST', '/api/bundle/redeem', {'code': code})
+    check(status == 200 and json.loads(body)['record']['email'] == 'coder@example.localhost', 'open --email signs in that account')
+    status, _ = pc.http('POST', '/api/bundle/redeem', {'code': code})
     check(status == 401, 'the open --email link is single-use')
 
-    refused = r.run('login-code', '--email', 'coder@wiki.localhost', expect=2)
+    refused = r.run('login-code', '--email', 'coder@example.localhost', expect=2)
     check('not available with --url' in refused.stderr, 'login-code is refused in remote mode')
-    r.run('open', '--email', 'coder@wiki.localhost', '--no-browser', expect=2)
+    r.run('open', '--email', 'coder@example.localhost', '--no-browser', expect=2)
     check(True, 'open --email is refused in remote mode')
-    r.run('login', '--code-stdin', '--email', 'coder@wiki.localhost', stdin=issued['code'] + '\n', expect=2)
+    r.run('login', '--code-stdin', '--email', 'coder@example.localhost', stdin=issued['code'] + '\n', expect=2)
     check(True, 'login refuses --code-stdin with --email')
 
     remaining = 31 - (time.monotonic() - expiring_at)

@@ -18,7 +18,7 @@ export function pageHref(slug: string, publication?: string, anchor?: string) {
   return spaceLink(`${slug ? `#/page/${encodeURIComponent(slug)}` : "#/"}${query.size ? `?${query}` : ""}`);
 }
 // Operates on Markdown text nodes only: code spans and fenced code remain literal.
-function wikiSyntax() {
+function pageSyntax() {
   return (tree: any) => {
     const counts = new Map<string, number>();
     const nodeText = (node: any): string =>
@@ -82,7 +82,7 @@ function wikiSyntax() {
           const [target, alias] = match[1].split("|");
           nodes.push({
             type: "link",
-            url: `wiki:${encodeURIComponent(target)}`,
+            url: `page:${encodeURIComponent(target)}`,
             children: [{ type: "text", value: alias || target.split("#")[0] }],
           });
         }
@@ -124,10 +124,10 @@ export const Markdown = memo(function Markdown({
   };
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, wikiSyntax]}
+      remarkPlugins={[remarkGfm, pageSyntax]}
       skipHtml
       urlTransform={(url) =>
-        /^(wiki:|citation:|https?:|mailto:|#)/i.test(url) ? url : ""
+        /^(page:|citation:|https?:|mailto:|#)/i.test(url) ? url : ""
       }
       components={{
         h1: ({ children, id }) => heading(1, children, id),
@@ -147,7 +147,7 @@ export const Markdown = memo(function Markdown({
                 {children}
               </button>
             );
-          if (href?.startsWith("wiki:")) {
+          if (href?.startsWith("page:")) {
             let decoded;
             try {
               decoded = decodeURIComponent(href.slice(5));

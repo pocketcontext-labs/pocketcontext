@@ -14,7 +14,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/database"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/database"
 )
 
 func TestMaintenanceRequestDrain(t *testing.T) {
@@ -48,7 +48,7 @@ func TestMaintenanceReadClassification(t *testing.T) {
 			t.Fatalf("blocked reader %s", p)
 		}
 	}
-	for _, p := range []string{"/api/batch", "/api/collections/users/auth-with-oauth2", "/api/wiki/search/rebuild", "/api/collections/sources/records"} {
+	for _, p := range []string{"/api/batch", "/api/collections/users/auth-with-oauth2", "/api/search/rebuild", "/api/collections/sources/records"} {
 		if maintenanceRead(httptest.NewRequest(http.MethodPost, p, nil)) {
 			t.Fatalf("write bypass %s", p)
 		}

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/sqlread"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqlread"
 )
 
 // Synthetic spaces: alice and erin belong to s1, dave to s1 and s2, bob to s2.

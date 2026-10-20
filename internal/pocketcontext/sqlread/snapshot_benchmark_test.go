@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-// BenchmarkSnapshotWikiHistory models a reader loading small results from a
+// BenchmarkSnapshotPageHistory models a reader loading small results from a
 // much larger immutable history. Data is entirely synthetic: 350 pages, 3,500
 // revisions and 7,000 evidence passages, with approximately 27 MiB of text.
 // Run with -benchtime=3x -count=3 to compare cold and reused snapshots without
 // allowing benchmark calibration to conceal the first-build cost.
-func BenchmarkSnapshotWikiHistory(b *testing.B) {
+func BenchmarkSnapshotPageHistory(b *testing.B) {
 	for _, mode := range []string{"cold", "warm", "concurrent_same_user", "write_invalidated"} {
 		b.Run(mode, func(b *testing.B) {
 			path := filepath.Join(b.TempDir(), "source.db")

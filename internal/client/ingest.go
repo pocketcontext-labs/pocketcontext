@@ -28,7 +28,7 @@ var textExtensions = map[string]string{
 const (
 	maxSource  = 100 << 20
 	chunkRunes = 24000
-	processor  = "utf-8 text / wikicontext-1"
+	processor  = "utf-8 text / pocketcontext-1"
 )
 
 var alnum = regexp.MustCompile(`^[a-z0-9]+$`)
@@ -136,7 +136,7 @@ func (c *Client) Ingest(path, title, version string) (map[string]any, error) {
 			names = append(names, ext)
 		}
 		sort.Strings(names)
-		return nil, fail(2, "unsupported source type %s: this WikiContext accepts UTF-8 text notes only (%s); nothing was uploaded", suffix, strings.Join(names, " "))
+		return nil, fail(2, "unsupported source type %s: PocketContext accepts UTF-8 text notes only (%s); nothing was uploaded", suffix, strings.Join(names, " "))
 	}
 	if info.Size() > maxSource {
 		return nil, fail(2, "source must be no larger than 100 MiB")

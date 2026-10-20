@@ -1,4 +1,3 @@
-import AudioRecording from "./Audio";
 import { ReconciledRead } from "./reconciledRead";
 import { spaceLink } from "./spaceLinks";
 import {
@@ -11,7 +10,6 @@ import {
 import Catalog, { catalogHref, catalogTypes, catalogLabels, type CatalogState, type CatalogType } from "./Catalog";
 import PropertiesPanel from "./Properties";
 import "./catalog.css";
-import ImagePreview from "./ImagePreview";
 import EvidenceBrowser, { evidenceHref } from "./EvidenceBrowser";
 import { api, pb, companySpace, selectSpace, sessionGeneration, type Space } from "./api";
 import SearchResults, { searchHref } from "./SearchResults";
@@ -29,7 +27,7 @@ function safeDecode(value: string) {
 }
 function savedTheme() {
   try {
-    return localStorage.getItem("wiki-theme") || "dark";
+    return localStorage.getItem("pocketcontext-theme") || "dark";
   } catch {
     return "dark";
   }
@@ -41,7 +39,7 @@ function route() {
     slug: path.startsWith("catalog/") || path === "welcome" || /^(sources|passages)\//.test(path) ? "" : safeDecode(path.replace(/^page\//, "")),
     welcome: path === "welcome",
     catalog: path.startsWith("catalog/"),
-    catalogState: { type: catalogTypes.includes(path.split("/")[1] as CatalogType) ? path.split("/")[1] as CatalogType : "resource", query: params.get("q") || "", language: params.get("language") || "", bundle: params.get("bundle") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || "title", offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
+    catalogState: { type: catalogTypes.includes(path.split("/")[1] as CatalogType) ? path.split("/")[1] as CatalogType : "resource", query: params.get("q") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || "title", offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
     topic: params.get("topic") || "",
     collection: path.startsWith("sources/") ? "sources" as const : path.startsWith("passages/") ? "passages" as const : "pages" as const,
     record: /^(sources|passages)\//.test(path) ? safeDecode(path.split("/")[1] || "") : "",
@@ -60,7 +58,7 @@ function historySpace(space: string) {
 function message(error: unknown) {
   return error instanceof Error
     ? error.message
-    : "Unable to load the wiki. Please try again.";
+    : "Unable to load PocketContext. Please try again.";
 }
 export default function App() {
   const [session, setSession] = useState(sessionGeneration);
@@ -121,7 +119,7 @@ function Reader() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
-      localStorage.setItem("wiki-theme", theme);
+      localStorage.setItem("pocketcontext-theme", theme);
     } catch {
       /* Storage is optional. */
     }
@@ -532,12 +530,12 @@ function Reader() {
       </a>
       <aside
         className={`sidebar ${menu ? "is-open" : ""}`}
-        aria-label="Wiki navigation"
+        aria-label="Page navigation"
       >
         <a className="brand" href={pageHref("")}>
-          <span className="brand-mark">W</span>
+          <span className="brand-mark">P</span>
           <span>
-            WikiContext<small>YOUR CONNECTED KNOWLEDGE</small>
+            PocketContext<small>YOUR CONNECTED KNOWLEDGE</small>
           </span>
         </a>
         {spaces.length > 0 && (spaces.length > 1 || !space) ? <label className="publication-control">Space<select aria-label="Space" value={space?.id || ""} onChange={e => { location.hash = `#/?space=${encodeURIComponent(e.target.value)}`; }}>
@@ -637,7 +635,7 @@ function Reader() {
             ☰
           </button>
           <div className="breadcrumb">
-            {current.collection === "pages" ? "Wiki" : current.collection === "sources" ? "Sources" : "Passages"} <span>/</span>{" "}
+            {current.collection === "pages" ? "Pages" : current.collection === "sources" ? "Sources" : "Passages"} <span>/</span>{" "}
             <strong>
               {current.collection !== "pages" ? evidenceTitle || (current.record ? "Record details" : "Browse evidence") : current.catalog ? "Catalog" : searching ? "Search" : welcoming ? "Welcome" : page?.title || "Your knowledge"}
             </strong>
@@ -737,7 +735,7 @@ function Reader() {
                   )}
 
                   <div className="page-eyebrow">
-                    <span>{page.kind || "WIKI PAGE"}</span>
+                    <span>{page.kind || "PAGE"}</span>
                     <span className="quiet">
                       Publication {snapshot?.publication.sequence}
                     </span>
@@ -748,7 +746,6 @@ function Reader() {
                   {page.summary && (
                     <p className="page-summary">{page.summary}</p>
                   )}
-                  {page.properties?.catalog_type === "audio_recording" && space && <AudioRecording page={page} pages={pages} space={space.id} publication={displayedPinned} />}
                   <PropertiesPanel key={page.id} page={page} pages={pages} publication={displayedPinned} onCitation={openCitation} />
                   <div className="page-rule" />
                   <div className="markdown">
@@ -794,7 +791,7 @@ function Reader() {
                   <span className="empty-icon">▤</span>
                   <h1>
                     {busy
-                      ? "Opening your wiki…"
+                      ? "Opening PocketContext…"
                       : view.slug
                         ? "Page unavailable"
                         : "A home for your knowledge"}
@@ -932,7 +929,6 @@ function Reader() {
                 </>
               )}
             </dl>
-            <ImagePreview source={evidence.source} />
             {original && (
               <a
                 className="primary-button"
@@ -979,11 +975,8 @@ function Login({
   setTheme: (value: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [googlePending, setGooglePending] = useState(false);
-  useEffect(() => () => api.cancelGoogleLogin(), []);
   const [error, setError] = useState("");
-  const login = async (action: () => Promise<unknown>, google = false) => {
-    setGooglePending(google);
+  const login = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError("");
     try {
@@ -992,7 +985,6 @@ function Login({
       setError(message(e));
     } finally {
       setBusy(false);
-      setGooglePending(false);
     }
   };
   const password = (event: FormEvent<HTMLFormElement>) => {
@@ -1015,8 +1007,8 @@ function Login({
         {theme === "dark" ? "☼" : "☾"}
       </button>
       <section className="login-card">
-        <div className="brand-mark large">W</div>
-        <div className="page-eyebrow">WIKICONTEXT</div>
+        <div className="brand-mark large">P</div>
+        <div className="page-eyebrow">POCKETCONTEXT</div>
         <h1>
           Your knowledge.
           <br />
@@ -1026,41 +1018,32 @@ function Login({
           A quiet place to explore your workspace’s knowledge, follow
           connections and get back to the source.
         </p>
-        <button
-          className="primary-button google-button"
-          disabled={busy}
-          onClick={() => void login(() => api.loginGoogle(), true)}
-        >
-          Continue with Google <span>↗</span>
-        </button>
-        {googlePending && <button type="button" className="secondary-button" onClick={() => api.cancelGoogleLogin()}>Cancel Google sign-in</button>}
-        <p className="login-hint">Sign in with your Workspace account.</p>
-        <details>
-          <summary>Sign in with a password</summary>
-          <form onSubmit={password}>
-            <label>
-              Email
-              <input
-                required
-                name="email"
-                type="email"
-                autoComplete="username"
-              />
-            </label>
-            <label>
-              Password
-              <input
-                required
-                name="password"
-                type="password"
-                autoComplete="current-password"
-              />
-            </label>
-            <button className="secondary-button" disabled={busy}>
-              Sign in
-            </button>
-          </form>
-        </details>
+        <form className="login-form" onSubmit={password}>
+          <label>
+            Email
+            <input
+              required
+              name="email"
+              type="email"
+              autoComplete="username"
+            />
+          </label>
+          <label>
+            Password
+            <input
+              required
+              name="password"
+              type="password"
+              autoComplete="current-password"
+            />
+          </label>
+          <button className="primary-button" disabled={busy}>
+            Sign in
+          </button>
+        </form>
+        <p className="login-hint">
+          Or run <code>pocketcontext open</code> to sign in with a single-use link.
+        </p>
         {error && (
           <p role="alert" className="login-error">
             {error}

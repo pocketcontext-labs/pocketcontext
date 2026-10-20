@@ -73,7 +73,7 @@ export default function WelcomePage({
     <div className="welcome-page">
       <section className="welcome-hero" aria-labelledby="welcome-heading">
         <div>
-          <div className="welcome-eyebrow">The WikiContext wiki</div>
+          <div className="welcome-eyebrow">Your PocketContext</div>
           <h1 id="welcome-heading">
             Welcome to <em>our shared context.</em>
           </h1>

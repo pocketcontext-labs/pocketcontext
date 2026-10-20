@@ -48,7 +48,7 @@ func TestSessionFile(t *testing.T) {
 	if filepath.Base(filepath.Dir(path)) != "remote-0c8ee5b6d9cce5d9" {
 		t.Fatalf("unexpected session directory %s", path)
 	}
-	if filepath.Base(filepath.Dir(filepath.Dir(path))) != "wikicontext-bundle" || filepath.Base(path) != "session.json" {
+	if filepath.Base(filepath.Dir(filepath.Dir(path))) != "pocketcontext" || filepath.Base(path) != "session.json" {
 		t.Fatalf("unexpected session path %s", path)
 	}
 	if other, _ := sessionPath("http://localhost:8096"); other == path {
@@ -113,10 +113,10 @@ func TestReadCode(t *testing.T) {
 func TestCodeLoginUsage(t *testing.T) {
 	// These fail before any network access or session file.
 	for _, argv := range [][]string{
-		{"login", "--url", "http://127.0.0.1:1", "--code-stdin", "--email", "a@wiki.localhost"},
+		{"login", "--url", "http://127.0.0.1:1", "--code-stdin", "--email", "a@example.localhost"},
 		{"login", "--url", "http://127.0.0.1:1", "--code-stdin", "--password-stdin"},
-		{"login-code", "--url", "http://127.0.0.1:1", "--email", "a@wiki.localhost"},
-		{"open", "--url", "http://127.0.0.1:1", "--email", "a@wiki.localhost"},
+		{"login-code", "--url", "http://127.0.0.1:1", "--email", "a@example.localhost"},
+		{"open", "--url", "http://127.0.0.1:1", "--email", "a@example.localhost"},
 	} {
 		err := run(argv)
 		f, ok := err.(*Fail)

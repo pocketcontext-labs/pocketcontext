@@ -171,7 +171,7 @@ export default function RepositoryFiles({
       <div className="page-eyebrow">PUBLISHED CATALOG</div>
       <h1 className="page-title">Repository files</h1>
       <p className="page-summary">
-        Authoritative wiki documents and their GitHub copies. Status reflects
+        Authoritative documents and their GitHub copies. Status reflects
         the last recorded check in this publication; GitHub is not checked live.
       </p>
       <nav className="catalog-tabs" aria-label="Catalogs">

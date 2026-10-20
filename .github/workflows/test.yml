@@ -43,9 +43,11 @@ jobs:
           CGO_ENABLED=1 go test -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 $packages
       - name: Build the binary
         run: |
-          exe=wikicontext
-          if [ "$RUNNER_OS" = Windows ]; then exe=wikicontext.exe; fi
-          CGO_ENABLED=1 go build -trimpath -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 -o "bin/$exe" ./cmd/wikicontext
+          exe=pocketcontext
+          if [ "$RUNNER_OS" = Windows ]; then exe=pocketcontext.exe; fi
+          CGO_ENABLED=1 go build -trimpath -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 -o "bin/$exe" ./cmd/pocketcontext
           echo "EXE=bin/$exe" >> "$GITHUB_ENV"
+      - name: Name check of the repository and binary
+        run: $PY tests/name_check.py --binary "$EXE"
       - name: End-to-end test with synthetic notes
         run: $PY tests/e2e.py --binary "$EXE"

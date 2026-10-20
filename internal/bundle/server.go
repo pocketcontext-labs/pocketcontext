@@ -22,9 +22,9 @@ import (
 	_ "github.com/pocketbase/pocketbase/migrations" // system migrations
 	"github.com/pocketbase/pocketbase/plugins/jsvm"
 
-	wikicontextbundle "github.com/pocketcontext/wikicontext-bundle"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/database"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/server"
+	assets "github.com/pocketcontext-labs/pocketcontext"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/database"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/server"
 )
 
 // Version and Commit are set at build time.
@@ -47,11 +47,11 @@ func unpack(p *Project) (string, error) {
 	}
 	var entries []entry
 	h := sha256.New()
-	err := fs.WalkDir(wikicontextbundle.Assets, ".", func(name string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(assets.Assets, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		data, err := wikicontextbundle.Assets.ReadFile(name)
+		data, err := assets.Assets.ReadFile(name)
 		if err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ func Serve(p *Project, opts ServeOptions) error {
 	}
 	defer lock.Close()
 	if err := lockFile(lock); err != nil {
-		return errors.New("a WikiContext server for this database is already running on this computer")
+		return errors.New("a PocketContext server for this database is already running on this computer")
 	}
 	if _, err := os.Stat(p.ConfigPath); errors.Is(err, os.ErrNotExist) {
 		if err := p.SaveConfig(); err != nil {
@@ -174,7 +174,7 @@ func Serve(p *Project, opts ServeOptions) error {
 		TypesDir:      p.Cache,
 		HooksWatch:    false,
 	})
-	server.RegisterDatabase(app, filepath.Join(appDir, "pocketcontext.json"), store.livePath())
+	server.RegisterDatabase(app, filepath.Join(appDir, "server.json"), store.livePath())
 
 	changed := func(e *core.ModelEvent) error {
 		if _, isLog := e.Model.(*core.Log); !isLog {
@@ -203,7 +203,7 @@ func Serve(p *Project, opts ServeOptions) error {
 	stop := make(chan struct{}, 1)
 	local := &localRoutes{p: p, store: store, key: key, stop: stop}
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		e.InstallerFunc = nil // accounts are created by `wikicontext init`
+		e.InstallerFunc = nil // accounts are created by `pocketcontext init`
 		httpServer = e.Server
 		if migrations() != before {
 			store.Changed()
@@ -247,7 +247,7 @@ func Serve(p *Project, opts ServeOptions) error {
 	}()
 
 	addr := fmt.Sprintf("127.0.0.1:%d", p.Config.Port)
-	log.Printf("wikicontext %s serving %s at http://%s", Version, p.DB, addr)
+	log.Printf("pocketcontext %s serving %s at http://%s", Version, p.DB, addr)
 	serveErr := apis.Serve(app, apis.ServeConfig{
 		HttpAddr:       addr,
 		AllowedOrigins: []string{p.URL(), fmt.Sprintf("http://localhost:%d", p.Config.Port)},

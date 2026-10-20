@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pocketcontext/wikicontext-bundle/internal/bundle"
+	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
 )
 
 // Remote client mode: the server runs on another computer (the agent
@@ -67,7 +67,7 @@ func sessionPath(base string) (string, error) {
 		return "", fmt.Errorf("no user cache directory: %w", err)
 	}
 	sum := sha256.Sum256([]byte(base))
-	return filepath.Join(cache, "wikicontext-bundle", "remote-"+hex.EncodeToString(sum[:])[:16], "session.json"), nil
+	return filepath.Join(cache, "pocketcontext", "remote-"+hex.EncodeToString(sum[:])[:16], "session.json"), nil
 }
 
 // loadSession returns the stored session, or nil when there is none.
@@ -85,7 +85,7 @@ func loadSession(base string) (*session, error) {
 	}
 	var s session
 	if err := json.Unmarshal(data, &s); err != nil || s.Token == "" || s.URL != base {
-		return nil, fail(2, "the session file %s is damaged; run `wikicontext login --url %s`", path, base)
+		return nil, fail(2, "the session file %s is damaged; run `pocketcontext login --url %s`", path, base)
 	}
 	return &s, nil
 }
@@ -124,13 +124,13 @@ func probe(base string) (*bundle.Instance, error) {
 	quick := &http.Client{Timeout: 5 * time.Second, CheckRedirect: noRedirect}
 	resp, err := quick.Get(base + "/api/bundle/instance")
 	if err != nil {
-		return nil, fail(1, "the WikiContext server at %s is not reachable. The server runs on the agent computer: check that it runs there and that the tailcat or SSH forward of the same port is active (for example `tailcat forward ADDR %s:%s`). Nothing was started here.",
+		return nil, fail(1, "the PocketContext server at %s is not reachable. The server runs on the agent computer: check that it runs there and that the tailcat or SSH forward of the same port is active (for example `tailcat forward ADDR %s:%s`). Nothing was started here.",
 			base, port(base), port(base))
 	}
 	defer resp.Body.Close()
 	var i bundle.Instance
-	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&i) != nil || i.App != "wikicontext" {
-		return nil, fail(1, "%s is answered by another program, not WikiContext (HTTP %d). Forward the server's own port to the same local port; the server refuses other ports.", base, resp.StatusCode)
+	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&i) != nil || i.App != "pocketcontext" {
+		return nil, fail(1, "%s is answered by another program, not PocketContext (HTTP %d). Forward the server's own port to the same local port; the server refuses other ports.", base, resp.StatusCode)
 	}
 	return &i, nil
 }
@@ -147,14 +147,14 @@ func checkRemote(base string, s *session) (*bundle.Instance, error) {
 		return nil, err
 	}
 	if s != nil && s.Instance != i.Instance {
-		return nil, fail(1, "%s now serves a different WikiContext than the one you signed in to; sign in again: %s", base, signInHint(base))
+		return nil, fail(1, "%s now serves a different PocketContext than the one you signed in to; sign in again: %s", base, signInHint(base))
 	}
 	return i, nil
 }
 
 // signInHint says how to sign in to base.
 func signInHint(base string) string {
-	return fmt.Sprintf("get a one-time code on the agent computer (`wikicontext login-code --email EMAIL` there), then run `wikicontext login --url %s --code-stdin` and write the code to standard input; or sign in with `wikicontext login --url %s --email EMAIL`", base, base)
+	return fmt.Sprintf("get a one-time code on the agent computer (`pocketcontext login-code --email EMAIL` there), then run `pocketcontext login --url %s --code-stdin` and write the code to standard input; or sign in with `pocketcontext login --url %s --email EMAIL`", base, base)
 }
 
 func expired(base string) error {
@@ -199,7 +199,7 @@ func NewRemote(base, space string) (*Client, error) {
 // login signs in with email and password and stores only the token.
 func login(base, email string, passwordStdin bool) (map[string]any, error) {
 	if !emailPattern.MatchString(email) {
-		return nil, fail(2, "usage: wikicontext login --url URL (--code-stdin | --email EMAIL [--password-stdin])")
+		return nil, fail(2, "usage: pocketcontext login --url URL (--code-stdin | --email EMAIL [--password-stdin])")
 	}
 	email = strings.ToLower(email)
 	i, err := checkRemote(base, nil)
@@ -236,7 +236,7 @@ func readCode() (string, error) {
 	}
 	code := strings.TrimSpace(line)
 	if code == "" {
-		return "", fail(2, "no sign-in code on standard input; usage: printf '%%s\\n' \"$CODE\" | wikicontext login --url URL --code-stdin")
+		return "", fail(2, "no sign-in code on standard input; usage: printf '%%s\\n' \"$CODE\" | pocketcontext login --url URL --code-stdin")
 	}
 	return code, nil
 }
@@ -263,7 +263,7 @@ func loginWithCode(base string) (map[string]any, error) {
 	token, _ := dig(data, "token").(string)
 	email, _ := dig(data, "record", "email").(string)
 	if status != 200 || token == "" || email == "" {
-		return nil, fail(1, "sign-in to %s failed (HTTP %d): %s Ask for a new code: `wikicontext login-code --email EMAIL` on the agent computer.", base, status, message(data))
+		return nil, fail(1, "sign-in to %s failed (HTTP %d): %s Ask for a new code: `pocketcontext login-code --email EMAIL` on the agent computer.", base, status, message(data))
 	}
 	email = strings.ToLower(email)
 	if err := saveSession(&session{URL: base, Instance: i.Instance, Email: email, Token: token, Refreshed: time.Now().UTC()}); err != nil {

@@ -2,12 +2,12 @@
 # Published installers contain a fixed release version. Download all assets from
 # that version, even if another release becomes latest while this script runs.
 
-wikicontext_fail() {
-    printf 'wikicontext: %s\n' "$*" >&2
+pocketcontext_fail() {
+    printf 'pocketcontext: %s\n' "$*" >&2
     exit 1
 }
 
-wikicontext_cleanup() {
+pocketcontext_cleanup() {
     if [ -n "$pc_stage" ]; then
         rm -f "$pc_stage"
     fi
@@ -16,135 +16,135 @@ wikicontext_cleanup() {
     fi
 }
 
-wikicontext_install() (
+pocketcontext_install() (
     # Keep every action inside this function. A truncated download cannot run
     # the installer before the shell has received its complete function body.
     set -f
     umask 077
-    [ "$#" -le 1 ] || wikicontext_fail 'usage: install.sh [DIRECTORY]'
+    [ "$#" -le 1 ] || pocketcontext_fail 'usage: install.sh [DIRECTORY]'
     pc_requested_dir=${1:-}
     pc_version='@VERSION@'
     case "$pc_version" in
-        ''|*[!0-9.]*|.*|*..*|*.) wikicontext_fail 'invalid release version' ;;
+        ''|*[!0-9.]*|.*|*..*|*.) pocketcontext_fail 'invalid release version' ;;
     esac
     pc_saved_ifs=$IFS
     IFS=.
     set -- $pc_version
     IFS=$pc_saved_ifs
-    [ "$#" -eq 3 ] || wikicontext_fail 'invalid release version'
+    [ "$#" -eq 3 ] || pocketcontext_fail 'invalid release version'
     case "${HOME:-}" in
         /*) ;;
-        *) wikicontext_fail 'HOME must be an absolute directory path' ;;
+        *) pocketcontext_fail 'HOME must be an absolute directory path' ;;
     esac
     for pc_tool in curl tar uname mktemp mkdir chmod mv rm; do
-        command -v "$pc_tool" >/dev/null 2>&1 || wikicontext_fail "required command is missing: $pc_tool"
+        command -v "$pc_tool" >/dev/null 2>&1 || pocketcontext_fail "required command is missing: $pc_tool"
     done
     if command -v sha256sum >/dev/null 2>&1; then
         pc_checksum=sha256sum
     elif command -v shasum >/dev/null 2>&1; then
         pc_checksum=shasum
     else
-        wikicontext_fail 'sha256sum or shasum is required'
+        pocketcontext_fail 'sha256sum or shasum is required'
     fi
-    pc_os=$(uname -s) || wikicontext_fail 'could not detect operating system'
-    pc_arch=$(uname -m) || wikicontext_fail 'could not detect architecture'
+    pc_os=$(uname -s) || pocketcontext_fail 'could not detect operating system'
+    pc_arch=$(uname -m) || pocketcontext_fail 'could not detect architecture'
     case "$pc_os/$pc_arch" in
         Linux/x86_64|Linux/amd64) pc_platform=linux_amd64 ;;
         Linux/aarch64|Linux/arm64) pc_platform=linux_arm64 ;;
         Darwin/arm64) pc_platform=darwin_arm64 ;;
-        *) wikicontext_fail "unsupported platform: $pc_os/$pc_arch (supported: Linux amd64/arm64, macOS arm64)" ;;
+        *) pocketcontext_fail "unsupported platform: $pc_os/$pc_arch (supported: Linux amd64/arm64, macOS arm64)" ;;
     esac
     if [ "$pc_platform" = darwin_arm64 ]; then
-        command -v sw_vers >/dev/null 2>&1 || wikicontext_fail 'sw_vers is required to check macOS compatibility'
-        pc_macos=$(sw_vers -productVersion) || wikicontext_fail 'could not detect macOS version'
+        command -v sw_vers >/dev/null 2>&1 || pocketcontext_fail 'sw_vers is required to check macOS compatibility'
+        pc_macos=$(sw_vers -productVersion) || pocketcontext_fail 'could not detect macOS version'
         pc_macos_major=${pc_macos%%.*}
         case "$pc_macos_major" in
-            ''|*[!0-9]*) wikicontext_fail 'could not detect macOS version' ;;
+            ''|*[!0-9]*) pocketcontext_fail 'could not detect macOS version' ;;
         esac
-        [ "$pc_macos_major" -ge 15 ] || wikicontext_fail 'macOS 15 or newer is required'
+        [ "$pc_macos_major" -ge 15 ] || pocketcontext_fail 'macOS 15 or newer is required'
     fi
     # The binary may live in a cloud-synced project folder (iCloud Drive,
-    # OneDrive, Dropbox, Google Drive) beside wiki.db.
-    pc_bindir=${pc_requested_dir:-${WIKICONTEXT_INSTALL_DIR:-$HOME/.local/bin}}
+    # OneDrive, Dropbox, Google Drive) beside pocketcontext.db.
+    pc_bindir=${pc_requested_dir:-${POCKETCONTEXT_INSTALL_DIR:-$HOME/.local/bin}}
     case "$pc_bindir" in
         /*) ;;
-        *) wikicontext_fail 'the installation directory must be an absolute path' ;;
+        *) pocketcontext_fail 'the installation directory must be an absolute path' ;;
     esac
-    pc_destination=$pc_bindir/wikicontext
+    pc_destination=$pc_bindir/pocketcontext
     if [ -L "$pc_destination" ] || { [ -e "$pc_destination" ] && [ ! -f "$pc_destination" ]; }; then
-        wikicontext_fail "destination must be a regular file or absent: $pc_destination"
+        pocketcontext_fail "destination must be a regular file or absent: $pc_destination"
     fi
-    pc_archive=wikicontext_${pc_version}_${pc_platform}.tar.gz
-    pc_base=https://github.com/pocketcontext/wikicontext-bundle/releases/download/v${pc_version}
+    pc_archive=pocketcontext_${pc_version}_${pc_platform}.tar.gz
+    pc_base=https://github.com/pocketcontext-labs/pocketcontext/releases/download/v${pc_version}
     pc_stage=
-    pc_tmp=$(mktemp -d "${TMPDIR:-/tmp}/wikicontext-install.XXXXXXXX") || wikicontext_fail 'could not create temporary directory'
-    trap 'wikicontext_cleanup' 0
+    pc_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pocketcontext-install.XXXXXXXX") || pocketcontext_fail 'could not create temporary directory'
+    trap 'pocketcontext_cleanup' 0
     trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 143' TERM
     curl --disable --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
         --connect-timeout 15 --retry 2 --output "$pc_tmp/checksums.txt" \
-        "$pc_base/checksums.txt" || wikicontext_fail 'checksum download failed'
+        "$pc_base/checksums.txt" || pocketcontext_fail 'checksum download failed'
     pc_expected=
     while IFS=' ' read -r pc_hash pc_name pc_extra || [ -n "$pc_hash$pc_name$pc_extra" ]; do
         if [ "$pc_name" = "$pc_archive" ]; then
-            [ -z "$pc_expected" ] || wikicontext_fail 'duplicate archive checksum'
-            [ -z "$pc_extra" ] || wikicontext_fail 'invalid archive checksum entry'
+            [ -z "$pc_expected" ] || pocketcontext_fail 'duplicate archive checksum'
+            [ -z "$pc_extra" ] || pocketcontext_fail 'invalid archive checksum entry'
             case "$pc_hash" in
-                ''|*[!0-9a-f]*) wikicontext_fail 'invalid archive checksum' ;;
+                ''|*[!0-9a-f]*) pocketcontext_fail 'invalid archive checksum' ;;
             esac
-            [ "${#pc_hash}" -eq 64 ] || wikicontext_fail 'invalid archive checksum'
+            [ "${#pc_hash}" -eq 64 ] || pocketcontext_fail 'invalid archive checksum'
             pc_expected=$pc_hash
         fi
     done < "$pc_tmp/checksums.txt"
-    [ -n "$pc_expected" ] || wikicontext_fail 'archive is missing from checksums.txt'
+    [ -n "$pc_expected" ] || pocketcontext_fail 'archive is missing from checksums.txt'
     curl --disable --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
         --connect-timeout 15 --retry 2 --output "$pc_tmp/$pc_archive" \
-        "$pc_base/$pc_archive" || wikicontext_fail 'archive download failed'
+        "$pc_base/$pc_archive" || pocketcontext_fail 'archive download failed'
     if [ "$pc_checksum" = sha256sum ]; then
-        pc_actual=$(sha256sum < "$pc_tmp/$pc_archive") || wikicontext_fail 'checksum calculation failed'
+        pc_actual=$(sha256sum < "$pc_tmp/$pc_archive") || pocketcontext_fail 'checksum calculation failed'
     else
-        pc_actual=$(shasum -a 256 < "$pc_tmp/$pc_archive") || wikicontext_fail 'checksum calculation failed'
+        pc_actual=$(shasum -a 256 < "$pc_tmp/$pc_archive") || pocketcontext_fail 'checksum calculation failed'
     fi
     pc_actual=${pc_actual%% *}
-    [ "$pc_actual" = "$pc_expected" ] || wikicontext_fail 'archive checksum mismatch'
-    tar -tzf "$pc_tmp/$pc_archive" > "$pc_tmp/members" || wikicontext_fail 'invalid release archive'
+    [ "$pc_actual" = "$pc_expected" ] || pocketcontext_fail 'archive checksum mismatch'
+    tar -tzf "$pc_tmp/$pc_archive" > "$pc_tmp/members" || pocketcontext_fail 'invalid release archive'
     pc_seen_binary= pc_seen_notices=
     while IFS= read -r pc_member || [ -n "$pc_member" ]; do
         case "$pc_member" in
-            wikicontext)
-                [ -z "$pc_seen_binary" ] || wikicontext_fail 'duplicate archive executable'
+            pocketcontext)
+                [ -z "$pc_seen_binary" ] || pocketcontext_fail 'duplicate archive executable'
                 pc_seen_binary=yes ;;
             THIRD_PARTY_NOTICES.txt)
-                [ -z "$pc_seen_notices" ] || wikicontext_fail 'duplicate archive notices'
+                [ -z "$pc_seen_notices" ] || pocketcontext_fail 'duplicate archive notices'
                 pc_seen_notices=yes ;;
-            *) wikicontext_fail 'unexpected release archive member' ;;
+            *) pocketcontext_fail 'unexpected release archive member' ;;
         esac
     done < "$pc_tmp/members"
-    [ "$pc_seen_binary$pc_seen_notices" = yesyes ] || wikicontext_fail 'release archive is incomplete'
-    tar -tvzf "$pc_tmp/$pc_archive" > "$pc_tmp/details" || wikicontext_fail 'could not inspect release archive'
+    [ "$pc_seen_binary$pc_seen_notices" = yesyes ] || pocketcontext_fail 'release archive is incomplete'
+    tar -tvzf "$pc_tmp/$pc_archive" > "$pc_tmp/details" || pocketcontext_fail 'could not inspect release archive'
     pc_regular_count=0
     while IFS= read -r pc_detail || [ -n "$pc_detail" ]; do
         case "$pc_detail" in
             -*) pc_regular_count=$((pc_regular_count + 1)) ;;
-            *) wikicontext_fail 'archive members must be regular files' ;;
+            *) pocketcontext_fail 'archive members must be regular files' ;;
         esac
     done < "$pc_tmp/details"
-    [ "$pc_regular_count" -eq 2 ] || wikicontext_fail 'invalid release archive listing'
-    mkdir -p "$pc_bindir" || wikicontext_fail "could not create $pc_bindir"
-    pc_stage=$(mktemp "$pc_bindir/.wikicontext.XXXXXXXX") || wikicontext_fail 'could not create installation staging file'
+    [ "$pc_regular_count" -eq 2 ] || pocketcontext_fail 'invalid release archive listing'
+    mkdir -p "$pc_bindir" || pocketcontext_fail "could not create $pc_bindir"
+    pc_stage=$(mktemp "$pc_bindir/.pocketcontext.XXXXXXXX") || pocketcontext_fail 'could not create installation staging file'
     # Stream only the executable into our own file. Never let archive paths,
     # ownership or permission metadata control filesystem extraction.
-    tar -xOzf "$pc_tmp/$pc_archive" wikicontext > "$pc_stage" || wikicontext_fail 'archive extraction failed'
-    [ -s "$pc_stage" ] || wikicontext_fail 'archive executable is empty'
-    chmod 0755 "$pc_stage" || wikicontext_fail 'could not set executable permissions'
+    tar -xOzf "$pc_tmp/$pc_archive" pocketcontext > "$pc_stage" || pocketcontext_fail 'archive extraction failed'
+    [ -s "$pc_stage" ] || pocketcontext_fail 'archive executable is empty'
+    chmod 0755 "$pc_stage" || pocketcontext_fail 'could not set executable permissions'
     if [ -L "$pc_destination" ] || { [ -e "$pc_destination" ] && [ ! -f "$pc_destination" ]; }; then
-        wikicontext_fail "destination must be a regular file or absent: $pc_destination"
+        pocketcontext_fail "destination must be a regular file or absent: $pc_destination"
     fi
-    mv -f "$pc_stage" "$pc_destination" || wikicontext_fail 'could not replace executable'
+    mv -f "$pc_stage" "$pc_destination" || pocketcontext_fail 'could not replace executable'
     pc_stage=
-    printf 'Installed WikiContext bundle %s at %s\n' "$pc_version" "$pc_destination"
-    printf 'Next: "%s" init --email you@wiki.localhost   (the database wiki.db is created beside the binary)\n' "$pc_destination"
+    printf 'Installed PocketContext %s at %s\n' "$pc_version" "$pc_destination"
+    printf 'Next: "%s" init --email you@example.localhost   (the database pocketcontext.db is created beside the binary)\n' "$pc_destination"
 )
 
-wikicontext_install "$@"
+pocketcontext_install "$@"

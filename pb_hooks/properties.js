@@ -1,7 +1,7 @@
 // Flat, bounded metadata; the Markdown body remains the place for explanations.
-const relationships=['deployment_profiles','applications','resources','credentials','consumers','replaces','replaced_by','members','accountable_owners','backup_owners','documents','destinations','transcript_pages','summary_pages'];
+const relationships=['deployment_profiles','applications','resources','credentials','consumers','replaces','replaced_by','members','accountable_owners','backup_owners','documents','destinations'];
 const targetCatalogs={members:'person',accountable_owners:'group',backup_owners:'group',documents:'repository_document',destinations:'repository_destination'};
-const reserved=['wikicontext_page','wikicontext_revision','id','page','page_id','revision','revision_id','publication','publication_id','kind','title','summary','body','archived','run','base_revision','created','updated','created_by','updated_by','properties','property_evidence','constructor','prototype','__proto__'];
+const reserved=['pocketcontext_page','pocketcontext_revision','id','page','page_id','revision','revision_id','publication','publication_id','kind','title','summary','body','archived','run','base_revision','created','updated','created_by','updated_by','properties','property_evidence','constructor','prototype','__proto__'];
 function invalid(message){throw new BadRequestError(message);}
 function object(record,field){
  const raw=record.getString(field);
@@ -19,26 +19,13 @@ function validate(record){
   if(Array.isArray(value)){
    if(value.length>100||value.some(v=>typeof v!=='string'||v.length>2048)||new Set(value).size!==value.length)invalid('Property lists must contain up to 100 unique bounded strings');
   }else if(value!==null&&typeof value!=='boolean'&&!(typeof value==='string'&&value.length<=2048)&&!(typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<=Number.MAX_SAFE_INTEGER))invalid('Property values must be bounded scalars or string lists');
-  if(key==='catalog_type'&&!['resource','credential','deployment','person','group','repository_document','repository_destination','repository_sync','audio_recording'].includes(value))invalid('Invalid catalog_type');
+  if(key==='catalog_type'&&!['resource','credential','deployment','person','group','repository_document','repository_destination','repository_sync'].includes(value))invalid('Invalid catalog_type');
   if(relationships.includes(key)&&(!Array.isArray(value)||value.some(v=>! /^[a-z0-9]{15}$/.test(v))))invalid('Relationship properties require page ID lists');
  }
  if(Object.prototype.hasOwnProperty.call(properties,'members')&&properties.catalog_type!=='group')invalid('Only group pages can declare members');
  const catalog=properties.catalog_type;
  const required=(key,pattern)=>{if(typeof properties[key]!=='string'||!pattern.test(properties[key]))invalid('Invalid or missing '+key);};
  for(const [key,type] of [['documents','repository_destination'],['destinations','repository_sync']])if(Object.prototype.hasOwnProperty.call(properties,key)&&catalog!==type)invalid('Invalid relationship source: '+key);
- for(const key of ['audio_source_id','selected_bundle_rendition_id','transcript_pages','summary_pages','timing_review_bundle_rendition_id','timing_review_note'])if(Object.prototype.hasOwnProperty.call(properties,key)&&catalog!=='audio_recording')invalid('Only audio recordings can declare '+key);
- if(catalog==='audio_recording'){
-  required('audio_source_id',/^[a-z0-9]{15}$/);
-  if(properties.selected_bundle_rendition_id!=null)required('selected_bundle_rendition_id',/^[a-z0-9]{15}$/);
-  if(properties.timing_review_bundle_rendition_id!=null||properties.timing_review_note!=null){
-   required('timing_review_bundle_rendition_id',/^[a-z0-9]{15}$/);
-   if(properties.timing_review_bundle_rendition_id!==properties.selected_bundle_rendition_id)invalid('Timing review must match the selected bundle');
-   if(typeof properties.timing_review_note!=='string'||!properties.timing_review_note.trim())invalid('Timing review requires a nonempty note');
-  }
-  if(properties.recorded_at!=null){required('recorded_at',/^\d{4}-\d{2}-\d{2}$/);if(!Number.isFinite(Date.parse(properties.recorded_at))||new Date(properties.recorded_at).toISOString().slice(0,10)!==properties.recorded_at)invalid('Invalid recorded_at');}
-  if(properties.language!=null&&(typeof properties.language!=='string'||!properties.language.trim()))invalid('Invalid language');
-  if(properties.duration_seconds!=null&&(typeof properties.duration_seconds!=='number'||!Number.isFinite(properties.duration_seconds)||properties.duration_seconds<=0))invalid('Invalid duration_seconds');
- }
  if(catalog==='repository_document'){
   if(!['readme','license','copyright','notice','contributing','prompt','other'].includes(properties.document_type))invalid('Invalid document_type');
   if(!['exact_copy','markdown'].includes(properties.output_mode))invalid('Invalid output_mode');

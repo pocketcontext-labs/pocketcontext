@@ -18,8 +18,8 @@ import (
 	"unicode/utf8"
 
 	sqlite3 "github.com/mattn/go-sqlite3"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/sqlread"
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/tracing"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqlread"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/tracing"
 )
 
 const (

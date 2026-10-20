@@ -12,7 +12,7 @@ import (
 )
 
 // This corpus is synthetic. It exercises published pages, unpublished drafts,
-// cross-topic references and unequal body lengths; it contains no wiki data.
+// cross-topic references and unequal body lengths; it contains no real data.
 var benchmarkTopics = []string{
 	"publication rollback", "invoice receipt", "trace latency", "channel membership",
 	"workspace oauth", "task dependency", "database restore", "json array",

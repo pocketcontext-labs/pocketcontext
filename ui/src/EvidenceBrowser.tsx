@@ -2,7 +2,6 @@ import { spaceLink } from "./spaceLinks";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, pb, query } from "./api";
-import ImagePreview from "./ImagePreview";
 import type { Source } from "./types";
 import "./evidence.css";
 
@@ -77,7 +76,6 @@ export default function EvidenceBrowser({ space, collection, id, term, publicati
       </div>
       {selected.body && <blockquote className="passage">{selected.body}</blockquote>}
       {selected.source_id && <p><a href={evidenceHref("sources", selected.source_id, "", publication)}>Source: {selected.title}</a></p>}
-      {source && <ImagePreview source={source} />}
       <details className="evidence-details"><summary>Record details</summary><dl><dt>Record ID</dt><dd>{selected.id}</dd></dl></details>
     </article> : !busy && <p>Record unavailable.</p> : <p>Select a {collection === "sources" ? "source" : "passage"} to read its evidence.</p>}
     {navigation ? createPortal(results, navigation) : results}

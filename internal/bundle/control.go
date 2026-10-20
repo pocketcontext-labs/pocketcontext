@@ -36,7 +36,7 @@ func Health(p *Project) (*Instance, error) {
 	}
 	defer resp.Body.Close()
 	var i Instance
-	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&i) != nil || i.App != "wikicontext" {
+	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&i) != nil || i.App != "pocketcontext" {
 		return nil, fmt.Errorf("port %d is used by another program; set a different \"port\" in %s", p.Config.Port, p.ConfigPath)
 	}
 	return &i, nil
@@ -52,7 +52,7 @@ func Running(p *Project) (bool, error) {
 		return false, err
 	}
 	if i.Key != p.Key || (p.Config.Instance != "" && i.Instance != p.Config.Instance) {
-		return false, fmt.Errorf("port %d is used by another WikiContext database; set a different \"port\" in %s", p.Config.Port, p.ConfigPath)
+		return false, fmt.Errorf("port %d is used by another PocketContext database; set a different \"port\" in %s", p.Config.Port, p.ConfigPath)
 	}
 	return true, nil
 }
@@ -99,7 +99,7 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 	for time.Now().Before(deadline) {
 		select {
 		case <-exited:
-			return fmt.Errorf("the WikiContext server stopped during start: %s (log: %s)", lastLines(p.LogFile(), start), p.LogFile())
+			return fmt.Errorf("the PocketContext server stopped during start: %s (log: %s)", lastLines(p.LogFile(), start), p.LogFile())
 		case <-time.After(200 * time.Millisecond):
 		}
 		if err := p.loadConfig(); err != nil { // serve may have just created the instance ID
@@ -112,7 +112,7 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 			return err
 		}
 	}
-	return fmt.Errorf("the WikiContext server did not answer within 60 seconds; see %s", p.LogFile())
+	return fmt.Errorf("the PocketContext server did not answer within 60 seconds; see %s", p.LogFile())
 }
 
 func lastLines(path string, from int64) string {

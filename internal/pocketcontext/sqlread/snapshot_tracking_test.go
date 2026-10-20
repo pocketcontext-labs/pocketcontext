@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/snapshotstate"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/snapshotstate"
 )
 
 func installTestTracking(t *testing.T, db *sql.DB, tables ...string) {

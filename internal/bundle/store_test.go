@@ -11,11 +11,11 @@ import (
 func testProject(t *testing.T) *Project {
 	t.Helper()
 	root := t.TempDir()
-	dir := filepath.Join(root, "Cloud Drive", "WikiContext")
+	dir := filepath.Join(root, "Cloud Drive", "PocketContext")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	return &Project{DB: filepath.Join(dir, "wiki.db"), Dir: dir, Cache: filepath.Join(root, "cache"), Config: Config{Port: DefaultPort}}
+	return &Project{DB: filepath.Join(dir, "pocketcontext.db"), Dir: dir, Cache: filepath.Join(root, "cache"), Config: Config{Port: DefaultPort}}
 }
 
 func execLive(t *testing.T, s *Store, statement string) {
@@ -68,7 +68,7 @@ func TestWriteBackAndReopen(t *testing.T) {
 	}
 	entries, _ := os.ReadDir(p.Dir)
 	for _, e := range entries {
-		if e.Name() != "wiki.db" {
+		if e.Name() != "pocketcontext.db" {
 			t.Errorf("unexpected file in project folder: %s", e.Name())
 		}
 	}
@@ -142,7 +142,7 @@ func TestLeaseFromAnotherComputer(t *testing.T) {
 
 func TestResolveDirectory(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WIKICONTEXT_DB", "")
+	t.Setenv("POCKETCONTEXT_DB", "")
 	p, err := Resolve(dir)
 	if err != nil {
 		t.Fatal(err)

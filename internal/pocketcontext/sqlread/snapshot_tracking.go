@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pocketcontext/wikicontext-bundle/internal/pocketcontext/snapshotstate"
+	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/snapshotstate"
 )
 
 type snapshotState struct {

@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { Markdown, pageHref } from "./Markdown";
-describe("safe wiki rendering", () => {
+describe("safe page rendering", () => {
   it("renders aliases, publication-pinned heading links and evidence controls", () => {
     const click = vi.fn();
     render(
@@ -48,7 +48,7 @@ it("keeps live heading routes and malformed custom links safe", () => {
   expect(pageHref("observatory", undefined, "night-sky")).toBe(
     "#/page/observatory?heading=night-sky",
   );
-  render(<Markdown body={"[malformed](wiki:%ZZ)"} onCitation={() => {}} />);
+  render(<Markdown body={"[malformed](page:%ZZ)"} onCitation={() => {}} />);
   expect(screen.getByText("malformed").closest("a")).toBeNull();
 });
 

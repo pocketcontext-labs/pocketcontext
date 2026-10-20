@@ -22,7 +22,7 @@ export function clearReaderCache(): void {
 }
 
 // The SDK synchronizes this application's credentials across same-origin tabs.
-const sessionKey = "wikicontext.reader.auth";
+const sessionKey = "pocketcontext.reader.auth";
 function browserAuthStore(): BaseAuthStore {
   try {
     const probe = `${sessionKey}.probe.${Math.random()}`;
@@ -36,8 +36,8 @@ const authStore = browserAuthStore();
 if (typeof window !== "undefined" && authStore instanceof LocalAuthStore) {
   window.addEventListener("storage", (event) => {
     if (event.storageArea !== window.localStorage) return;
-    // Even an empty-to-empty logout must fence a popup that is still signing in.
-    if (event.key === null || event.key === sessionKey) cancelGoogleLogin();
+    // Even an empty-to-empty logout must fence a sign-in that is still pending.
+    if (event.key === null || event.key === sessionKey) cancelLogin();
     if (event.key === null) authStore.clear();
   });
 }
@@ -238,7 +238,7 @@ export function selectSpace(spaces: Space[], requested?: string): Space | null {
   return spaces.find((space) => space.id === (requested ?? companySpace)) ?? null;
 }
 export async function createPersonalSpace(): Promise<{ id: string }> {
-  return pb.send("/api/wiki/spaces/personal", { method: "POST" });
+  return pb.send("/api/spaces/personal", { method: "POST" });
 }
 export async function evidenceSpace(collection: "sources" | "passages", id: string): Promise<string | null> {
   return (await query<{ space: string }>(`SELECT space FROM ${collection} WHERE id=${identity(id)} LIMIT 1`))[0]?.space ?? null;
@@ -486,62 +486,38 @@ async function readPage(publicationId: string, slug: string): Promise<PageDetail
   return { ...detail, citations, backlinks, links };
 }
 
-const googleRequestKey = "wikicontext-google-signin";
 let pendingSignIn: { cancel: (message?: string) => void } | null = null;
-async function signIn(email?: string, password?: string): Promise<void> {
+async function signIn(email: string, password: string): Promise<void> {
   pendingSignIn?.cancel();
   const generation = sessionGeneration, token = authStore.token;
   const client = new PocketBase(pb.baseURL, new BaseAuthStore());
-  const google = email === undefined;
-  // Open synchronously in the click handler, before provider discovery awaits.
-  const popup = google ? window.open("about:blank", "_blank", "popup,width=520,height=720") : null;
-  if (google && !popup) throw new Error("Allow the sign-in popup, then try again.");
   let ended = false;
   let rejectAttempt: (error: Error) => void = () => {};
   const attempt = {
-    cancel(message = `${google ? "Google sign-in" : "Sign-in"} cancelled. You can try again.`) {
+    cancel(message = "Sign-in cancelled. You can try again.") {
       if (ended) return;
       ended = true;
-      // This isolated client owns only this attempt, including discovery and exchange.
+      // This isolated client owns only this attempt.
       client.cancelAllRequests();
-      popup?.close();
       rejectAttempt(Object.assign(new Error(message), { isAbort: true }));
     },
   };
   pendingSignIn = attempt;
-  const timeout = google ? window.setTimeout(() => attempt.cancel("Google sign-in timed out. Please try again."), 180000) : undefined;
   try {
     const result = await new Promise<RecordAuthResponse>((resolve, reject) => {
       rejectAttempt = reject;
-      const auth = client.collection("users");
-      const response = google
-        ? auth.authWithOAuth2({
-          provider: "google", requestKey: googleRequestKey,
-          urlCallback(url) {
-            if (ended) throw new Error("Sign-in ended");
-            const destination = new URL(url);
-            if (destination.origin !== "https://accounts.google.com" || destination.username || destination.password)
-              throw new Error("Unexpected Google authorization configuration.");
-            popup!.location.href = destination.href;
-          },
-        })
-        : auth.authWithPassword(email!, password!);
-      response.then(resolve, reject);
+      client.collection("users").authWithPassword(email, password).then(resolve, reject);
     });
     if (ended || pendingSignIn !== attempt || generation !== sessionGeneration || token !== authStore.token) throw new Error("Session changed");
     if (result.record.collectionName !== "users") throw new Error("Invalid workspace identity");
     authStore.save(result.token, result.record);
   } finally {
     ended = true;
-    clearTimeout(timeout);
-    popup?.close();
     if (pendingSignIn === attempt) pendingSignIn = null;
-    await client.realtime.unsubscribe();
   }
 }
-export async function loginGoogle(): Promise<void> { await signIn(); }
-/** Cancel discovery, the realtime wait or exchange and fence late responses. */
-export function cancelGoogleLogin(): void { pendingSignIn?.cancel(); }
+/** Cancel a pending sign-in and fence late responses. */
+export function cancelLogin(): void { pendingSignIn?.cancel(); }
 export async function loginPassword(email: string, password: string): Promise<void> { await signIn(email, password); }
 let refreshedAt = 0;
 let refreshedToken = "";
@@ -578,7 +554,7 @@ export async function refreshSession(): Promise<void> {
   }
 }
 export function logout(): void {
-  cancelGoogleLogin();
+  cancelLogin();
   pb.authStore.clear();
 }
 export async function originalURL(source: Source): Promise<string> {
@@ -589,20 +565,6 @@ export async function originalURL(source: Source): Promise<string> {
     source.original,
     { token, download: true },
   );
-}
-/** Only decoded raster formats supported by reviewed-image ingestion are previewed. */
-export function canPreviewImage(source: Source): boolean {
-  return ["image/png", "image/jpeg", "image/webp"].includes(source.media_type.trim().toLowerCase());
-}
-export async function previewURL(source: Source): Promise<string> {
-  identity(source.id);
-  if (!canPreviewImage(source) || !source.original) throw new Error("Image preview unavailable");
-  const generation = sessionGeneration;
-  const token = await pb.files.getToken();
-  if (generation !== sessionGeneration || !pb.authStore.isValid) throw new Error("Session changed");
-  const url = pb.files.getURL({ id: source.id, collectionName: "sources" }, source.original, { token });
-  if (new URL(url).origin !== new URL(pb.baseURL).origin) throw new Error("Invalid image origin");
-  return url;
 }
 export async function watchPublications(
   callback: () => void,
@@ -641,8 +603,7 @@ export const api = {
   listSpaces,
   createPersonalSpace,
   evidenceSpace,
-  loginGoogle,
-  cancelGoogleLogin,
+  cancelLogin,
   loginPassword,
   refreshSession,
   logout,
@@ -653,6 +614,5 @@ export const api = {
   getPage,
   searchPages,
   originalURL,
-  previewURL,
   watchPublications,
 };

@@ -400,7 +400,7 @@ describe("published knowledge reads", () => {
       await expect(query("SELECT id FROM pages")).rejects.toEqual({ status });
       expect(pb.authStore.token).toBe("");
       expect(
-        window.localStorage.getItem("wikicontext.reader.auth"),
+        window.localStorage.getItem("pocketcontext.reader.auth"),
       ).toBeNull();
     },
   );

@@ -1,18 +1,21 @@
 TAGS := sqlite_math_functions,sqlite_percentile,sqlite_fts5
 VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -s -w -X github.com/pocketcontext/wikicontext-bundle/internal/bundle.Version=$(VERSION)
+LDFLAGS := -s -w -X github.com/pocketcontext-labs/pocketcontext/internal/bundle.Version=$(VERSION)
 GOBUILD := go build -trimpath -tags $(TAGS) -ldflags "$(LDFLAGS)"
 
-.PHONY: ui build windows test e2e
+.PHONY: ui build windows test names e2e
 ui:
 	cd ui && pnpm install --frozen-lockfile && pnpm build
 build:
-	CGO_ENABLED=1 $(GOBUILD) -o bin/wikicontext ./cmd/wikicontext
+	CGO_ENABLED=1 $(GOBUILD) -o bin/pocketcontext ./cmd/pocketcontext
 # Cross-compile from Linux or macOS with Zig as the C compiler (ZIG=/path/to/zig).
 windows:
 	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 ZIG_TARGET=x86_64-windows-gnu CC="$(CURDIR)/scripts/zig-cc" \
-		$(GOBUILD) -o bin/windows_amd64/wikicontext.exe ./cmd/wikicontext
+		$(GOBUILD) -o bin/windows_amd64/pocketcontext.exe ./cmd/pocketcontext
 test:
 	CGO_ENABLED=1 go test -tags $(TAGS) ./...
-e2e: build
-	python3 tests/e2e.py --binary bin/wikicontext
+# The repository and the binary must not contain the retired product name.
+names: build
+	python3 tests/name_check.py --binary bin/pocketcontext
+e2e: names
+	python3 tests/e2e.py --binary bin/pocketcontext
