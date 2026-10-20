@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"crypto/subtle"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -24,13 +25,67 @@ type localRoutes struct {
 	store *Store
 	key   string
 	stop  chan struct{}
-	mu    sync.Mutex
-	codes map[string]loginCode
+	codes codeStore
 }
+
+// Sign-in code lifetimes in seconds. Codes live only in server memory.
+const (
+	MinCodeTTL     = 30
+	MaxCodeTTL     = 600
+	DefaultCodeTTL = 120
+)
+
+// ValidCodeTTL reports whether seconds is an allowed sign-in code lifetime.
+func ValidCodeTTL(seconds int) bool { return seconds >= MinCodeTTL && seconds <= MaxCodeTTL }
 
 type loginCode struct {
 	user    string
 	expires time.Time
+}
+
+// codeStore holds single-use sign-in codes in memory.
+type codeStore struct {
+	mu    sync.Mutex
+	codes map[string]loginCode
+	now   func() time.Time
+}
+
+func (s *codeStore) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+// issue creates a code for the user and purges expired ones.
+func (s *codeStore) issue(user string, ttl time.Duration) (string, time.Time) {
+	code := RandomHex(24)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.clock()
+	if s.codes == nil {
+		s.codes = map[string]loginCode{}
+	}
+	for c, v := range s.codes {
+		if now.After(v.expires) {
+			delete(s.codes, c)
+		}
+	}
+	expires := now.Add(ttl)
+	s.codes[code] = loginCode{user, expires}
+	return code, expires
+}
+
+// take consumes a code and returns its user when it was valid.
+func (s *codeStore) take(code string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.codes[code]
+	delete(s.codes, code) // single use
+	if !ok || s.clock().After(v.expires) {
+		return "", false
+	}
+	return v.user, true
 }
 
 func loopback(r *http.Request) bool {
@@ -111,12 +166,16 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		if err := re.BindBody(&body); err != nil {
 			return re.BadRequestError("Invalid account.", nil)
 		}
-		if len(body.Password) < 8 {
+		if body.Password != "" && len(body.Password) < 8 {
 			return re.BadRequestError("The password needs at least 8 characters.", nil)
 		}
 		user, err := re.App.FindAuthRecordByEmail("users", body.Email)
 		created := err != nil
 		if created {
+			if body.Password == "" {
+				// Sign-in happens with one-time codes; nobody learns this password.
+				body.Password = RandomHex(32)
+			}
 			users, err := re.App.FindCollectionByNameOrId("users")
 			if err != nil {
 				return err
@@ -130,7 +189,9 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 			}
 			user.Set("name", name)
 		}
-		user.SetPassword(body.Password)
+		if body.Password != "" {
+			user.SetPassword(body.Password)
+		}
 		if err := re.App.Save(user); err != nil {
 			return re.BadRequestError("Could not save the account: "+err.Error(), nil)
 		}
@@ -141,23 +202,39 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		if err := l.requireKey(re); err != nil {
 			return err
 		}
-		user, err := l.account(re.App)
-		if err != nil {
-			return re.BadRequestError("No local account; run `wikicontext init`.", nil)
+		var body struct {
+			Email string `json:"email"`
+			TTL   *int   `json:"ttl"`
 		}
-		code := RandomHex(24)
-		l.mu.Lock()
-		if l.codes == nil {
-			l.codes = map[string]loginCode{}
-		}
-		for c, v := range l.codes {
-			if time.Now().After(v.expires) {
-				delete(l.codes, c)
+		if re.Request.ContentLength != 0 {
+			if err := re.BindBody(&body); err != nil {
+				return re.BadRequestError("Invalid request.", nil)
 			}
 		}
-		l.codes[code] = loginCode{user.Id, time.Now().Add(2 * time.Minute)}
-		l.mu.Unlock()
-		return re.JSON(http.StatusOK, map[string]string{"url": l.p.URL() + "/bundle/login#" + code})
+		ttl := DefaultCodeTTL
+		if body.TTL != nil {
+			ttl = *body.TTL
+		}
+		if !ValidCodeTTL(ttl) {
+			return re.BadRequestError(fmt.Sprintf("ttl must be %d-%d seconds.", MinCodeTTL, MaxCodeTTL), nil)
+		}
+		var user *core.Record
+		var err error
+		if email := strings.TrimSpace(body.Email); email != "" {
+			user, err = re.App.FindAuthRecordByEmail("users", strings.ToLower(email))
+			if err != nil || user.GetBool("disabled") {
+				return re.BadRequestError("No active account with that email; create it with `wikicontext account`.", nil)
+			}
+		} else if user, err = l.account(re.App); err != nil {
+			return re.BadRequestError("No local account; run `wikicontext init`.", nil)
+		}
+		code, expires := l.codes.issue(user.Id, time.Duration(ttl)*time.Second)
+		return re.JSON(http.StatusOK, map[string]string{
+			"url":     l.p.URL() + "/bundle/login#" + code,
+			"code":    code,
+			"email":   user.Email(),
+			"expires": expires.UTC().Format(time.RFC3339),
+		})
 	})
 
 	e.Router.POST("/api/bundle/redeem", func(re *core.RequestEvent) error {
@@ -167,16 +244,16 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		if err := re.BindBody(&body); err != nil {
 			return re.BadRequestError("Invalid code.", nil)
 		}
-		l.mu.Lock()
-		code, ok := l.codes[body.Code]
-		delete(l.codes, body.Code) // single use
-		l.mu.Unlock()
-		if !ok || time.Now().After(code.expires) {
-			return re.UnauthorizedError("This sign-in link is used or expired; run `wikicontext open` again.", nil)
+		id, ok := l.codes.take(body.Code)
+		if !ok {
+			return re.UnauthorizedError("This sign-in code is used or expired.", nil)
 		}
-		user, err := re.App.FindRecordById("users", code.user)
+		user, err := re.App.FindRecordById("users", id)
 		if err != nil {
-			return re.UnauthorizedError("Account not found.", nil)
+			return re.UnauthorizedError("This sign-in code is used or expired: the account no longer exists.", nil)
+		}
+		if user.GetBool("disabled") {
+			return re.ForbiddenError("This account is disabled.", nil)
 		}
 		return apis.RecordAuthResponse(re, user, "local", nil)
 	})
@@ -237,6 +314,6 @@ const loginJS = `(async () => {
     localStorage.setItem("wikicontext.reader.auth", JSON.stringify({token: data.token, record: data.record}));
     location.replace("/");
   } catch (error) {
-    status.textContent = error.message + " Run wikicontext open again, or sign in with your password.";
+    status.textContent = error.message + " Get a new link with wikicontext open, or sign in with your password.";
   }
 })();`

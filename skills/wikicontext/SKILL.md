@@ -24,7 +24,7 @@ Do not use another `wikicontext` from PATH, and do not start the server any othe
 
 It is idempotent: it starts the local server in the background when needed (port from `wikicontext.json`, default 8096), waits until it answers and checks that it serves this database. Every other command also does this. If it reports that the project is active on another computer, stop and tell the user; use `--take-over` only after the user confirms that computer is off. If it reports a write-back conflict, stop and tell the user; do not choose `recover --keep` yourself.
 
-The CLI signs in automatically as the local account; no password or token is needed. Never print or store the user's password. `"{{BINARY}}" open --db "{{DB}}"` opens the browser reader already signed in.
+The CLI signs in automatically as the local account; no password or token is needed. Never print or store the user's password. `"{{BINARY}}" open --db "{{DB}}"` opens the browser reader already signed in. For a person using this server from another computer with `--url`: `account --email EMAIL --name NAME` creates their account without a password, `login-code --email EMAIL` prints a one-time code for their `login --url URL --code-stdin`, and `open --email EMAIL --no-browser` prints a single-use reader link for them. Pass codes and links only to that person; never store or log them.
 
 ## Model
 

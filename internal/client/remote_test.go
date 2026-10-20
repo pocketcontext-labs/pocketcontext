@@ -83,3 +83,45 @@ func TestSessionFile(t *testing.T) {
 		t.Fatal("session survived deletion")
 	}
 }
+
+func withStdin(t *testing.T, input string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.WriteString(input); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = old; r.Close() })
+}
+
+func TestReadCode(t *testing.T) {
+	withStdin(t, "  abc123 \r\nignored\n")
+	if code, err := readCode(); err != nil || code != "abc123" {
+		t.Fatalf("readCode = %q, %v", code, err)
+	}
+	withStdin(t, "\n")
+	if _, err := readCode(); err == nil || err.(*Fail).Code != 2 {
+		t.Fatalf("empty code: %v", err)
+	}
+}
+
+func TestCodeLoginUsage(t *testing.T) {
+	// These fail before any network access or session file.
+	for _, argv := range [][]string{
+		{"login", "--url", "http://127.0.0.1:1", "--code-stdin", "--email", "a@wiki.localhost"},
+		{"login", "--url", "http://127.0.0.1:1", "--code-stdin", "--password-stdin"},
+		{"login-code", "--url", "http://127.0.0.1:1", "--email", "a@wiki.localhost"},
+		{"open", "--url", "http://127.0.0.1:1", "--email", "a@wiki.localhost"},
+	} {
+		err := run(argv)
+		f, ok := err.(*Fail)
+		if !ok || f.Code != 2 {
+			t.Errorf("%v: %v; want exit 2", argv, err)
+		}
+	}
+}

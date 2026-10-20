@@ -185,7 +185,9 @@ def main():
         w = Wiki(binary, Path(temp))
         try:
             scenario(w)
-            remote_scenario(w, Remote(binary, Path(temp) / 'other-computer', w.url))
+            remote = Remote(binary, Path(temp) / 'other-computer', w.url)
+            remote_scenario(w, remote)
+            codes_scenario(w, remote)
         finally:
             subprocess.run([str(binary), '--db', str(w.db), 'stop'], env=w.env, capture_output=True, timeout=60)
     print('all end-to-end checks passed')
@@ -363,6 +365,76 @@ def remote_scenario(w, r):
     leftovers = [p for p in r.root.rglob('*') if p.name in ('wiki.db', 'wikicontext.json', 'local.key') or p.suffix in ('.db', '.lease')]
     check(not leftovers, f'remote mode creates no database, project or key: {leftovers}')
     check(sorted(p.name for p in r.work.iterdir()) == ['tea.md'], 'remote mode writes nothing to the working folder')
+
+
+def codes_scenario(w, r):
+    """One-time sign-in codes and accounts without a password."""
+    # Started first so the 30-second expiry overlaps the other checks.
+    expiring = w.json('login-code', '--email', 'tester@wiki.localhost', '--ttl', '30')
+    expiring_at = time.monotonic()
+    check(expiring['email'] == 'tester@wiki.localhost' and expiring['code'] and expiring['expires'],
+          'login-code accepts the minimum lifetime of 30 seconds')
+
+    coder = w.json('account', '--email', 'coder@wiki.localhost', '--name', 'Coder', stdin='')
+    check(coder['created'] and coder['email'] == 'coder@wiki.localhost', 'account without a password creates the account')
+    coder_again = w.json('account', '--email', 'coder@wiki.localhost', '--name', 'Coder', stdin='')
+    check(not coder_again['created'] and coder_again['id'] == coder['id'], 'account without a password is repeatable')
+    r.run('login', '--email', 'coder@wiki.localhost', '--password-stdin', stdin='synthetic guess\n', expect=1)
+    check(not r.json('status')['loggedIn'], 'an account created without a password has no known password')
+
+    user = w.json('account', '--email', 'user@wiki.localhost', stdin='')
+    check(not user['created'], 'account without a password finds the existing account')
+    login = r.json('login', '--email', 'user@wiki.localhost', '--password-stdin', stdin='synthetic user password\n')
+    check(login['email'] == 'user@wiki.localhost', 'account without a password keeps the existing password')
+    r.json('logout')
+
+    issued = w.json('login-code', '--email', 'coder@wiki.localhost')
+    check(issued['email'] == 'coder@wiki.localhost' and issued['code'] and issued['expires'], 'login-code issues a code')
+    instance = json.loads((w.project / 'wikicontext.json').read_text(encoding='utf-8'))['instance']
+    login = r.json('login', '--code-stdin', stdin=issued['code'] + '\n')
+    check(login == {'url': w.url, 'email': 'coder@wiki.localhost', 'instance': instance}, 'remote login redeems a code')
+    me = r.json('whoami')
+    check(me['email'] == 'coder@wiki.localhost' and me['id'] == coder['id'], 'the code signs in its own account')
+    rows = r.json('query', "SELECT slug FROM pages WHERE slug = 'tea-policy'")['rows']
+    check(rows == [['tea-policy']], 'a code session reads with SQL')
+    r.json('logout')
+    reused = r.run('login', '--code-stdin', stdin=issued['code'] + '\n', expect=1)
+    check('used or expired' in reused.stderr, 'a redeemed code cannot be reused')
+    unknown = r.run('login', '--code-stdin', stdin='synthetic-unknown-code\n', expect=1)
+    check('used or expired' in unknown.stderr, 'an unknown code is refused')
+    check(not r.json('status')['loggedIn'], 'a refused code leaves the remote logged out')
+
+    log = Path(w.json('status')['log'])
+    if log.exists():
+        check(issued['code'] not in log.read_text(encoding='utf-8', errors='replace'), 'the server log does not contain the code')
+
+    w.run('login-code', '--email', 'nobody@wiki.localhost', expect=1)
+    check(True, 'login-code refuses an unknown email')
+    for ttl in ('10', '601'):
+        w.run('login-code', '--email', 'coder@wiki.localhost', '--ttl', ttl, expect=2)
+        check(True, f'login-code refuses --ttl {ttl}')
+
+    opened = w.json('open', '--email', 'coder@wiki.localhost', '--no-browser')
+    check(opened['signInLink'].startswith(w.url + '/bundle/login#'), 'open --email prints a sign-in link')
+    code = opened['signInLink'].split('#', 1)[1]
+    status, body = w.http('POST', '/api/bundle/redeem', {'code': code})
+    check(status == 200 and json.loads(body)['record']['email'] == 'coder@wiki.localhost', 'open --email signs in that account')
+    status, _ = w.http('POST', '/api/bundle/redeem', {'code': code})
+    check(status == 401, 'the open --email link is single-use')
+
+    refused = r.run('login-code', '--email', 'coder@wiki.localhost', expect=2)
+    check('not available with --url' in refused.stderr, 'login-code is refused in remote mode')
+    r.run('open', '--email', 'coder@wiki.localhost', '--no-browser', expect=2)
+    check(True, 'open --email is refused in remote mode')
+    r.run('login', '--code-stdin', '--email', 'coder@wiki.localhost', stdin=issued['code'] + '\n', expect=2)
+    check(True, 'login refuses --code-stdin with --email')
+
+    remaining = 31 - (time.monotonic() - expiring_at)
+    if remaining > 0:
+        time.sleep(remaining)
+    expired = r.run('login', '--code-stdin', stdin=expiring['code'] + '\n', expect=1)
+    check('used or expired' in expired.stderr, 'an expired code is refused')
+    check(not r.json('status')['loggedIn'], 'an expired code leaves the remote logged out')
 
 
 if __name__ == '__main__':

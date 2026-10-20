@@ -25,10 +25,10 @@ Do not use another `wikicontext` from PATH.
 It reports whether the server is reachable and whether this computer is signed in. Every other command checks the server first.
 
 - Not reachable: do not continue; report it to the user. The server runs on the agent computer; ask the user to check that it runs there and that the port forward is active. Never start a server and never create a database on this computer.
-- Not signed in, or a session expired: do not continue; ask the user to sign in once with `"{{BINARY}}" login --url "{{URL}}" --email EMAIL`. The user types the password; never ask for it, print it or store it.
+- Not signed in, or a session expired: do not continue and do not ask the user for a password. Sign-in uses a one-time code: the operator (or the agent controlling the agent computer) runs `wikicontext login-code --email EMAIL` on the agent computer, and the code is passed on standard input to `printf '%s\n' "$CODE" | "{{BINARY}}" login --url "{{URL}}" --code-stdin`. Never put a code on a command line, and never print, log or store it beyond passing it to `login`. A used or expired code needs a new one. The user may instead sign in with their own password by running `login --url "{{URL}}" --email EMAIL` themselves; never ask for the password, print it or store it.
 - A different WikiContext: do not continue; report it to the user; only the user signs in again.
 
-The reader is the server's own page: `"{{BINARY}}" open --url "{{URL}}"` opens it and the user signs in with email and password.
+The reader is the server's own page. For a signed-in browser, `wikicontext open --email EMAIL --no-browser` on the agent computer prints a single-use link (valid 2 minutes) to open on this computer. `"{{BINARY}}" open --url "{{URL}}"` opens the reader for email and password sign-in.
 
 ## Model
 

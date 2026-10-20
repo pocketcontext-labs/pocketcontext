@@ -258,7 +258,7 @@ parsed:
 		"ensure-running":        {nil, {"take-over"}},
 		"stop":                  {nil, nil},
 		"status":                {nil, nil},
-		"open":                  {nil, {"no-browser"}},
+		"open":                  {{"email"}, {"no-browser"}},
 		"flush":                 {nil, nil},
 		"recover":               {{"keep"}, nil},
 		"init":                  {{"email", "name", "port"}, {"password-stdin"}},
@@ -281,7 +281,8 @@ parsed:
 		"publish":               {{"expected-revision", "home", "home-base"}, {"clear-home"}},
 		"stage-home":            {{"expected-revision", "home", "home-base"}, {"clear-home"}},
 		"account":               {{"email", "name"}, {"password-stdin"}},
-		"login":                 {{"email"}, {"password-stdin"}},
+		"login-code":            {{"email", "ttl"}, nil},
+		"login":                 {{"email"}, {"password-stdin", "code-stdin"}},
 		"logout":                {nil, nil},
 	}
 	s, known := spec[command]
@@ -385,7 +386,15 @@ parsed:
 		if err := bundle.EnsureRunning(p, bundle.StartOptions{}); err != nil {
 			return fail(1, "%v", err)
 		}
-		data, err := bundle.LocalCall(p, "/api/bundle/login-code", map[string]any{})
+		body := map[string]any{}
+		if a.has("email") {
+			email := strings.ToLower(a.flags["email"])
+			if !emailPattern.MatchString(email) {
+				return fail(2, "usage: wikicontext open [--email EMAIL] [--no-browser]")
+			}
+			body["email"] = email
+		}
+		data, err := bundle.LocalCall(p, "/api/bundle/login-code", body)
 		if err != nil {
 			return fail(1, "%v", err)
 		}
@@ -399,6 +408,8 @@ parsed:
 		return nil
 	case "account":
 		return createAccount(p, a, pretty)
+	case "login-code":
+		return loginCode(p, a, pretty)
 	case "skill":
 		return installSkills(p.DB, p.URL(), a.flags["agent"], a.flags["dir"], pretty)
 	}
@@ -411,7 +422,7 @@ parsed:
 
 // localOnly are the server and project commands that need the local database.
 var localOnly = map[string]bool{"serve": true, "start": true, "ensure-running": true, "stop": true, "flush": true,
-	"recover": true, "init": true, "password": true, "account": true}
+	"recover": true, "init": true, "password": true, "account": true, "login-code": true}
 
 // runRemote runs a command against a forwarded server. It never resolves a
 // database or starts a server.
@@ -434,12 +445,24 @@ func runRemote(base, command string, a *args, pretty bool) error {
 		Print(out, pretty)
 		return nil
 	case "login":
-		out, err := login(base, a.flags["email"], a.bools["password-stdin"])
+		var out map[string]any
+		var err error
+		if a.bools["code-stdin"] {
+			if a.has("email") || a.bools["password-stdin"] {
+				return fail(2, "usage: wikicontext login --url URL --code-stdin (the code names the account; no --email or --password-stdin)")
+			}
+			out, err = loginWithCode(base)
+		} else {
+			out, err = login(base, a.flags["email"], a.bools["password-stdin"])
+		}
 		if err != nil {
 			return err
 		}
 		Print(out, pretty)
 		return nil
+	}
+	if command == "open" && a.has("email") {
+		return fail(2, "open --email is not available with --url: run `wikicontext open --email EMAIL --no-browser` on the agent computer and open the printed link here")
 	}
 	s, err := loadSession(base)
 	if err != nil {
@@ -455,7 +478,7 @@ func runRemote(base, command string, a *args, pretty bool) error {
 				fmt.Fprintln(os.Stderr, "could not open a browser:", err)
 			}
 		}
-		Print(map[string]any{"url": base, "note": "sign in with your email and password"}, pretty)
+		Print(map[string]any{"url": base, "note": "sign in with your email and password, or open a sign-in link from `wikicontext open --email EMAIL --no-browser` on the agent computer"}, pretty)
 		return nil
 	case "skill":
 		return installSkills("", base, a.flags["agent"], a.flags["dir"], pretty)
@@ -705,9 +728,17 @@ func createAccount(p *bundle.Project, a *args, pretty bool) error {
 	if !emailPattern.MatchString(email) {
 		return fail(2, "usage: wikicontext account --email EMAIL [--name NAME] [--password-stdin]")
 	}
-	password, err := readPassword(a.bools["password-stdin"], true)
-	if err != nil {
-		return err
+	// Without --password-stdin no password is sent: a new account gets a random
+	// one nobody knows (sign in with `login-code`), an existing one keeps its own.
+	password := ""
+	if a.bools["password-stdin"] {
+		var err error
+		if password, err = readPassword(true, false); err != nil {
+			return err
+		}
+		if password == "" {
+			return fail(2, "no password on standard input")
+		}
 	}
 	if err := bundle.EnsureRunning(p, bundle.StartOptions{}); err != nil {
 		return fail(1, "%v", err)
@@ -717,6 +748,33 @@ func createAccount(p *bundle.Project, a *args, pretty bool) error {
 		return fail(1, "%v", err)
 	}
 	Print(map[string]any{"id": result["id"], "email": result["email"], "created": result["created"]}, pretty)
+	return nil
+}
+
+// loginCodeTTL is the default lifetime of a code from `login-code`, in seconds.
+const loginCodeTTL = 600
+
+// loginCode issues a one-time sign-in code for `login --url URL --code-stdin`.
+func loginCode(p *bundle.Project, a *args, pretty bool) error {
+	email := strings.ToLower(a.flags["email"])
+	if !emailPattern.MatchString(email) {
+		return fail(2, "usage: wikicontext login-code --email EMAIL [--ttl SECONDS]")
+	}
+	ttl, err := a.intFlag("ttl", loginCodeTTL)
+	if err != nil {
+		return err
+	}
+	if !bundle.ValidCodeTTL(ttl) {
+		return fail(2, "--ttl must be %d-%d seconds", bundle.MinCodeTTL, bundle.MaxCodeTTL)
+	}
+	if err := bundle.EnsureRunning(p, bundle.StartOptions{}); err != nil {
+		return fail(1, "%v", err)
+	}
+	result, err := bundle.LocalCall(p, "/api/bundle/login-code", map[string]any{"email": email, "ttl": ttl})
+	if err != nil {
+		return fail(1, "%v", err)
+	}
+	Print(map[string]any{"email": result["email"], "code": result["code"], "expires": result["expires"]}, pretty)
 	return nil
 }
 

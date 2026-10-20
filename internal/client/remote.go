@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,8 +22,9 @@ import (
 // Remote client mode: the server runs on another computer (the agent
 // computer) and this computer reaches it through a port forward on the same
 // loopback port. It never resolves or creates a database, never starts a
-// server and never reads the local key; it signs in with email and password
-// and keeps only the resulting token in a private session file.
+// server and never reads the local key; it signs in with a one-time code issued
+// on the agent computer (or email and password) and keeps only the resulting
+// token in a private session file.
 
 // refreshAfter is how old a stored token may be before it is refreshed. Tokens
 // are valid for seven days.
@@ -145,13 +147,18 @@ func checkRemote(base string, s *session) (*bundle.Instance, error) {
 		return nil, err
 	}
 	if s != nil && s.Instance != i.Instance {
-		return nil, fail(1, "%s now serves a different WikiContext than the one you signed in to; run `wikicontext login --url %s` again", base, base)
+		return nil, fail(1, "%s now serves a different WikiContext than the one you signed in to; sign in again: %s", base, signInHint(base))
 	}
 	return i, nil
 }
 
+// signInHint says how to sign in to base.
+func signInHint(base string) string {
+	return fmt.Sprintf("get a one-time code on the agent computer (`wikicontext login-code --email EMAIL` there), then run `wikicontext login --url %s --code-stdin` and write the code to standard input; or sign in with `wikicontext login --url %s --email EMAIL`", base, base)
+}
+
 func expired(base string) error {
-	return fail(2, "session expired; run `wikicontext login --url %s`", base)
+	return fail(2, "session expired; %s", signInHint(base))
 }
 
 // NewRemote returns a client for a server reached through a port forward,
@@ -169,7 +176,7 @@ func NewRemote(base, space string) (*Client, error) {
 		return nil, err
 	}
 	if s == nil {
-		return nil, fail(2, "not signed in to %s; run `wikicontext login --url %s --email EMAIL` first", base, base)
+		return nil, fail(2, "not signed in to %s; %s", base, signInHint(base))
 	}
 	c.remote, c.token = true, s.Token
 	if time.Since(s.Refreshed) > refreshAfter {
@@ -192,7 +199,7 @@ func NewRemote(base, space string) (*Client, error) {
 // login signs in with email and password and stores only the token.
 func login(base, email string, passwordStdin bool) (map[string]any, error) {
 	if !emailPattern.MatchString(email) {
-		return nil, fail(2, "usage: wikicontext login --url URL --email EMAIL [--password-stdin]")
+		return nil, fail(2, "usage: wikicontext login --url URL (--code-stdin | --email EMAIL [--password-stdin])")
 	}
 	email = strings.ToLower(email)
 	i, err := checkRemote(base, nil)
@@ -215,6 +222,50 @@ func login(base, email string, passwordStdin bool) (map[string]any, error) {
 	if status != 200 || token == "" {
 		return nil, fail(1, "sign-in to %s failed (HTTP %d): %s", base, status, message(data))
 	}
+	if err := saveSession(&session{URL: base, Instance: i.Instance, Email: email, Token: token, Refreshed: time.Now().UTC()}); err != nil {
+		return nil, err
+	}
+	return map[string]any{"url": base, "email": email, "instance": i.Instance}, nil
+}
+
+// readCode reads a one-time sign-in code from the first line of standard input.
+func readCode() (string, error) {
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	code := strings.TrimSpace(line)
+	if code == "" {
+		return "", fail(2, "no sign-in code on standard input; usage: printf '%%s\\n' \"$CODE\" | wikicontext login --url URL --code-stdin")
+	}
+	return code, nil
+}
+
+// loginWithCode redeems a one-time code issued on the agent computer and
+// stores only the resulting token.
+func loginWithCode(base string) (map[string]any, error) {
+	code, err := readCode()
+	if err != nil {
+		return nil, err
+	}
+	i, err := checkRemote(base, nil)
+	if err != nil {
+		return nil, err
+	}
+	c, err := newClient(base, "")
+	if err != nil {
+		return nil, err
+	}
+	status, data, err := c.send("POST", "/api/bundle/redeem", map[string]string{"code": code}, nil, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	token, _ := dig(data, "token").(string)
+	email, _ := dig(data, "record", "email").(string)
+	if status != 200 || token == "" || email == "" {
+		return nil, fail(1, "sign-in to %s failed (HTTP %d): %s Ask for a new code: `wikicontext login-code --email EMAIL` on the agent computer.", base, status, message(data))
+	}
+	email = strings.ToLower(email)
 	if err := saveSession(&session{URL: base, Instance: i.Instance, Email: email, Token: token, Refreshed: time.Now().UTC()}); err != nil {
 		return nil, err
 	}

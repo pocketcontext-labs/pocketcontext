@@ -46,7 +46,7 @@ The server listens on `http://127.0.0.1:8096` (change `port` in `wikicontext.jso
 
 ## Authentication
 
-The reader uses the local account's email and password. `open` signs the browser in with a single-use link valid for two minutes. The CLI needs no password: it reads a random key that the server writes to the private cache at start and exchanges it for an ordinary `users` token. Anyone who can read that key can already read the database. All APIs still require a token, CORS allows only the server's own origin, and requests for any other `Host` are refused, so web pages cannot reach the wiki through `127.0.0.1`.
+The reader uses the local account's email and password. `open` signs the browser in with a single-use link valid for two minutes; `login-code` issues one-time codes for remote clients (see below). The CLI needs no password: it reads a random key that the server writes to the private cache at start and exchanges it for an ordinary `users` token. Anyone who can read that key can already read the database. All APIs still require a token, CORS allows only the server's own origin, and requests for any other `Host` are refused, so web pages cannot reach the wiki through `127.0.0.1`.
 
 ## Several computers
 
@@ -56,22 +56,29 @@ If the synced `wiki.db` changes while this computer has unsaved changes, nothing
 
 ## Remote client
 
-The server can run on one always-on computer (the agent computer) while a person uses the same binary on their own computer as a client only. On the agent computer, create the person's own account so the audit history separates them from the agent:
+The server can run on one always-on computer (the agent computer) while a person uses the same binary on their own computer as a client only. Sign-in uses one-time codes, so no password passes through whoever operates the agent computer.
+
+On the agent computer, create the person's own account (so the audit history separates them from the agent) and issue a code:
 
 ```sh
-./wikicontext account --email you@wiki.localhost --name "Your Name"    # asks for a password
+./wikicontext account --email you@wiki.localhost --name "Your Name"   # no password is set or asked for
+./wikicontext login-code --email you@wiki.localhost                   # prints {"email","code","expires"}
 ```
 
-On the person's computer, forward the same port and sign in:
+On the person's computer, forward the same port and sign in with the code on standard input:
 
 ```sh
 tailcat forward <agent-address> 8096:8096        # or ssh -L 8096:127.0.0.1:8096 <agent>
-wikicontext login --url http://127.0.0.1:8096 --email you@wiki.localhost
+printf '%s\n' "$CODE" | wikicontext login --url http://127.0.0.1:8096 --code-stdin
 wikicontext search "budget" --url http://127.0.0.1:8096
 wikicontext skill --url http://127.0.0.1:8096
 ```
 
-A different local port is refused by the server's Host check. `--url` (or `WIKICONTEXT_BUNDLE_URL`; an explicit `--db` overrides it) accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. Remote mode never resolves or creates a database, never starts a server and never reads the local key; if the server does not answer it fails and says so. `login` stores only the token, in `os.UserCacheDir()/wikicontext-bundle/remote-<hash>/session.json` (private), refreshes it daily and asks for a new `login` when it expires (7 days) or when the URL serves a different WikiContext. `logout` deletes it. Server commands (`serve`, `start`, `ensure-running`, `stop`, `flush`, `recover`, `init`, `password`, `account`) run on the agent computer only.
+For the browser reader, run `./wikicontext open --email you@wiki.localhost --no-browser` on the agent computer and open the printed `signInLink` on the person's computer; the forward of the same port makes it work there.
+
+Codes and links are single use and kept only in the server's memory, so a server restart invalidates them. A `login-code` code is valid for 10 minutes (`--ttl 30`-`600` seconds); an `open` link for 2 minutes. `account` without `--password-stdin` never prompts: a new account gets a random password nobody knows, an existing account keeps its password. Password sign-in remains available: set one with `account --email E --password-stdin` and use `login --url URL --email E`.
+
+A different local port is refused by the server's Host check. `--url` (or `WIKICONTEXT_BUNDLE_URL`; an explicit `--db` overrides it) accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. Remote mode never resolves or creates a database, never starts a server and never reads the local key; if the server does not answer it fails and says so. `login` stores only the token, in `os.UserCacheDir()/wikicontext-bundle/remote-<hash>/session.json` (private), refreshes it daily and asks for a new sign-in when it expires (7 days) or when the URL serves a different WikiContext. `logout` deletes it. Server commands (`serve`, `start`, `ensure-running`, `stop`, `flush`, `recover`, `init`, `password`, `account`, `login-code`) run on the agent computer only.
 
 ## Scope
 
