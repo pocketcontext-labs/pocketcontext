@@ -659,9 +659,9 @@ def lint_scenario(pc):
                                                           'sources': [source['source']]}))
     filler = ' '.join(['The grinder setting is checked each morning before service begins.'] * 9)
     pages = {  # slug: (title, body, markers, link targets)
-        'burr-grinder': ('Burr grinder', f'{filler}[^1] Follow the Coffee policy and the **Tamping station** rules.[^2]', 2, []),
-        'milk-frother': ('Milk frother', 'Placed next to the [[burr-grinder]] and the **Tamping station**.[^1]', 1, ['burr-grinder']),
-        'cleaning-rota': ('Cleaning rota', 'Wipe the burr grinder, the `Milk frother` and the **tamping station** daily.[^1][^2]', 2, []),
+        'burr-grinder': ('Burr grinder', f'{filler}[^1] Follow the Coffee policy and the **Tamping station** rules, as Ada Lovelace asked on Monday.[^2]', 2, []),
+        'milk-frother': ('Milk frother', 'Placed next to the [[burr-grinder]] and the **Tamping station** by Ada Lovelace on Monday.[^1]', 1, ['burr-grinder']),
+        'cleaning-rota': ('Cleaning rota', 'Wipe the burr grinder, the `Milk frother` and the **tamping station** daily; Ada Lovelace checks on Monday.[^1][^2]', 2, []),
     }
     ids = {slug: (pc.run('newid').stdout.strip(), pc.run('newid').stdout.strip()) for slug in pages}
     requests = []
@@ -686,8 +686,9 @@ def lint_scenario(pc):
     check(mentions == {('burr-grinder', 'coffee-policy'), ('cleaning-rota', 'burr-grinder')},
           f'lint reports unlinked mentions, not linked ones or code: {mentions}')
     missing = [(f['term'], f['pages']) for f in findings if f['kind'] == 'missing-page']
-    check(missing == [('Tamping station', ['burr-grinder', 'cleaning-rota', 'milk-frother'])],
-          f'lint reports a bold term on three pages without a page: {missing}')
+    check(missing == [('Ada Lovelace', ['burr-grinder', 'cleaning-rota', 'milk-frother']),
+                      ('Tamping station', ['burr-grinder', 'cleaning-rota', 'milk-frother'])],
+          f'lint reports a bold term and a capitalized name on three pages without a page, not a weekday: {missing}')
     stubbed = {f['page'] for f in findings if f['kind'] == 'stub'}
     check({'milk-frother', 'cleaning-rota'} <= stubbed and 'burr-grinder' not in stubbed, f'lint reports short pages as stubs: {stubbed}')
 

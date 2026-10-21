@@ -87,3 +87,62 @@ func TestStubs(t *testing.T) {
 		t.Fatalf("short page words = %v", words)
 	}
 }
+
+func TestCapitalizedNames(t *testing.T) {
+	lower := map[string]bool{"using": true, "agent": true, "review": true}
+	text := "Mario Zechner wrote it. The Stripe Minions merged it on Monday, and Cloudflare's review factory checked it.\n" +
+		"Using Claude Code, we ran OpenCode and GPT-5.5 in March. However, Cloudflare said no. I think the Agent works.\n" +
+		"Researchers at Project Glasswing agreed. AWS and the CEO met Andrej Karpathy (Karpathy). iPhone owners: Fine.\n" +
+		"Press Shift+Tab to use the APIs and CLIs of Next.js."
+	got := capitalizedNames(text, lower)
+	want := []string{"Mario Zechner", "Stripe Minions", "Cloudflare", "Claude Code", "OpenCode", "GPT-5.5", "Cloudflare",
+		"Project Glasswing", "Andrej Karpathy", "Karpathy", "iPhone", "Next.js"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestMissingPagesCapitalizedNames(t *testing.T) {
+	filler := "The team reviewed the agent output with care. "
+	pages := []lintPage{
+		page("p1", "review-factories", "Review factories",
+			"# Cloudflare Notes\n\n"+filler+"Their review factory runs at Cloudflare, and Stripe Minions do the same.[^1] "+
+				"Mario Zechner described it on Monday. See [[andrej-karpathy|Andrej Karpathy]] and `Bowser Stack` in code. "+
+				"The agent uses GPT-5.5 for drafts.", 2),
+		page("p2", "agent-loops", "Agent loops",
+			filler+"Their verifier agent from Cloudflare's lab, like Stripe Minions, retries in January. Karpathy agrees with Mario Zechner. "+
+				"Teams use GPT-5.5 daily. Bowser stays a side note at https://Bowser.example.com/Bowser.", 2),
+		page("p3", "coding-agents", "Coding agents",
+			filler+"OpenCode came from Mario Zechner; the stripe minions [Stripe Minions](https://example.com) ship daily. "+
+				"Engineers at Cloudflare built one too, as did Andrej Karpathy. Bowser was tried.\n\n```\nBowser Stack\n```", 2),
+		page("p4", "andrej-karpathy", "Andrej Karpathy",
+			filler+"He uses GPT-5.5 and Claude in January. Claude helped. Thursday matters.", 2),
+		page("p5", "notes", "Notes", filler+"Claude summarized it in January. OpenCode and Bowser were mentioned.", 2),
+	}
+	got := missingPages(pages)
+	reversed := make([]lintPage, len(pages))
+	for i, p := range pages {
+		reversed[len(pages)-1-i] = p
+	}
+	if again := missingPages(reversed); !reflect.DeepEqual(again, got) {
+		t.Fatalf("order changed the findings: %v vs %v", again, got)
+	}
+	terms := map[string][]string{}
+	for _, f := range got {
+		terms[f["term"].(string)] = f["pages"].([]string)
+	}
+	want := map[string][]string{
+		"Cloudflare":     {"agent-loops", "coding-agents", "review-factories"},
+		"GPT-5.5":        {"agent-loops", "andrej-karpathy", "review-factories"},
+		"Mario Zechner":  {"agent-loops", "coding-agents", "review-factories"},
+		"Stripe Minions": {"agent-loops", "coding-agents", "review-factories"},
+	}
+	// Not reported: Karpathy (part of a page title), January and Monday
+	// (stopwords), Claude (sentence-initial on two of three pages), OpenCode
+	// (two pages), Bowser (sentence-initial, in a URL or in code), the heading
+	// "Cloudflare Notes", Andrej Karpathy (a page; also a [[page]] link) and
+	// lowercase prose. Stripe Minions counts once on p3 (link text and prose).
+	if !reflect.DeepEqual(terms, want) {
+		t.Fatalf("got %v, want %v", terms, want)
+	}
+}
