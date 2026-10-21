@@ -340,6 +340,7 @@ def structured_ingest(pc, notes):
     want = ['front matter; lines 1-7', '# Episode one; lines 8-15',
             '# Episode one > ## Transcript > ### Level 4 - Bash Tool + Whitelist; lines 17-18']
     check([r[0] for r in rows] == want, f'passages carry heading paths and line ranges: {rows}')
+    passages_scenario(pc, notes, first)
     again = pc.json('ingest', str(episode), '--title', 'Other', '--date', '2020-01-01')
     check(again['rendition'] == first['rendition'] and again['source_date'] == '2025-06-16' and 'immutable' in again['note'],
           'repeated ingest reuses the source and rendition and keeps its date')
@@ -354,6 +355,9 @@ def structured_ingest(pc, notes):
     legacy = pc.json('ingest', str(episode), '--version', 'v1')
     rows = pc.json('sql', f"SELECT locator FROM passages WHERE rendition = '{legacy['rendition']}'")['rows']
     check(legacy['passages'] == 1 and rows == [[v1[0]['locator']]] and 'v1' in legacy['note'], f'a partial v1 rendition resumes: {legacy}')
+    v1_rows = pc.json('sql', f"SELECT id, ordinal, locator, body FROM passages WHERE rendition = '{legacy['rendition']}'")['rows']
+    check(pc.run('passages', first['source'], '--version', 'v1').stdout == passages_text(v1_rows), 'passages --version reads another rendition')
+    check(pc.run('passages', first['source']).stdout.count('\n=== ') == 2, 'without --version passages prefers the v3 rendition')
     check(pc.json('ingest', str(episode))['rendition'] == first['rendition'], 'without --version ingest prefers the v3 rendition')
 
     # v3 folds a lone link after the front matter into the next passage; a v2 rendition
@@ -387,6 +391,34 @@ def structured_ingest(pc, notes):
     dated.write_text('---\ndate: 2024-02-03\n---\nPlain text without headings.\n', encoding='utf-8')
     source = pc.json('ingest', str(dated), '--date', '2026-01-01')
     check(source['title'] == 'dated' and source['source_date'] == '2026-01-01', f'--date wins over front matter: {source}')
+
+
+def passages_text(rows):
+    """The expected `passages` output for (id, ordinal, locator, body) rows: LF only."""
+    blocks = []
+    for pid, ordinal, locator, body in rows:
+        body = body.replace('\r\n', '\n').replace('\r', '\n').rstrip('\n')
+        blocks.append(f'=== {ordinal} · {pid} · {locator}\n{body}\n')
+    return '\n'.join(blocks)
+
+
+def passages_scenario(pc, notes, first):
+    """passages prints a source's passages as text in ordinal order, or writes them to a file."""
+    rows = pc.json('sql', f"SELECT id, ordinal, locator, body FROM passages WHERE rendition = '{first['rendition']}' ORDER BY ordinal")['rows']
+    want = passages_text(rows)
+    printed = pc.run('passages', first['source']).stdout
+    check(printed == want and printed.startswith('=== 1 · ') and printed.count('\n=== ') == len(rows) - 1,
+          f'passages prints every passage after an ordinal, ID and locator line: {printed[:200]!r}')
+    out = notes / 'episode-passages.txt'
+    summary = pc.json('passages', first['source'], '--out', str(out))
+    check(Path(summary.pop('file')).samefile(out) and summary == {'source': first['source'], 'rendition': first['rendition'], 'version': 'v3', 'passages': len(rows)},
+          f'passages --out prints a summary: {summary}')
+    data = out.read_bytes()
+    check(data == want.encode('utf-8') and b'\r' not in data, 'passages --out writes the text as UTF-8 with LF line endings')
+    refused = pc.run('passages', first['source'], '--version', 'v9', expect=1)
+    check('no text rendition "v9"' in refused.stderr and 'v3' in refused.stderr, 'passages names the renditions when --version matches none')
+    check('not found in this space' in pc.run('passages', 'zzzzzzzzzzzzzzz', expect=1).stderr, 'passages refuses an unknown source')
+    check('source ID' in pc.run('passages', 'Episode one', expect=2).stderr, 'passages takes a source ID, not a title')
 
 
 def staging_scenario(pc):
@@ -518,6 +550,11 @@ def remote_scenario(pc, r):
     creator = r.json('query', f"SELECT created_by FROM sources WHERE id = '{source['source']}'")['rows'][0][0]
     check(creator == account['id'], 'the remote source is attributed to the signed-in account')
     passage = r.json('query', f"SELECT id FROM passages WHERE rendition = '{source['rendition']}' AND body LIKE '%Rooibosquartz%'")['rows'][0][0]
+    rows = r.json('query', f"SELECT id, ordinal, locator, body FROM passages WHERE rendition = '{source['rendition']}' ORDER BY ordinal")['rows']
+    check(r.run('passages', source['source']).stdout == passages_text(rows) and passage in passages_text(rows), 'remote passages prints the source passages')
+    summary = r.json('passages', source['source'], '--out', str(r.root / 'tea-passages.txt'))
+    check(summary['passages'] == 1 and (r.root / 'tea-passages.txt').read_bytes() == passages_text(rows).encode('utf-8'),
+          'remote passages --out writes the file on the other computer')
     run = r.json('create', 'ingestion_runs', json.dumps({'key': 'tea-v1', 'status': 'staging', 'description': 'Tea', 'sources': [source['source']]}))
     page = r.json('create', 'pages', '{"slug":"tea-policy","kind":"summary"}')
     revision = r.json('create', 'page_revisions', '-', stdin=json.dumps({

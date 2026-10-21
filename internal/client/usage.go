@@ -52,6 +52,11 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
                                      --version is given (new ones are v3,
                                      which fold passages under 200 characters
                                      into a neighbour)
+  passages SOURCE_ID [--version V] [--out FILE]
+                                     print a source's passages as plain text in
+                                     ordinal order, each after a line with
+                                     ordinal, passage ID and locator; --out
+                                     writes them to a file
   search TERMS [--limit N] [--offset N --generation G --publication ID] [--sequence N]
   lint                               check published graph structure
   stage SPEC|- [--dry-run]           validate a JSON spec of page revisions, then
