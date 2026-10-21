@@ -2,21 +2,45 @@
 
 ## Preserve, extract, synthesize, publish
 
-1. Verify the live schema (`pocketcontext check`) and confirm the selected space (`pocketcontext spaces`). Group inputs into at most five sources per synthesis batch.
-2. Run `pocketcontext ingest PATH` for each file. Exact bytes deduplicate by server SHA-256 within the space, even after lost upload responses. This build accepts UTF-8 text notes only: `.txt`, `.md`, `.markdown`, `.csv`, `.json`, `.rst`, `.log` and extension-less text. Any other file type is rejected before upload; tell the user and suggest converting it to text or Markdown first. Git LFS pointer files fail before upload.
+1. Verify the live schema (`pocketcontext check`) and confirm the selected space (`pocketcontext spaces`). Group the inputs into synthesis batches (see [Batch size](#batch-size)), in source date order when views change over time.
+2. Run `pocketcontext ingest PATH` for each file. Exact bytes deduplicate by server SHA-256 within the space, even after lost upload responses. Markdown front matter supplies the title (`title:`) and the source date (`published:`, else `date:`); pass `--title` and `--date` when a note has none. This build accepts UTF-8 text notes only: `.txt`, `.md`, `.markdown`, `.csv`, `.json`, `.rst`, `.log` and extension-less text. Any other file type is rejected before upload; tell the user and suggest converting it to text or Markdown first. Git LFS pointer files fail before upload.
 3. A complete rendition is reused across machines. Partial extraction resumes against immutable passage ordinals; rerun the same command after an interruption.
-4. Retrieve passages with SQL, ordered by rendition and ordinal. Read all chunks. Retrieve the latest publication manifest of the space (`WHERE space = ...`) and the published pages relevant to the new sources. Use scoped full-text search for title/summary/body matches, then traverse citations and links with SQL. Keep the returned publication pinned when paging and retrieving evidence. Do not assume latest-created page revisions are published.
-5. Choose a stable, descriptive run key. Query that key before creating it. If published, report the existing result. If staging, inspect staged revisions/citations/links and resume missing work. For a conflicting or unsuitable immutable draft, cancel the run with expected_revision and create a new run.
-6. Create or reuse page identities. For each affected page, synthesize one revision with its current published revision ID as base_revision. Include summary, main body with citation markers, and explicit disagreements. Use `WORKSPACE/...` for local repository paths in authored prose; preserve verbatim source paths inside quotations.
-7. Create citations pointing to exact passages and page_links pointing to page identities. Ensure every factual claim has evidence or `[needs verification]`. Synthesis can affect many pages; the server's atomic publication is separate from REST batches (maximum 20 requests each).
-8. Re-read the run revision and update status to published with expected_revision. A conflict requires fresh evidence review and a new staging run, never blind retry. Return the publication sequence and page changes.
+4. Retrieve passages with SQL, ordered by rendition and ordinal. Read all chunks; each passage's `locator` names its heading path and line range. Retrieve the latest publication manifest of the space (`WHERE space = ...`) and the published pages relevant to the new sources. Use scoped full-text search for title/summary/body matches, then traverse citations and links with SQL. Keep the returned publication pinned when paging and retrieving evidence. Do not assume latest-created page revisions are published.
+5. Choose a stable, descriptive run key. Query that key before creating it. If published, report the existing result. If staging, `stage` with the same `run_key` resumes it and skips pages already staged. For a conflicting or unsuitable immutable draft, cancel the run with expected_revision and use a new key.
+6. Plan the pages (see [Page structure](#page-structure-and-maintenance)). For each existing page you revise, export it with `pocketcontext page SLUG > page.json`, edit that object and put it in the spec. Write each revision in full: summary, body with citation markers `[^1]` mapped to exact passage IDs, `[[slug]]` links and explicit disagreements. Ensure every factual claim has evidence or `[needs verification]`. Use `WORKSPACE/...` for local repository paths in authored prose; preserve verbatim source paths inside quotations.
+7. Write the spec and run `pocketcontext stage SPEC.json --dry-run`, then without `--dry-run`. `stage` creates missing page identities, sets base revisions from the latest publication, writes citations and the page links derived from the body, and writes nothing when a check fails (exit 3 with the problems). Use `append` only for a short addition to a page that otherwise stays right; a concept page that changed in substance is rewritten.
+8. Run `pocketcontext check-run RUN_ID`. It lists every problem that would block publication, for all pages at once; fix them by staging again under the same key or, for a stale base revision, by re-reading the published page and preparing a new run.
+9. Re-read the run and `publish RUN_ID --expected-revision N`. A conflict requires fresh evidence review and a new staging run, never blind retry. Return the publication sequence and page changes.
+10. Run `pocketcontext lint` and act on its findings within the request: link unlinked mentions, create or merge pages for recurring terms, and fill or merge stubs in the next run.
 
+`create`, `update` and `batch` remain for single records and repairs; `batch` takes up to 20 requests in one transaction (`pocketcontext help batch`).
+
+### Batch size
+
+One synthesis batch is one ingestion run and one publication. When writing records one by one with `create` or `batch`, keep a batch to at most five sources. With `stage` and `check-run`, a batch may hold up to 10–15 sources when they revise heavily overlapping pages (episodes of one series, chapters of one book): fewer runs mean each concept page is rewritten once per batch instead of once per five sources. Keep at most five for unrelated sources, and fewer whenever you cannot read every passage of the batch before writing. Take sources in date order so that later batches revise the views of earlier ones. Still one run per batch; never spread a batch over several runs or publish half a batch.
+
+## Page structure and maintenance
+
+- **One summary page per source** (`kind` `summary`): what the source says, cited to its passages, with its source date, and links to the concept and entity pages it feeds.
+- **Concept pages** (`concept`): give a term its own page once it recurs in two or more sources, or when `lint` reports it as `missing-page`. Keep one idea per page; link related concepts instead of folding them into one large page.
+- **Entity pages** (`entity`) for people, products, organizations and other named things, with catalog properties where they apply (see below).
+- **A hub page**: keep one overview page (for example slug `overview`, kind `concept`; `index` and `log` are reserved slugs) that links every summary and the main concepts by theme, update it in every run that adds pages, and set it as home with `stage-home` (or `"home"` in the spec).
+- **Rewrite, do not stack**: when new sources change a concept, rewrite the page as a single current synthesis that reads well on its own. Do not append dated sections. End the body with a short `## How this changed` list of dated one-line entries (for example `- 2026-03: shifted from X to Y.[^4]`), each cited.
+- **Reconcile contradictions explicitly**: when sources disagree, say so in the body, cite both sides, and state which is newer, which is better supported, or that it is unresolved. Never silently keep only one side.
+- **Date time-sensitive claims**: write "as of 2026-06" (from the source date) for prices, versions, rankings, roles and plans, so later readers can tell when a claim may be outdated.
+- Prefer linking to repeating: when a page names another page, link it with `[[slug]]` (`lint` reports `unlinked-mention` otherwise).
 
 ## Query and audit
 
 Pin the latest published manifest of the selected space before traversing knowledge; raw SQL spans every space you can read. Retrieve relevant page revisions by its IDs and join citations to passages/renditions/sources. Bound each result, inspect `truncated`, and paginate with stable ordering. Full-text search uses a separate fixed endpoint, not SQL access to FTS tables. It searches published revision text only. Fetch source passages through SQL for evidentiary support; never attach a passage ID to an excerpt without retrieving that passage. Search pagination requires the returned publication and generation; a generation conflict requires discarding prior pages and restarting. Token matching replaces the former substring behavior; no semantic, prefix or typo matching is supplied.
 
-For an audit, check orphan pages, missing concept pages, older claims challenged by newer evidence, explicit contradictions, and weak citation support. Server validation catches structural problems but cannot judge whether a passage supports a claim. Report numbered findings with evidence and proposed fixes; publish revisions only within the requested scope.
+For an audit, start with `pocketcontext lint`. Its structural findings (`broken-link`, `orphan`, `no-citations`, `needs-verification`, `missing-property-citation`, `invalid-property-target`) need fixing; its editorial hints need judgment:
+
+- `unlinked-mention` (`page`, `target`, `term`): the page names another page's title or slug words, as whole words outside code, without linking it. Link it unless the words mean something else there.
+- `missing-page` (`term`, `pages`): a `**bold**` term or Markdown link text appears on three or more pages and no page has that title or slug. Create a concept or entity page, or add the term to an existing page's title if it is the same thing.
+- `stub` (`page`, `words`, `citations`): under 80 words of prose or a single citation (entity pages with properties excluded). Expand it from the evidence, merge it into a broader page, or leave it when it is complete.
+
+Then check older claims challenged by newer evidence, explicit contradictions, and weak citation support. Server validation catches structural problems but cannot judge whether a passage supports a claim. Report numbered findings with evidence and proposed fixes; publish revisions only within the requested scope.
 
 ## Choose the reader home page
 

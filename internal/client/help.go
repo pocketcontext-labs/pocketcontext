@@ -109,7 +109,7 @@ var commandHelp = map[string]helpEntry{
 		"pocketcontext page plan-mode > plan-mode.json"},
 	"stage-home": {"stage-home RUN_ID --expected-revision N (--home SLUG | --clear-home) [--home-base ID]",
 		"Record the reader home page choice on a staging run. The expected current home is captured from the latest publication unless --home-base gives it (use '' for none).",
-		"pocketcontext stage-home RUN_ID_________ --home index --expected-revision 1"},
+		"pocketcontext stage-home RUN_ID_________ --home overview --expected-revision 1"},
 	"publish": {"publish RUN_ID --expected-revision N [--home SLUG | --clear-home --home-base ID]",
 		"Publish a staging run atomically after the server's integrity checks; the first problem refuses the publication (run check-run first to see all). A stale revision or a concurrent change fails with exit 4: re-read and reassess, never retry blindly.",
 		"pocketcontext publish RUN_ID_________ --expected-revision 3"},
