@@ -23,7 +23,7 @@ One synthesis batch is one ingestion run and one publication. When writing recor
 
 - **One summary page per source** (`kind` `summary`): what the source says, cited to its passages, with its source date, and links to the concept and entity pages it feeds.
 - **Concept pages** (`concept`): give a term its own page once it recurs in two or more sources, or when `lint` reports it as `missing-page`. Keep one idea per page; link related concepts instead of folding them into one large page.
-- **Entity pages** (`entity`) for people, products, organizations and other named things, with catalog properties where they apply (see below). A named product, company, system, tool, model or person mentioned in two or more sources gets its own entity page, even when a broader concept page already covers it; the concept page links to it. Set `properties.catalog_type` when a supported type fits (`person`, `group`, `resource`, ...; see Catalog properties). Resolve `lint` `missing-page` findings for names by creating such a page or by linking the name to the page that covers it.
+- **Entity pages** (`entity`) for people, products, organizations and other named things, with catalog properties where they apply (see below). A named product, company, system, tool, model or person mentioned in two or more sources gets its own entity page, even when a broader concept page already covers it; the concept page links to it. Set `properties.catalog_type` when a supported type fits: `person`, `organization` (companies, labs, outside teams), `product` (tools, services, CLIs, libraries, apps, courses), `model` (AI models and families), `group`, `resource`, ... (see Catalog properties). Do not invent an `entity_type` or similar property instead: only `catalog_type` puts a page in a catalog and excuses it from `stub`. Resolve `lint` `missing-page` findings for names by creating such a page or by linking the name to the page that covers it.
 - **A hub page**: keep one overview page (for example slug `overview`, kind `concept`; `index` and `log` are reserved slugs) that links every summary and the main concepts by theme, update it in every run that adds pages, and set it as home with `stage-home` (or `"home"` in the spec).
 - **Rewrite, do not stack**: when new sources change a concept, rewrite the page as a single current synthesis that reads well on its own. Do not append dated sections. End the body with a short `## How this changed` list of dated one-line entries (for example `- 2026-03: shifted from X to Y.[^4]`), each cited.
 - **Reconcile contradictions explicitly**: when sources disagree, say so in the body, cite both sides, and state which is newer, which is better supported, or that it is unresolved. Never silently keep only one side.
@@ -37,8 +37,8 @@ Pin the latest published manifest of the selected space before traversing knowle
 For an audit, start with `pocketcontext lint`. Its structural findings (`broken-link`, `orphan`, `no-citations`, `needs-verification`, `missing-property-citation`, `invalid-property-target`) need fixing; its editorial hints need judgment:
 
 - `unlinked-mention` (`page`, `target`, `term`): the page names another page's title or slug words, as whole words outside code, without linking it. Link it unless the words mean something else there.
-- `missing-page` (`term`, `pages`): a term appears on three or more pages and no page has that title or slug. Terms are `**bold**` text (except field labels such as `**Video:**` opening a line or list item), Markdown link text and capitalized names in prose (title-case runs such as "Mario Zechner", single capitalized words not opening a sentence such as "Cloudflare", product-like tokens such as "OpenCode" or "GPT-5.5"); common words, weekdays, months and names that are part of a page title are skipped. Create an entity page for a named thing (or a concept page for an idea) and link it from those pages, or add the term to an existing page's title if it is the same thing. Leave a finding only when the name is incidental.
-- `stub` (`page`, `words`, `citations`): under 80 words of prose or a single citation (entity pages with properties excluded). Expand it from the evidence, merge it into a broader page, or leave it when it is complete.
+- `missing-page` (`term`, `pages`): a term appears on three or more pages and no page has that title or slug. Terms are `**bold**` text (except field labels such as `**Video:**` opening a line or list item), Markdown link text and capitalized names in prose (title-case runs such as "Mario Zechner", single capitalized words not opening a sentence such as "Cloudflare", product-like tokens such as "OpenCode" or "GPT-5.5"); common words, weekdays, months and names that are whole words of a page title or slug (punctuation ignored: "Anysphere" is part of "Cursor (Anysphere)", "ZTE" of "ZTE: zero-touch engineering") are skipped. Create an entity page for a named thing (or a concept page for an idea) and link it from those pages, or add the term to an existing page's title if it is the same thing. Leave a finding only when the name is incidental.
+- `stub` (`page`, `words`, `citations`): under 80 words of prose or a single citation (entity pages with a `catalog_type` excluded; other entity pages are checked even when they carry properties). Expand it from the evidence, merge it into a broader page, or leave it when it is complete.
 
 Then check older claims challenged by newer evidence, explicit contradictions, and weak citation support. Server validation catches structural problems but cannot judge whether a passage supports a claim. Report numbered findings with evidence and proposed fixes; publish revisions only within the requested scope.
 
@@ -81,8 +81,9 @@ history; run audit changes also record staging home fields, without copying page
 
 ## Catalog properties
 
-Keep a resource, credential, deployment, person or group as an `entity` page with stable identity.
-Add `properties.catalog_type` as `resource`, `credential`, `deployment`, `person`, or `group`. Read the
+Keep a resource, credential, deployment, person, group, organization, product or model as an `entity` page with stable identity.
+Add `properties.catalog_type` as `resource`, `credential`, `deployment`, `person`, `group`, `organization`,
+`product`, or `model` (repository files use the `repository_*` types below); any other value is refused. Read the
 published revision and full supporting passages before preparing a replacement;
 copy forward still-valid properties and property evidence explicitly. Revisions do
 not merge omitted fields. Use normal staging, base revision checks and publication.
@@ -110,6 +111,11 @@ a matching page_links record for every relationship target, as for `[[slug]]` li
 For people, reuse existing entity identities after reviewing their published
 revisions and source evidence. Suggested fields are `role`, `organization` and
 `crm_url`; use an actual verified CRM reader link, not an inferred record ID.
+For organizations (companies, labs and teams outside the user's organization), suggested
+fields are `organization_type` (such as `company`, `lab` or `team`) and `website`. For products
+(tools, services, CLIs, libraries, apps, courses), use `product_type`, `provider` (the vendor's
+name) and `website`. For AI models and model families, use `provider` and `family`. These are
+plain strings, not relationships: link the vendor's or family's page in the body with `[[slug]]`.
 For groups, use `purpose` and `members`, an array of person page IDs. Membership
 is stored only on the group: derive a person's groups from the selected
 publication. Nested groups are unsupported.

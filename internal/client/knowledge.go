@@ -199,6 +199,12 @@ var relationshipProperties = map[string]bool{"deployment_profiles": true, "appli
 	"consumers": true, "replaces": true, "replaced_by": true, "members": true, "accountable_owners": true, "backup_owners": true,
 	"documents": true, "destinations": true}
 
+// catalogTypes are the supported values of the catalog_type property (see
+// pb_hooks/properties.js).
+var catalogTypes = map[string]bool{"resource": true, "credential": true, "deployment": true, "person": true, "group": true,
+	"organization": true, "product": true, "model": true,
+	"repository_document": true, "repository_destination": true, "repository_sync": true}
+
 var targetCatalogs = map[string]string{"members": "person", "accountable_owners": "group", "backup_owners": "group",
 	"documents": "repository_document", "destinations": "repository_destination"}
 
@@ -341,8 +347,9 @@ func (c *Client) Lint() (map[string]any, error) {
 		}
 		title, _ := p["title"].(string)
 		body, _ := p["body"].(string)
+		catalog, _ := properties["catalog_type"].(string)
 		texts = append(texts, lintPage{ID: p["page"].(string), Slug: fmt.Sprint(slug), Kind: fmt.Sprint(p["kind"]), Title: title,
-			Body: body, Citations: len(cited[rev]), Properties: len(properties), Links: targets})
+			Body: body, Catalog: catalog, Citations: len(cited[rev]), Links: targets})
 	}
 	for _, p := range pages {
 		if incoming[p["page"].(string)] == 0 {

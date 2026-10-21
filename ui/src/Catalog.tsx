@@ -17,6 +17,9 @@ export const catalogTypes = [
   "deployment",
   "person",
   "group",
+  "organization",
+  "product",
+  "model",
   "repository_document",
   "prompt",
 ] as const;
@@ -26,6 +29,9 @@ export const catalogLabels = {
   deployment: "Deployments",
   person: "People",
   group: "Groups",
+  organization: "Organizations",
+  product: "Products",
+  model: "Models",
   repository_document: "Repository files",
   prompt: "Prompts",
 };
@@ -64,6 +70,9 @@ const columns: Record<CatalogType, string[]> = {
   repository_document: ["document_type", "output_mode", "accountable_owners"],
   person: ["role", "organization", "groups", "crm_url"],
   group: ["purpose", "members", "owned_resources", "owned_deployments"],
+  organization: ["organization_type", "website"],
+  product: ["product_type", "provider", "website"],
+  model: ["provider", "family"],
   resource: [
     "resource_type",
     "provider",
@@ -87,6 +96,9 @@ const columns: Record<CatalogType, string[]> = {
     "accountable_owners",
   ],
 };
+// Operational catalogs have deployments, lifecycles and owners to filter by.
+const operational = (type: CatalogType) =>
+  type === "resource" || type === "credential" || type === "deployment";
 export function filterCatalog(
   pages: PageSummary[],
   state: CatalogState,
@@ -283,21 +295,25 @@ export default function Catalog({
             </select>
           </label>
         )}
-        {state.type !== "person" && state.type !== "group" && (
+        {(operational(state.type) ||
+          state.type === "product" ||
+          state.type === "model") && (
+          <label>
+            Provider
+            <select
+              aria-label="Provider"
+              value={state.provider}
+              onChange={(event) => update({ provider: event.target.value })}
+            >
+              <option value="">All providers</option>
+              {options("provider").map((value) => (
+                <option key={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {operational(state.type) && (
           <>
-            <label>
-              Provider
-              <select
-                aria-label="Provider"
-                value={state.provider}
-                onChange={(event) => update({ provider: event.target.value })}
-              >
-                <option value="">All providers</option>
-                {options("provider").map((value) => (
-                  <option key={value}>{value}</option>
-                ))}
-              </select>
-            </label>
             <label>
               Deployment
               <select
@@ -357,7 +373,7 @@ export default function Catalog({
             ])}
           </select>
         </label>
-        {state.type !== "person" && state.type !== "group" && (
+        {operational(state.type) && (
           <label className="catalog-checkbox">
             <input
               type="checkbox"
@@ -448,7 +464,7 @@ export default function Catalog({
                   <a href={pageHref(page.slug, publication)}>{page.title}</a>
                 </h2>
                 <p>
-                  {state.type === "person" || state.type === "group" ? (
+                  {!operational(state.type) ? (
                     page.summary
                   ) : (
                     <>

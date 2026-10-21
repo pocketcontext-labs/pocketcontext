@@ -46,7 +46,7 @@ This build accepts UTF-8 text notes only (`.txt .md .markdown .csv .json .rst .l
 
 ## Page structure
 
-Write one summary page per source, give a concept its own page once it recurs in two or more sources, give a named product, company, system, tool, model or person mentioned in two or more sources its own `entity` page (linked from broader concept pages), and keep a hub page set as home. Revise a concept page by rewriting it as one synthesis (with a short dated "How this changed" list at the end), not by appending dated sections; use `page SLUG` to start from the published version. Reconcile contradictions explicitly and date time-sensitive claims. After publishing, run `lint` and act on its findings; resolve `missing-page` by creating the page or linking. Details: [workflows](references/workflows.md).
+Write one summary page per source, give a concept its own page once it recurs in two or more sources, give a named product, company, system, tool, model or person mentioned in two or more sources its own `entity` page (linked from broader concept pages, with `catalog_type` `person`, `organization`, `product` or `model` when one fits), and keep a hub page set as home. Revise a concept page by rewriting it as one synthesis (with a short dated "How this changed" list at the end), not by appending dated sections; use `page SLUG` to start from the published version. Reconcile contradictions explicitly and date time-sensitive claims. After publishing, run `lint` and act on its findings; resolve `missing-page` by creating the page or linking. Details: [workflows](references/workflows.md).
 
 ## Questions
 

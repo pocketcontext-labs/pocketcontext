@@ -85,6 +85,7 @@ test("page type groups split entities by catalog type and include every page onc
     page("Weekly call", "transcript"), page("Old import", "legacy"), page("Odd kind", "unknown"),
     entity("Mario Example", "person"), entity("Ada Example", "person"), entity("Platform team", "group"), entity("Build server", "resource"),
     entity("Stripe Example"), entity("Mystery entity", "spaceship"),
+    entity("Example Labs", "organization"), entity("Example CLI", "product"), entity("Example Model 2", "model"),
   ];
   const groups = groupWelcomePagesByType(pages);
   const filled = groups.filter(group => group.pages.length).map(group => [group.title, group.pages.map(item => item.title)]);
@@ -95,6 +96,9 @@ test("page type groups split entities by catalog type and include every page onc
     ["Transcripts", ["Weekly call"]],
     ["People", ["Ada Example", "Mario Example"]],
     ["Groups", ["Platform team"]],
+    ["Organizations", ["Example Labs"]],
+    ["Products", ["Example CLI"]],
+    ["Models", ["Example Model 2"]],
     ["Resources", ["Build server"]],
     ["Other entities", ["Mystery entity", "Stripe Example"]],
     ["Other pages", ["Odd kind", "Old import"]],
@@ -104,6 +108,12 @@ test("page type groups split entities by catalog type and include every page onc
   expect(groupWelcomePagesByType([...pages].reverse())).toEqual(groups);
   // A catalog_type on a non-entity page does not move it out of its kind.
   expect(groupWelcomePagesByType([{ ...page("Typed concept"), properties: { catalog_type: "person" } }]).find(group => group.title === "Concepts")!.pages).toHaveLength(1);
+});
+
+test("organizations join people and relationships; products and models join apps and workflows", () => {
+  expect(classifyWelcomePage(entity("Example Labs", "organization"))).toBe("people-relationships");
+  expect(classifyWelcomePage(entity("Example CLI", "product"))).toBe("apps-workflows");
+  expect(classifyWelcomePage(entity("Example Model 2", "model"))).toBe("apps-workflows");
 });
 
 test("the default view prefers page types only when most pages would land in Other knowledge", () => {

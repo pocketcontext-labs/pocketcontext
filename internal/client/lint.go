@@ -15,8 +15,8 @@ import (
 // lintPage is what the text checks need of one published, unarchived page.
 type lintPage struct {
 	ID, Slug, Kind, Title, Body string
+	Catalog                     string          // catalog_type, when it is a supported catalog type
 	Citations                   int             // distinct citation markers
-	Properties                  int             // number of properties
 	Links                       map[string]bool // target page IDs: page_links and relationship properties
 }
 
@@ -313,6 +313,16 @@ func capitalizedNames(text string, lower map[string]bool) []string {
 	return names
 }
 
+// titleWords lowercases s and reduces it to its words: every run of
+// characters other than letters and digits becomes one space, so that
+// "Cursor (Anysphere)" reads "cursor anysphere" and "ZTE: zero-touch" reads
+// "zte zero touch".
+func titleWords(s string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}), " ")
+}
+
 // containsWords reports whether the words of term occur, in order and as
 // whole words, in the normalized text s.
 func containsWords(s, term string) bool {
@@ -333,7 +343,8 @@ func fieldLabel(text string, start int, term string) bool {
 // that term as its title or slug. Terms are text written in **bold** (or
 // __bold__), the text of Markdown links [term](url) and capitalized names in
 // prose (see capitalizedNames); a name is also skipped when it is part of a
-// page title or slug (Karpathy for a page "Andrej Karpathy"). Terms compare
+// page title or slug (Karpathy for a page "Andrej Karpathy", Anysphere for
+// "Cursor (Anysphere)"), comparing words with punctuation removed. Terms compare
 // case-insensitively with hyphens and spaces equal; code, [[page]] links and
 // headings are ignored.
 func missingPages(pages []lintPage) []map[string]any {
@@ -341,9 +352,10 @@ func missingPages(pages []lintPage) []map[string]any {
 	titles := []string{}
 	for _, p := range pages {
 		existing[normalTerm(p.Title)], existing[normalTerm(p.Slug)] = true, true
-		titles = append(titles, normalTerm(p.Title), normalTerm(p.Slug))
+		titles = append(titles, titleWords(p.Title), titleWords(p.Slug))
 	}
 	partOfTitle := func(term string) bool {
+		term = titleWords(term)
 		for _, t := range titles {
 			if containsWords(t, term) {
 				return true
@@ -422,12 +434,13 @@ func missingPages(pages []lintPage) []map[string]any {
 }
 
 // stubs finds pages with fewer than stubWords words of prose or exactly one
-// citation. Entity pages that carry properties are catalog records, not prose,
-// and are never stubs; pages without citations are reported as no-citations.
+// citation. Entity pages with a supported catalog_type are catalog records, not
+// prose, and are never stubs; other entity pages, even with properties, are
+// checked like any page. Pages without citations are reported as no-citations.
 func stubs(pages []lintPage) []map[string]any {
 	findings := []map[string]any{}
 	for _, p := range pages {
-		if p.Kind == "entity" && p.Properties > 0 {
+		if p.Kind == "entity" && catalogTypes[p.Catalog] {
 			continue
 		}
 		if words := countWords(proseText(p.Body)); words < stubWords || p.Citations == 1 {

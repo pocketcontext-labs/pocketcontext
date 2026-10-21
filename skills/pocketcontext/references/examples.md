@@ -224,3 +224,18 @@ valid revision fields when adopting these properties. Do not store a second
 `members` arrays through the same publication manifest. Group membership does
 not grant access or send notifications.
 
+
+Named things from sources take the organization, product and model types; their
+fields are plain strings, and related pages are linked in the body:
+
+```json
+{"catalog_type":"organization","organization_type":"lab","website":"https://labs.example.test"}
+```
+
+```json
+{"catalog_type":"product","product_type":"cli","provider":"Example Labs","website":"https://labs.example.test/cli"}
+```
+
+```json
+{"catalog_type":"model","provider":"Example Labs","family":"Example Model"}
+```

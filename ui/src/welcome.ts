@@ -31,7 +31,8 @@ function identity(page: PageSummary): string {
 // These are navigation hints, not authoritative metadata. Unknown subjects stay
 // visible in Other knowledge, and every selected publication page appears once.
 export function classifyWelcomePage(page: PageSummary): WelcomeTopicId {
-  if (["person", "group"].includes(String(page.properties?.catalog_type))) return "people-relationships";
+  if (["person", "group", "organization"].includes(String(page.properties?.catalog_type))) return "people-relationships";
+  if (["product", "model"].includes(String(page.properties?.catalog_type))) return "apps-workflows";
   if (["resource", "credential", "deployment"].includes(String(page.properties?.catalog_type))) return "platform-security";
   const value = identity(page);
   if (/\b(handoff|handoffs|history|historical|changelog|release|releases|retrospective)\b/.test(value)) return "handoffs-history";
@@ -94,6 +95,9 @@ const KIND_SECTIONS = [
 const ENTITY_SECTIONS = [
   { type: "person", title: "People" },
   { type: "group", title: "Groups" },
+  { type: "organization", title: "Organizations" },
+  { type: "product", title: "Products" },
+  { type: "model", title: "Models" },
   { type: "resource", title: "Resources" },
   { type: "credential", title: "Credentials" },
   { type: "deployment", title: "Deployments" },
