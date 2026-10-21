@@ -227,7 +227,8 @@ func stringList(v any) []string {
 
 var needsVerification = regexp.MustCompile(`\[needs verification\]`)
 
-// Lint checks the published graph's structure; semantic review remains agent work.
+// Lint checks the published graph's structure and flags editorial hints
+// (unlinked-mention, missing-page, stub; see lint.go); semantic review remains agent work.
 func (c *Client) Lint() (map[string]any, error) {
 	space, err := c.SpaceID()
 	if err != nil {
@@ -284,6 +285,7 @@ func (c *Client) Lint() (map[string]any, error) {
 	}
 	incoming := map[string]int{}
 	catalogs := map[string]any{}
+	texts := []lintPage{}
 	for _, p := range pages {
 		incoming[p["page"].(string)] = 0
 		catalogs[p["page"].(string)] = decodeJSONField(p["properties"])["catalog_type"]
@@ -337,10 +339,19 @@ func (c *Client) Lint() (map[string]any, error) {
 		if len(cited[rev]) == 0 {
 			findings = append(findings, map[string]any{"page": slug, "kind": "no-citations"})
 		}
+		title, _ := p["title"].(string)
+		body, _ := p["body"].(string)
+		texts = append(texts, lintPage{ID: p["page"].(string), Slug: fmt.Sprint(slug), Kind: fmt.Sprint(p["kind"]), Title: title,
+			Body: body, Citations: len(cited[rev]), Properties: len(properties), Links: targets})
 	}
 	for _, p := range pages {
 		if incoming[p["page"].(string)] == 0 {
 			findings = append(findings, map[string]any{"page": p["slug"], "kind": "orphan"})
+		}
+	}
+	for _, check := range []func([]lintPage) []map[string]any{unlinkedMentions, missingPages, stubs} {
+		for _, f := range check(texts) {
+			findings = append(findings, f)
 		}
 	}
 	return map[string]any{"space": space, "publication": pubID, "findings": findings,
