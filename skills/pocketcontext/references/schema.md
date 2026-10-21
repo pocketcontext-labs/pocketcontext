@@ -34,7 +34,7 @@ The authenticated search endpoint is separate from SQL. Index `pages` takes a re
 
 Revision properties follow the [catalog workflow](workflows.md#catalog-properties).
 Relationship properties contain stable page IDs and are checked against the resulting
-publication and require matching page_links records for each target. `catalog_type` supports resource, credential, deployment, person, group, repository_document, repository_destination and repository_sync entities.
+publication and require matching page_links records for each target. `catalog_type` supports resource, credential, deployment, person, group, organization, product, model, repository_document, repository_destination and repository_sync entities; other values are refused.
 `members` links groups to people; `accountable_owners` and `backup_owners` link to
 groups. Membership is accountability metadata without authentication significance.
 Citation markers may be

@@ -69,19 +69,27 @@ func TestMissingPages(t *testing.T) {
 func TestStubs(t *testing.T) {
 	long := strings.Repeat("word ", stubWords)
 	entity := page("p4", "acme", "Acme", "Short.", 1)
-	entity.Kind, entity.Properties = "entity", 2
+	entity.Kind, entity.Catalog = "entity", "organization"
+	// Properties without a catalog type do not make an entity a catalog record.
+	untyped := page("p6", "widget", "Widget", "Short.", 1)
+	untyped.Kind = "entity"
+	unknown := page("p7", "thing", "Thing", "Short.", 1)
+	unknown.Kind, unknown.Catalog = "entity", "entity_type"
+	typedConcept := page("p8", "typed", "Typed", "Short.", 1)
+	typedConcept.Catalog = "product"
 	pages := []lintPage{
 		page("p1", "short", "Short", "A short page.[^1] `code words are not counted`", 2),
 		page("p2", "single", "Single", long+"[^1]", 1),
 		page("p3", "full", "Full", long+"[^1][^2]", 2),
 		entity,
 		page("p5", "code", "Code", "```\n"+long+"\n```\nShort.", 2),
+		untyped, unknown, typedConcept,
 	}
 	got := []string{}
 	for _, f := range stubs(pages) {
 		got = append(got, f["page"].(string))
 	}
-	if want := []string{"short", "single", "code"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"short", "single", "code", "widget", "thing", "typed"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if words := stubs(pages)[0]["words"]; words != 3 {

@@ -318,3 +318,69 @@ describe("people and groups", () => {
     );
   });
 });
+describe("organizations, products and models", () => {
+  const labs: PageSummary = {
+    ...deployment,
+    id: "labs-rev",
+    page: "labs",
+    slug: "example-labs",
+    title: "Example Labs",
+    properties: {
+      catalog_type: "organization",
+      organization_type: "lab",
+      website: "https://labs.example",
+    },
+  };
+  const cli: PageSummary = {
+    ...deployment,
+    id: "cli-rev",
+    page: "cli",
+    slug: "example-cli",
+    title: "Example CLI",
+    properties: {
+      catalog_type: "product",
+      product_type: "cli",
+      provider: "Example Labs",
+    },
+  };
+  const model: PageSummary = {
+    ...deployment,
+    id: "model-rev",
+    page: "model",
+    slug: "example-model-2",
+    title: "Example Model 2",
+    properties: {
+      catalog_type: "model",
+      provider: "Example Labs",
+      family: "Example Model",
+    },
+  };
+  const named = [labs, cli, model, deployment];
+  it("lists each type in its own catalog with its own columns and filters", () => {
+    expect(
+      filterCatalog(named, { ...state, type: "product" }).map((p) => p.page),
+    ).toEqual(["cli"]);
+    expect(
+      filterCatalog(named, { ...state, type: "model", provider: "Example Labs" }),
+    ).toEqual([model]);
+    render(
+      <Catalog pages={named} state={{ ...state, type: "organization" }} />,
+    );
+    expect(
+      screen.getByRole("heading", { name: "Organizations" }),
+    ).toBeInTheDocument();
+    for (const label of ["Organizations", "Products", "Models"])
+      expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Example Labs" })).not.toHaveLength(0);
+    expect(screen.getAllByText("lab")).toHaveLength(2);
+    expect(screen.queryByText(/Needs verification ·/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Provider")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Deployment")).not.toBeInTheDocument();
+    cleanup();
+    render(<Catalog pages={named} state={{ ...state, type: "model" }} />);
+    expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Provider")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Lifecycle")).not.toBeInTheDocument();
+    expect(screen.queryByText("Missing owner")).not.toBeInTheDocument();
+  });
+});

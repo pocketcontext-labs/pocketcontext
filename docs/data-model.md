@@ -58,7 +58,10 @@ Properties belong to immutable revisions, so publication, conflicts and history 
 
 `property_evidence` maps property names to up to 32 citation marker strings, for example `{"provider_status":["1"]}`. Every marker needs a citation record; a citation may support properties, the body or both. Never store secret values in properties.
 
-`catalog_type` on an entity page opts into a catalog view: `resource`, `credential`, `deployment`, `person`, `group`, `repository_document`, `repository_destination`, or `repository_sync`.
+`catalog_type` on an entity page opts into a catalog view: `resource`, `credential`, `deployment`, `person`, `group`, `organization`, `product`, `model`, `repository_document`, `repository_destination`, or `repository_sync`. Any other value is refused.
+
+- `organization` is a company, lab, team or other body outside the user's organization; suggested properties `organization_type` (such as `company`, `lab`, `team`) and `website`. `product` is a tool, service, CLI, library, app or course; suggested `product_type`, `provider` (the vendor's name) and `website`. `model` is an AI model or model family; suggested `provider` and `family`. These are plain strings: there are no relationship properties between them, so link related pages in the body with `[[slug]]`.
+- `lint` does not report entity pages with a supported `catalog_type` as `stub`; entity pages with other properties but no catalog type are checked like any page.
 
 - Relationship properties (`deployment_profiles`, `applications`, `resources`, `credentials`, `consumers`, `replaces`, `replaced_by`, `members`, `accountable_owners`, `backup_owners`, `documents`, `destinations`) are lists of page IDs; each target needs a `page_links` record and must be published and unarchived.
 - `members` (on `group` pages) target `person` pages; `accountable_owners` and `backup_owners` target `group` pages. Groups record accountability only and grant no access.

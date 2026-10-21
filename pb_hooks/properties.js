@@ -19,7 +19,7 @@ function validate(record){
   if(Array.isArray(value)){
    if(value.length>100||value.some(v=>typeof v!=='string'||v.length>2048)||new Set(value).size!==value.length)invalid('Property lists must contain up to 100 unique bounded strings');
   }else if(value!==null&&typeof value!=='boolean'&&!(typeof value==='string'&&value.length<=2048)&&!(typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<=Number.MAX_SAFE_INTEGER))invalid('Property values must be bounded scalars or string lists');
-  if(key==='catalog_type'&&!['resource','credential','deployment','person','group','repository_document','repository_destination','repository_sync'].includes(value))invalid('Invalid catalog_type');
+  if(key==='catalog_type'&&!['resource','credential','deployment','person','group','organization','product','model','repository_document','repository_destination','repository_sync'].includes(value))invalid('Invalid catalog_type');
   if(relationships.includes(key)&&(!Array.isArray(value)||value.some(v=>! /^[a-z0-9]{15}$/.test(v))))invalid('Relationship properties require page ID lists');
  }
  if(Object.prototype.hasOwnProperty.call(properties,'members')&&properties.catalog_type!=='group')invalid('Only group pages can declare members');

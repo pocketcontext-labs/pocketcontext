@@ -15,8 +15,8 @@ import (
 // lintPage is what the text checks need of one published, unarchived page.
 type lintPage struct {
 	ID, Slug, Kind, Title, Body string
+	Catalog                     string          // catalog_type, when it is a supported catalog type
 	Citations                   int             // distinct citation markers
-	Properties                  int             // number of properties
 	Links                       map[string]bool // target page IDs: page_links and relationship properties
 }
 
@@ -434,12 +434,13 @@ func missingPages(pages []lintPage) []map[string]any {
 }
 
 // stubs finds pages with fewer than stubWords words of prose or exactly one
-// citation. Entity pages that carry properties are catalog records, not prose,
-// and are never stubs; pages without citations are reported as no-citations.
+// citation. Entity pages with a supported catalog_type are catalog records, not
+// prose, and are never stubs; other entity pages, even with properties, are
+// checked like any page. Pages without citations are reported as no-citations.
 func stubs(pages []lintPage) []map[string]any {
 	findings := []map[string]any{}
 	for _, p := range pages {
-		if p.Kind == "entity" && p.Properties > 0 {
+		if p.Kind == "entity" && catalogTypes[p.Catalog] {
 			continue
 		}
 		if words := countWords(proseText(p.Body)); words < stubWords || p.Citations == 1 {

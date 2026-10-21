@@ -658,26 +658,39 @@ def lint_scenario(pc):
     run = pc.json('create', 'ingestion_runs', json.dumps({'key': 'grinder-v1', 'status': 'staging', 'description': 'Grinder',
                                                           'sources': [source['source']]}))
     filler = ' '.join(['The grinder setting is checked each morning before service begins.'] * 9)
-    pages = {  # slug: (title, body, markers, link targets)
+    pages = {  # slug: (title, body, markers, link targets[, properties])
         'burr-grinder': ('Burr grinder', f'{filler}[^1] Follow the Coffee policy and the **Tamping station** rules, as Ada Lovelace asked on Monday.[^2]', 2, []),
         'milk-frother': ('Milk frother', 'Placed next to the [[burr-grinder]] and the **Tamping station** by Ada Lovelace on Monday.[^1]', 1, ['burr-grinder']),
         'cleaning-rota': ('Cleaning rota', 'Wipe the burr grinder, the `Milk frother` and the **tamping station** daily; Ada Lovelace checks on Monday.[^1][^2]', 2, []),
+        # Short entity pages: only those with a catalog_type are catalog records, not stubs.
+        'example-labs': ('Example Labs', 'Recorded from the note.[^1][^2]', 2, [],
+                         {'catalog_type': 'organization', 'organization_type': 'lab', 'website': 'https://labs.example.test'}),
+        'example-cli': ('Example CLI', 'Recorded from the note.[^1][^2]', 2, [],
+                        {'catalog_type': 'product', 'product_type': 'cli', 'provider': 'Example Labs'}),
+        'example-model': ('Example Model', 'Recorded from the note.[^1][^2]', 2, [],
+                          {'catalog_type': 'model', 'provider': 'Example Labs', 'family': 'Example'}),
+        'loose-widget': ('Loose widget', 'Recorded from the note.[^1][^2]', 2, [], {'entity_type': 'product'}),
     }
     ids = {slug: (pc.run('newid').stdout.strip(), pc.run('newid').stdout.strip()) for slug in pages}
-    requests = []
-    for slug, (title, body, markers, links) in pages.items():
+    batches = {'concept': [], 'entity': []}  # a batch holds at most 20 requests: entity pages go in a second one
+    for slug, (title, body, markers, links, *properties) in pages.items():
         page_id, revision_id = ids[slug]
-        requests.append({'method': 'POST', 'url': '/api/collections/pages/records', 'body': {'id': page_id, 'slug': slug, 'kind': 'concept'}})
+        kind = 'entity' if properties else 'concept'
+        requests = batches[kind]
+        requests.append({'method': 'POST', 'url': '/api/collections/pages/records', 'body': {'id': page_id, 'slug': slug, 'kind': kind}})
         requests.append({'method': 'POST', 'url': '/api/collections/page_revisions/records', 'body': {
-            'id': revision_id, 'run': run['id'], 'page': page_id, 'base_revision': '', 'title': title, 'summary': title, 'body': body}})
+            'id': revision_id, 'run': run['id'], 'page': page_id, 'base_revision': '', 'title': title, 'summary': title, 'body': body,
+            **({'properties': properties[0]} if properties else {})}})
         for marker in range(1, markers + 1):
             requests.append({'method': 'POST', 'url': '/api/collections/citations/records',
                              'body': {'page_revision': revision_id, 'passage': passage, 'marker': str(marker)}})
         for target in links:
             requests.append({'method': 'POST', 'url': '/api/collections/page_links/records',
                              'body': {'page_revision': revision_id, 'target': ids[target][0]}})
+    requests, entities = batches['concept'], batches['entity']
     written = pc.json('batch', '-', stdin=json.dumps(requests))
     check(len(written) == len(requests), 'batch writes pages, revisions, citations and links in one request')
+    check(len(pc.json('batch', '-', stdin=json.dumps(entities))) == len(entities), 'a second batch writes the entity pages')
     current = pc.json('get', 'ingestion_runs', run['id'])
     check(pc.json('publish', run['id'], '--expected-revision', str(current['revision']))['status'] == 'published',
           'the batch-written run publishes')
@@ -691,6 +704,18 @@ def lint_scenario(pc):
           f'lint reports a bold term and a capitalized name on three pages without a page, not a weekday: {missing}')
     stubbed = {f['page'] for f in findings if f['kind'] == 'stub'}
     check({'milk-frother', 'cleaning-rota'} <= stubbed and 'burr-grinder' not in stubbed, f'lint reports short pages as stubs: {stubbed}')
+    check('loose-widget' in stubbed and not stubbed & {'example-labs', 'example-cli', 'example-model'},
+          f'lint exempts only entity pages with a catalog_type from stub: {stubbed}')
+    published = pc.json('sql', "SELECT p.slug, json_extract(r.properties, '$.catalog_type') FROM page_revisions r "
+                        f"JOIN pages p ON p.id = r.page WHERE r.run = '{run['id']}' AND p.slug LIKE 'example-%' ORDER BY p.slug")['rows']
+    check(published == [['example-cli', 'product'], ['example-labs', 'organization'], ['example-model', 'model']],
+          f'the server accepts the organization, product and model catalog types: {published}')
+    refused = pc.json('create', 'ingestion_runs', json.dumps({'key': 'grinder-v2', 'status': 'staging', 'description': 'Grinder',
+                                                              'sources': [source['source']]}))
+    attempt = pc.run('create', 'page_revisions', json.dumps({
+        'run': refused['id'], 'page': ids['loose-widget'][0], 'base_revision': ids['loose-widget'][1], 'title': 'Loose widget',
+        'summary': 'Loose widget', 'body': 'Recorded from the note.', 'properties': {'catalog_type': 'spaceship'}}), expect=1)
+    check('Invalid catalog_type' in attempt.stdout + attempt.stderr, 'the server still refuses an unknown catalog_type')
 
 
 if __name__ == '__main__':
