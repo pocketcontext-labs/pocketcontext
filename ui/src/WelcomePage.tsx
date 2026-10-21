@@ -2,10 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { pageHref } from "./Markdown";
 import type { PageSummary, Publication } from "./types";
 import {
+  defaultWelcomeView,
   filterWelcomePages,
   groupWelcomePages,
+  groupWelcomePagesByType,
+  isWelcomeView,
   onboardingPages,
   WELCOME_TOPICS,
+  WELCOME_VIEWS,
+  type WelcomeView,
 } from "./welcome";
 import "./welcome.css";
 
@@ -15,21 +20,31 @@ export default function WelcomePage({
   pinned,
   onSearch,
   onTopicChange,
+  onViewChange,
   topic: requestedTopic,
+  view: requestedView,
 }: {
   pages: PageSummary[];
   publication: Publication | null;
   pinned?: string;
   onSearch: (query: string) => void;
   onTopicChange: (topic: string) => void;
+  onViewChange?: (view: WelcomeView) => void;
   topic?: string;
+  view?: string;
 }) {
   const [query, setQuery] = useState("");
   const [topic, setTopic] = useState("all");
-  const [mode, setMode] = useState<"grouped" | "alphabetical">("grouped");
+  const [chosenMode, setChosenMode] = useState<WelcomeView | undefined>(
+    isWelcomeView(requestedView) ? requestedView : undefined,
+  );
   const directory = useRef<HTMLHeadingElement>(null);
   const groups = useMemo(() => groupWelcomePages(pages), [pages]);
   const guides = useMemo(() => onboardingPages(pages), [pages]);
+  const mode = chosenMode ?? defaultWelcomeView(pages);
+  useEffect(() => {
+    setChosenMode(isWelcomeView(requestedView) ? requestedView : undefined);
+  }, [requestedView]);
   useEffect(() => {
     if (!requestedTopic) {
       setTopic("all");
@@ -60,9 +75,11 @@ export default function WelcomePage({
   const selected = groups.find((group) => group.id === topic);
   const filtered = filterWelcomePages(selected?.pages ?? pages, "");
   const results =
-    mode === "grouped"
+    mode === "topics"
       ? groupWelcomePages(filtered)
-      : [{ id: "alphabetical", title: "Alphabetical index", pages: filtered }];
+      : mode === "types"
+        ? groupWelcomePagesByType(filtered)
+        : [{ id: "alphabetical", title: "Alphabetical index", pages: filtered }];
   const href = (page: PageSummary) => pageHref(page.slug, pinned);
   const showDirectory = () => {
     directory.current?.scrollIntoView?.({ block: "start" });
@@ -257,18 +274,18 @@ export default function WelcomePage({
             role="group"
             aria-label="Index view"
           >
-            <button
-              aria-pressed={mode === "grouped"}
-              onClick={() => setMode("grouped")}
-            >
-              By topic
-            </button>
-            <button
-              aria-pressed={mode === "alphabetical"}
-              onClick={() => setMode("alphabetical")}
-            >
-              A–Z
-            </button>
+            {WELCOME_VIEWS.map((view) => (
+              <button
+                key={view.id}
+                aria-pressed={mode === view.id}
+                onClick={() => {
+                  setChosenMode(view.id);
+                  onViewChange?.(view.id);
+                }}
+              >
+                {view.title}
+              </button>
+            ))}
           </div>
         </div>
         {results

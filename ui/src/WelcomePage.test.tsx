@@ -157,3 +157,40 @@ it("synchronizes topic choices with navigation and resets when Welcome opens", (
   fireEvent.click(screen.getByRole("button", { name: "Browse all pages ↓" }));
   expect(onTopicChange).toHaveBeenLastCalledWith("all");
 });
+
+it("defaults to page types for uncategorized knowledge, switches views and reports the choice", () => {
+  const onViewChange = vi.fn();
+  const knowledge = [
+    { ...page("ada-example", "Ada Example"), kind: "entity", properties: { catalog_type: "person" } },
+    { ...page("widget-co", "Widget Co"), kind: "entity" },
+    { ...page("agent-loops", "Agent loops"), kind: "concept" },
+    { ...page("2026-talk", "A talk about agents"), kind: "summary" },
+  ];
+  const rendered = render(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} onViewChange={onViewChange} pages={knowledge} publication={publication} />);
+  const index = within(screen.getByRole("region", { name: "The complete page index" }));
+  const views = within(screen.getByRole("group", { name: "Index view" }));
+  expect(views.getByRole("button", { name: "By page type" })).toHaveAttribute("aria-pressed", "true");
+  expect(index.getAllByRole("heading", { level: 3 }).map(item => item.textContent)).toEqual(["Source summaries", "Concepts", "People", "Other entities"]);
+  expect(within(index.getByRole("region", { name: "People" })).getByRole("link", { name: "Ada Example" })).toBeVisible();
+  fireEvent.click(views.getByRole("button", { name: "By topic" }));
+  expect(onViewChange).toHaveBeenLastCalledWith("topics");
+  expect(views.getByRole("button", { name: "By topic" })).toHaveAttribute("aria-pressed", "true");
+  expect(index.getByRole("heading", { name: "People & relationships" })).toBeVisible();
+  fireEvent.click(views.getByRole("button", { name: "A–Z" }));
+  expect(onViewChange).toHaveBeenLastCalledWith("alphabetical");
+  expect(index.getAllByRole("link")[0]).toHaveTextContent("A talk about agents");
+  rendered.rerender(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} onViewChange={onViewChange} pages={knowledge} publication={publication} view="types" />);
+  expect(views.getByRole("button", { name: "By page type" })).toHaveAttribute("aria-pressed", "true");
+  rendered.rerender(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} onViewChange={onViewChange} pages={knowledge} publication={publication} view="bogus" />);
+  expect(views.getByRole("button", { name: "By page type" })).toHaveAttribute("aria-pressed", "true");
+});
+
+it("keeps topic grouping by default for categorized pages and honors a view from the URL", () => {
+  render(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} pages={pages} publication={publication} view="types" />);
+  const index = within(screen.getByRole("region", { name: "The complete page index" }));
+  expect(screen.getByRole("button", { name: "By page type" })).toHaveAttribute("aria-pressed", "true");
+  expect(index.getAllByRole("heading", { level: 3 }).map(item => item.textContent)).toEqual(["Concepts"]);
+  cleanup();
+  render(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} pages={pages} publication={publication} />);
+  expect(screen.getByRole("button", { name: "By topic" })).toHaveAttribute("aria-pressed", "true");
+});
