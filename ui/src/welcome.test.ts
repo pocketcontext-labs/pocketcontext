@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { PageSummary } from "./types";
-import { classifyWelcomePage, filterWelcomePages, groupWelcomePages, onboardingPages, WELCOME_TOPICS } from "./welcome";
+import { classifyWelcomePage, defaultWelcomeView, filterWelcomePages, groupWelcomePages, groupWelcomePagesByType, isWelcomeView, onboardingPages, WELCOME_TOPICS } from "./welcome";
 
 function page(title: string, kind = "concept"): PageSummary {
   const slug = title.toLowerCase().replaceAll(" ", "-");
@@ -73,4 +73,45 @@ test("groups contain only pages supplied by the publication selection", () => {
   // Archived and draft revisions never enter the API's PageSummary list.
   expect(groupWelcomePages([selected]).flatMap(group => group.pages)).toEqual([selected]);
   expect(groupWelcomePages([]).every(group => group.pages.length === 0)).toBe(true);
+});
+
+function entity(title: string, catalogType?: string): PageSummary {
+  return { ...page(title, "entity"), properties: catalogType === undefined ? {} : { catalog_type: catalogType } };
+}
+
+test("page type groups split entities by catalog type and include every page once in a stable order", () => {
+  const pages = [
+    page("Zeta source", "summary"), page("Alpha source", "summary"), page("Agent loops"), page("Why retries fail", "answer"),
+    page("Weekly call", "transcript"), page("Old import", "legacy"), page("Odd kind", "unknown"),
+    entity("Mario Example", "person"), entity("Ada Example", "person"), entity("Platform team", "group"), entity("Build server", "resource"),
+    entity("Stripe Example"), entity("Mystery entity", "spaceship"),
+  ];
+  const groups = groupWelcomePagesByType(pages);
+  const filled = groups.filter(group => group.pages.length).map(group => [group.title, group.pages.map(item => item.title)]);
+  expect(filled).toEqual([
+    ["Source summaries", ["Alpha source", "Zeta source"]],
+    ["Concepts", ["Agent loops"]],
+    ["Answers", ["Why retries fail"]],
+    ["Transcripts", ["Weekly call"]],
+    ["People", ["Ada Example", "Mario Example"]],
+    ["Groups", ["Platform team"]],
+    ["Resources", ["Build server"]],
+    ["Other entities", ["Mystery entity", "Stripe Example"]],
+    ["Other pages", ["Odd kind", "Old import"]],
+  ]);
+  expect(groups.flatMap(group => group.pages)).toHaveLength(pages.length);
+  expect(new Set(groups.map(group => group.id)).size).toBe(groups.length);
+  expect(groupWelcomePagesByType([...pages].reverse())).toEqual(groups);
+  // A catalog_type on a non-entity page does not move it out of its kind.
+  expect(groupWelcomePagesByType([{ ...page("Typed concept"), properties: { catalog_type: "person" } }]).find(group => group.title === "Concepts")!.pages).toHaveLength(1);
+});
+
+test("the default view prefers page types only when most pages would land in Other knowledge", () => {
+  expect(defaultWelcomeView([])).toBe("topics");
+  expect(defaultWelcomeView([page("Agent loops"), page("Platform architecture")])).toBe("topics");
+  expect(defaultWelcomeView([page("Agent loops"), page("Context windows"), page("Platform architecture")])).toBe("types");
+  expect(defaultWelcomeView([entity("Ada Example", "person"), page("Agent loops")])).toBe("topics");
+  expect(isWelcomeView("types")).toBe(true);
+  expect(isWelcomeView("grouped")).toBe(false);
+  expect(isWelcomeView(undefined)).toBe(false);
 });

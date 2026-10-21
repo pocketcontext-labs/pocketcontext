@@ -50,7 +50,7 @@ Only staging runs can be updated, and every update carries `expected_revision`. 
 
 Knowledge reads use the authenticated `/api/context/schema` and `/api/context/query` endpoints over requester-filtered SQL snapshots: only allowlisted columns of the tables in `server.json` are readable, and users, credentials and SQLite metadata are excluded. Ranked search of published pages uses `/api/context/search` with an explicit publication scope and generation-checked pagination; the full-text index is private to each space and is not SQL-readable. Originals are read through PocketBase's protected file API.
 
-The reader selects immutable publications. Realtime events invalidate its view, SQL supplies its content, and page, citation and backlink reads stay pinned to one publication. The reader never changes records.
+The reader selects immutable publications. Realtime events invalidate its view, SQL supplies its content, and page, citation and backlink reads stay pinned to one publication. The reader never changes records. Without a home page, its welcome index lists the publication's pages by heuristic topic, by page type (kind, with entities split by `catalog_type`) or A–Z; the `view` URL parameter (`topics`, `types`, `alphabetical`) keeps the choice, and the default is page type when most pages match no topic.
 
 ## Revision properties and catalogs
 

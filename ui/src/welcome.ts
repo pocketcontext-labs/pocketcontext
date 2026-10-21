@@ -71,6 +71,72 @@ export function groupWelcomePages(pages: readonly PageSummary[]): WelcomeGroup[]
   return groups;
 }
 
+export const WELCOME_VIEWS = [
+  { id: "topics", title: "By topic" },
+  { id: "types", title: "By page type" },
+  { id: "alphabetical", title: "A–Z" },
+] as const;
+export type WelcomeView = typeof WELCOME_VIEWS[number]["id"];
+
+export function isWelcomeView(value: string | undefined): value is WelcomeView {
+  return WELCOME_VIEWS.some(view => view.id === value);
+}
+
+const KIND_SECTIONS = [
+  { kind: "summary", title: "Source summaries" },
+  { kind: "concept", title: "Concepts" },
+  { kind: "answer", title: "Answers" },
+  { kind: "transcript", title: "Transcripts" },
+] as const;
+
+// Entity sections follow the catalog types in docs/data-model.md; entities
+// without a recognized catalog_type stay visible in Other entities.
+const ENTITY_SECTIONS = [
+  { type: "person", title: "People" },
+  { type: "group", title: "Groups" },
+  { type: "resource", title: "Resources" },
+  { type: "credential", title: "Credentials" },
+  { type: "deployment", title: "Deployments" },
+  { type: "prompt", title: "Prompts" },
+  { type: "repository_document", title: "Repository files" },
+  { type: "repository_destination", title: "Repository destinations" },
+  { type: "repository_sync", title: "Repository syncs" },
+] as const;
+
+export interface WelcomeTypeGroup {
+  id: string;
+  title: string;
+  pages: PageSummary[];
+}
+
+export function classifyWelcomePageType(page: PageSummary): string {
+  if (page.kind === "entity") {
+    const type = String(page.properties?.catalog_type ?? "");
+    return ENTITY_SECTIONS.some(section => section.type === type) ? `type-entity-${type}` : "type-entity-other";
+  }
+  return KIND_SECTIONS.some(section => section.kind === page.kind) ? `type-${page.kind}` : "type-other";
+}
+
+/** Groups by page kind, with entities split by catalog_type; every page appears once. */
+export function groupWelcomePagesByType(pages: readonly PageSummary[]): WelcomeTypeGroup[] {
+  const groups: WelcomeTypeGroup[] = [
+    ...KIND_SECTIONS.map(section => ({ id: `type-${section.kind}`, title: section.title, pages: [] })),
+    ...ENTITY_SECTIONS.map(section => ({ id: `type-entity-${section.type}`, title: section.title, pages: [] })),
+    { id: "type-entity-other", title: "Other entities", pages: [] },
+    { id: "type-other", title: "Other pages", pages: [] },
+  ];
+  const byId = new Map(groups.map(group => [group.id, group]));
+  for (const page of pages) byId.get(classifyWelcomePageType(page))!.pages.push(page);
+  for (const group of groups) group.pages.sort(comparePages);
+  return groups;
+}
+
+/** Topics are heuristics; prefer page types when they would leave most pages in Other knowledge. */
+export function defaultWelcomeView(pages: readonly PageSummary[]): WelcomeView {
+  const other = pages.filter(page => classifyWelcomePage(page) === "other").length;
+  return other * 2 > pages.length ? "types" : "topics";
+}
+
 function onboardingRank(page: PageSummary): number {
   const value = identity(page);
   if (/\b(onboarding|orientation|getting started|quickstart)\b/.test(value)) {

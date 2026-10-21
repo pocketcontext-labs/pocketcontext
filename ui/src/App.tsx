@@ -41,6 +41,7 @@ function route() {
     catalog: path.startsWith("catalog/"),
     catalogState: { type: catalogTypes.includes(path.split("/")[1] as CatalogType) ? path.split("/")[1] as CatalogType : "resource", query: params.get("q") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || "title", offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
     topic: params.get("topic") || "",
+    view: params.get("view") || "",
     collection: path.startsWith("sources/") ? "sources" as const : path.startsWith("passages/") ? "passages" as const : "pages" as const,
     record: /^(sources|passages)\//.test(path) ? safeDecode(path.split("/")[1] || "") : "",
     publication: params.get("publication") || "",
@@ -508,10 +509,13 @@ function Reader() {
   const displayedPinned = view.publication ? snapshot?.publication.id || view.publication : undefined;
   const searching = !view.catalog && view.collection === "pages" && Boolean(view.query.trim() && !view.slug);
   const topicGroups = groupWelcomePages(pages).filter(group => group.pages.length);
-  const welcomeHref = (topic: string) => {
-    const params = new URLSearchParams({ topic });
+  const welcomeHref = (topic: string, indexView = current.view) => {
+    const params = new URLSearchParams();
+    if (topic) params.set("topic", topic);
+    if (indexView) params.set("view", indexView);
     if (pinned) params.set("publication", pinned);
-    return spaceLink(`#/welcome?${params}`);
+    const query = params.toString();
+    return spaceLink(query ? `#/welcome?${query}` : "#/welcome");
   };
   const welcoming = !emptySpace && !view.catalog && view.collection === "pages" && !searching && !view.slug &&
     (view.welcome || (matchingPublication && !snapshot?.publication.home));
@@ -721,7 +725,7 @@ function Reader() {
               epoch={accessEpoch}
             />
             {view.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog key={`${accessEpoch}:${space?.id}:${snapshot?.publication.id}`} space={space?.id} snapshotId={snapshot?.publication.id} pages={pages} state={view.catalogState} publication={displayedPinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
-            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={displayedPinned || "live"} pages={pages} publication={snapshot?.publication || null} pinned={displayedPinned} topic={view.topic} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
+            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={displayedPinned || "live"} pages={pages} publication={snapshot?.publication || null} pinned={displayedPinned} topic={view.topic} view={view.view} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onViewChange={indexView => { location.hash = welcomeHref(current.topic, indexView); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
             {view.collection === "pages" && !view.catalog && !searching && !welcoming && !showEmptySpace &&
               (page ? (
                 <article>
