@@ -482,6 +482,7 @@ def staging_scenario(pc):
     check('Later' not in first['body'], 'page reads an earlier publication')
     roundtrip = pc.json('stage', '-', '--dry-run', stdin=json.dumps({'run_key': 'staging-v3', 'pages': [page]}))
     check(roundtrip['problems'] == [] and roundtrip['staged'] == ['orbit-cadence'], 'page output is a valid spec page')
+    edits_scenario(pc, notes, passage)
 
     # The server reports every problem of a staged run; publish still refuses with its first one.
     run = pc.json('create', 'ingestion_runs', json.dumps({'key': 'staging-broken', 'status': 'staging', 'description': 'Broken'}))
@@ -506,6 +507,39 @@ def staging_scenario(pc):
     resumed = pc.json('stage', '-', stdin=json.dumps({'run_key': 'staging-resume', 'pages': [
         {'slug': 'lantern-protocol', 'body': body, 'citations': {'1': passage['lantern']}}]}))
     check(resumed['skipped'] == ['lantern-protocol'] and resumed['problems'] == [], 'a resumed run gets the citations and links it missed')
+
+
+def edits_scenario(pc, notes, passage):
+    """edits change one cited sentence and add another; the replaced marker's citation is dropped."""
+    (notes / 'burn.md').write_text('# Orbit burn\n\nAfter the 2026 burn Zephyrine completes an orbit every 95 minutes.\n', encoding='utf-8')
+    burn = pc.json('ingest', str(notes / 'burn.md'), '--title', 'Orbit burn')
+    burn_passage = pc.json('sql', f"SELECT id FROM passages WHERE rendition = '{burn['rendition']}' ORDER BY ordinal LIMIT 1")['rows'][0][0]
+    before = pc.json('page', 'orbit-cadence')
+    check(before['body'].startswith('Zephyrine completes an orbit every 97 minutes.[^1]') and before['citations'] == {'1': passage['orbit'], '2': passage['lantern']},
+          'the page to edit cites two passages')
+
+    ambiguous = {'run_key': 'staging-edits-bad', 'pages': [{'slug': 'orbit-cadence', 'edits': [
+        {'old': '[[lantern-protocol]]', 'new': '[[orbit-cadence]]'}, {'old': 'no such text', 'new': 'x'}]}]}
+    result = json.loads(pc.run('stage', '-', '--dry-run', stdin=json.dumps(ambiguous), expect=3).stdout)
+    details = sorted(p['detail'] for p in result['problems'] if p['kind'] == 'edit' and p['page'] == 'orbit-cadence')
+    check(len(details) == 2 and details[0].startswith('edits[0]: old text occurs more than once') and details[1].startswith('edits[1]: old text not found'),
+          f'an edit whose old text does not occur exactly once is refused with its index: {result["problems"]}')
+
+    spec = {'run_key': 'staging-edits', 'sources': [burn['source']], 'pages': [{'slug': 'orbit-cadence', 'edits': [
+        {'old': 'Zephyrine completes an orbit every 97 minutes.[^1]', 'new': 'Since its 2026 burn Zephyrine completes an orbit every 95 minutes.[^1]'},
+        {'old': 'Beacons follow the [[lantern-protocol]].', 'new': 'Before the burn an orbit took 97 minutes.[^2] Beacons follow the [[lantern-protocol]].'}],
+        'citations': {'1': burn_passage, '2': passage['orbit']}}]}
+    staged = pc.json('stage', '-', stdin=json.dumps(spec))
+    check(staged['problems'] == [] and staged['staged'] == ['orbit-cadence'], f'a page with edits stages: {staged}')
+    check(pc.json('check-run', staged['run']) == {'run': staged['run'], 'ok': True, 'problems': []}, 'check-run passes the edited page')
+    pc.json('publish', staged['run'], '--expected-revision', str(staged['revision']))
+    after = pc.json('page', 'orbit-cadence')
+    want = ('Since its 2026 burn Zephyrine completes an orbit every 95 minutes.[^3] Before the burn an orbit took 97 minutes.[^4] '
+            'Beacons follow the [[lantern-protocol]].\n\n## Later\n\nThe cadence matters to [[lantern-protocol]] beacons.[^2]')
+    check(after['body'] == want, f'edits replace text and renumber local markers after the highest one: {after["body"]!r}')
+    check(after['citations'] == {'2': passage['lantern'], '3': burn_passage, '4': passage['orbit']},
+          f'the replaced marker loses its citation and the new markers get theirs: {after["citations"]}')
+    check(after['title'] == before['title'] and after['summary'] == before['summary'], 'edits keep the published title and summary')
 
 
 def published_sequence(pc):

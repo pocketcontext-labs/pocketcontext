@@ -27,17 +27,25 @@ type stageSpec struct {
 
 // specPage is one page of a spec, and the output of `page`. Omitted title,
 // summary, properties and property_evidence are copied from the published revision.
+// Without body, edits and then append change the published body.
 type specPage struct {
 	Slug             string            `json:"slug"`
 	Kind             string            `json:"kind,omitempty"`
 	Title            *string           `json:"title,omitempty"`
 	Summary          *string           `json:"summary,omitempty"`
 	Body             *string           `json:"body,omitempty"`
+	Edits            []specEdit        `json:"edits,omitempty"`
 	Append           *string           `json:"append,omitempty"`
 	Citations        map[string]string `json:"citations,omitempty"`
 	Properties       map[string]any    `json:"properties,omitempty"`
 	PropertyEvidence map[string]any    `json:"property_evidence,omitempty"`
 	Archived         *bool             `json:"archived,omitempty"`
+}
+
+// specEdit replaces old, which must occur exactly once, with new.
+type specEdit struct {
+	Old string  `json:"old"`
+	New *string `json:"new"`
 }
 
 type problem struct {
@@ -109,6 +117,17 @@ func parseSpec(data []byte) (*stageSpec, []problem, error) {
 		if p.Body != nil && p.Append != nil {
 			add(name, "spec", "give body or append, not both")
 		}
+		if p.Body != nil && len(p.Edits) > 0 {
+			add(name, "spec", "give body or edits, not both; edits change the published body")
+		}
+		for j, e := range p.Edits {
+			if e.Old == "" {
+				add(name, "edit", "edits[%d]: old is empty", j)
+			}
+			if e.New == nil {
+				add(name, "edit", "edits[%d]: new is required (\"\" deletes the old text)", j)
+			}
+		}
 		for key, passage := range p.Citations {
 			if !citationKey.MatchString(key) {
 				add(name, "citation", "citation marker %q must be a positive number", key)
@@ -177,22 +196,57 @@ func renumber(text string, offset int) string {
 	})
 }
 
-// appendPage merges appended text with local markers into a published body and its citations.
-func appendPage(body string, citations map[string]string, text string, local map[string]string) (string, map[string]string) {
+// revisePage applies edits, then appended text, to a published body and its
+// citations. Local markers in the new text of edits and in the appended text
+// share one numbering: [^k] there is local citation k and becomes [^k+offset],
+// offset being the highest marker of the published body and citations. Each
+// edit's old text must occur exactly once in the body as earlier edits left
+// it; an edit that does not is skipped and reported. Published markers that no
+// longer appear in the body lose their citations, unless keep (the markers of
+// property evidence) names them.
+func revisePage(body string, citations map[string]string, edits []specEdit, text string, local map[string]string, keep map[string]bool) (string, map[string]string, []string) {
 	offset := highestMarker(body, citations)
+	before := bodyMarkers(body)
+	var problems []string
+	for i, e := range edits {
+		if e.Old == "" || e.New == nil {
+			continue // reported by parseSpec
+		}
+		at := strings.Index(body, e.Old)
+		switch {
+		case at < 0:
+			problems = append(problems, fmt.Sprintf("edits[%d]: old text not found in the published body (after earlier edits)", i))
+			continue
+		case strings.Contains(body[at+1:], e.Old):
+			problems = append(problems, fmt.Sprintf("edits[%d]: old text occurs more than once in the published body (after earlier edits); include more surrounding text", i))
+			continue
+		}
+		body = body[:at] + renumber(*e.New, offset) + body[at+len(e.Old):]
+	}
+	if strings.TrimSpace(text) != "" {
+		body = strings.TrimRight(body, " \t\r\n") + "\n\n" + strings.TrimLeft(renumber(text, offset), "\r\n")
+	}
 	merged := map[string]string{}
 	for k, v := range citations {
 		merged[k] = v
+	}
+	if len(edits) > 0 {
+		after := map[string]bool{}
+		for _, m := range bodyMarkers(body) {
+			after[m] = true
+		}
+		for _, m := range before {
+			if !after[m] && !keep[m] {
+				delete(merged, m)
+			}
+		}
 	}
 	for k, v := range local {
 		if n, err := strconv.Atoi(k); err == nil {
 			merged[strconv.Itoa(n+offset)] = v
 		}
 	}
-	if strings.TrimSpace(text) != "" {
-		body = strings.TrimRight(body, " \t\r\n") + "\n\n" + strings.TrimLeft(renumber(text, offset), "\r\n")
-	}
-	return body, merged
+	return body, merged, problems
 }
 
 // packBatches fills batches of up to size requests in order, keeping each group
@@ -459,17 +513,34 @@ func (c *Client) Stage(data []byte, dryRun bool) (map[string]any, error) {
 		if prior != nil {
 			s.base = fmt.Sprint(prior["id"])
 		}
+		s.properties, s.evidence = p.Properties, p.PropertyEvidence
+		if s.properties == nil && prior != nil {
+			s.properties = decodeJSONField(prior["properties"])
+		}
+		if s.evidence == nil && prior != nil {
+			s.evidence = decodeJSONField(prior["property_evidence"])
+		}
 		if p.Body != nil {
 			s.body, s.citations = *p.Body, p.Citations
 		} else if prior == nil {
-			add(p.Slug, "spec", "body is required: the page has no published revision to append to")
+			add(p.Slug, "spec", "body is required: the page has no published revision to edit or append to")
 		} else {
 			text := ""
 			if p.Append != nil {
 				text = *p.Append
 			}
+			keep := map[string]bool{}
+			for _, list := range s.evidence {
+				for _, m := range stringList(list) {
+					keep[m] = true
+				}
+			}
 			body, _ := prior["body"].(string)
-			s.body, s.citations = appendPage(body, currentCitations[s.base], text, p.Citations)
+			var failed []string
+			s.body, s.citations, failed = revisePage(body, currentCitations[s.base], p.Edits, text, p.Citations, keep)
+			for _, detail := range failed {
+				add(p.Slug, "edit", "%s", detail)
+			}
 		}
 		if s.citations == nil {
 			s.citations = map[string]string{}
@@ -493,13 +564,6 @@ func (c *Client) Stage(data []byte, dryRun bool) (map[string]any, error) {
 		}
 		if strings.TrimSpace(s.body) == "" || len(s.body) > 100000 {
 			add(p.Slug, "spec", "body is required (at most 100000 characters)")
-		}
-		s.properties, s.evidence = p.Properties, p.PropertyEvidence
-		if s.properties == nil && prior != nil {
-			s.properties = decodeJSONField(prior["properties"])
-		}
-		if s.evidence == nil && prior != nil {
-			s.evidence = decodeJSONField(prior["property_evidence"])
 		}
 		s.archived = p.Archived != nil && *p.Archived
 

@@ -101,14 +101,15 @@ var commandHelp = map[string]helpEntry{
 			"   \"pages\": [{\"slug\": \"plan-mode\", \"kind\": \"concept\", \"title\": \"...\", \"summary\": \"...\",\n" +
 			"              \"body\": \"... [^1] ... [[other-page]]\", \"citations\": {\"1\": \"PASSAGE_ID\"},\n" +
 			"              \"properties\": {}, \"property_evidence\": {}, \"archived\": false},\n" +
-			"             {\"slug\": \"existing-page\", \"append\": \"text with local markers [^1]\", \"citations\": {\"1\": \"PASSAGE_ID\"}}]}\n\n" +
-			"An `append` page adds text to the published body; its markers are renumbered after the highest existing one (property_evidence uses the renumbered markers), and fields not given are copied from the published revision. Relationship properties may only name pages that already exist; [[slug]] links may name pages staged in the same spec. Then run check-run and publish.",
+			"             {\"slug\": \"existing-page\", \"edits\": [{\"old\": \"exact published text\", \"new\": \"replacement [^1]\"}],\n" +
+			"              \"append\": \"text with local markers [^2]\", \"citations\": {\"1\": \"PASSAGE_ID\", \"2\": \"PASSAGE_ID\"}}]}\n\n" +
+			"A page without `body` changes its published revision: `edits` are applied in order, each `old` matched against the published body as earlier edits left it and required to occur exactly once (\"new\": \"\" deletes it), then `append` adds text at the end. Markers in `new` and `append` are local and share one numbering: [^k] there means citations[k] and is renumbered after the highest existing marker (property_evidence uses the renumbered markers). Published markers outside `old` keep their numbers; a published marker that no longer appears in the body, and is not named by property_evidence, loses its citation. Fields not given are copied from the published revision. Relationship properties may only name pages that already exist; [[slug]] links may name pages staged in the same spec. Then run check-run and publish.",
 		"pocketcontext stage batch-01.json --dry-run"},
 	"check-run": {"check-run RUN_ID",
 		"Report every problem that would stop the run from publishing, for all its pages at once: missing or unused citation markers, footnote definitions in a body, uncited text without [needs verification], [[slug]] links without page_links records, link targets not published in the resulting manifest, stale base revisions and property rules. Prints {\"run\", \"ok\", \"problems\": [{\"page\", \"kind\", \"detail\"}]}; exit 3 when not ok.",
 		"pocketcontext check-run RUN_ID_________"},
 	"page": {"page SLUG [--publication ID] [--sequence N]",
-		"Print a published page (latest publication, or the given one) as one stage spec page object, with citations as marker to passage ID, ready to edit and pass to `stage`.",
+		"Print a published page (latest publication, or the given one) as one stage spec page object, with citations as marker to passage ID, ready to edit and pass to `stage`. For a targeted change, copy exact text from its body into `edits` of a spec page instead (see `stage --help`).",
 		"pocketcontext page plan-mode > plan-mode.json"},
 	"stage-home": {"stage-home RUN_ID --expected-revision N (--home SLUG | --clear-home) [--home-base ID]",
 		"Record the reader home page choice on a staging run. The expected current home is captured from the latest publication unless --home-base gives it (use '' for none).",

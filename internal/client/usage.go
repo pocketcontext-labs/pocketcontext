@@ -61,7 +61,9 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
   lint                               check published graph structure
   stage SPEC|- [--dry-run]           validate a JSON spec of page revisions, then
                                      write its run in batches of 20 and check it;
-                                     a run_key seen before resumes that run
+                                     a run_key seen before resumes that run;
+                                     a page without body may give edits
+                                     (exact replacements) and append
   check-run RUN_ID                   list every problem publishing the run would
                                      raise, for all pages at once (exit 3)
   page SLUG [--publication ID] [--sequence N]
