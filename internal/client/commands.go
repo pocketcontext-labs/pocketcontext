@@ -293,6 +293,9 @@ parsed:
 		"ingest":                {{"title", "date", "version"}, nil},
 		"search":                {{"publication", "sequence", "limit", "offset", "generation"}, nil},
 		"lint":                  {nil, nil},
+		"stage":                 {nil, {"dry-run"}},
+		"check-run":             {nil, nil},
+		"page":                  {{"publication", "sequence"}, nil},
 		"publish":               {{"expected-revision", "home", "home-base"}, {"clear-home"}},
 		"stage-home":            {{"expected-revision", "home", "home-base"}, {"clear-home"}},
 		"account":               {{"email", "name"}, {"password-stdin"}},
@@ -691,6 +694,47 @@ func runData(c *Client, command string, a *args, pretty bool) error {
 		data, err = c.Search(a.pos[0], o)
 	case "lint":
 		data, err = c.Lint()
+	case "stage":
+		if err := a.need(1, "stage SPEC|- [--dry-run]"); err != nil {
+			return err
+		}
+		spec, err := readSpec(a.pos[0])
+		if err != nil {
+			return err
+		}
+		result, err := c.Stage(spec, a.bools["dry-run"])
+		if err != nil {
+			return err
+		}
+		Print(result, pretty)
+		if n := problemCount(result["problems"]); n > 0 {
+			return &Fail{3, fmt.Sprintf("%d problems; nothing was published", n)}
+		}
+		return nil
+	case "check-run":
+		if err := a.need(1, "check-run RUN_ID"); err != nil {
+			return err
+		}
+		result, err := c.CheckRun(a.pos[0])
+		if err != nil {
+			return err
+		}
+		Print(result, pretty)
+		if ok, _ := result["ok"].(bool); !ok {
+			return &Fail{3, fmt.Sprintf("run %s has %d problems", a.pos[0], problemCount(result["problems"]))}
+		}
+		return nil
+	case "page":
+		if err := a.need(1, "page SLUG [--publication ID] [--sequence N]"); err != nil {
+			return err
+		}
+		sequence, err := a.intFlag("sequence", 0)
+		if err != nil {
+			return err
+		}
+		if data, err = c.PageSpec(a.pos[0], a.flags["publication"], sequence); err != nil {
+			return err
+		}
 	case "publish", "stage-home":
 		if err := a.need(1, command+" RUN_ID --expected-revision N"); err != nil {
 			return err

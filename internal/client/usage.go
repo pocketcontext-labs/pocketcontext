@@ -52,6 +52,14 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
                                      --version is given (new ones are v2)
   search TERMS [--limit N] [--offset N --generation G --publication ID] [--sequence N]
   lint                               check published graph structure
+  stage SPEC|- [--dry-run]           validate a JSON spec of page revisions, then
+                                     write its run in batches of 20 and check it;
+                                     a run_key seen before resumes that run
+  check-run RUN_ID                   list every problem publishing the run would
+                                     raise, for all pages at once (exit 3)
+  page SLUG [--publication ID] [--sequence N]
+                                     print a published page as a spec page
+                                     (citations as marker -> passage ID)
   stage-home RUN_ID --expected-revision N (--home SLUG | --clear-home) [--home-base ID]
   publish RUN_ID --expected-revision N [--home SLUG | --clear-home --home-base ID]
 
