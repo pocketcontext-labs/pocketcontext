@@ -152,8 +152,12 @@ func missingPages(pages []lintPage) []map[string]any {
 		existing[normalTerm(p.Title)], existing[normalTerm(p.Slug)] = true, true
 	}
 	on := map[string]map[string]bool{}
-	display := map[string]string{}
-	for _, p := range pages {
+	// The reported spelling is the most frequent one, ties going to the page
+	// first in slug order, so the result does not depend on record order.
+	ordered := append([]lintPage(nil), pages...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Slug < ordered[j].Slug })
+	forms, firstSeen := map[string]map[string]int{}, map[string][]string{}
+	for _, p := range ordered {
 		text := footnoteMark.ReplaceAllString(withoutCode(p.Body), "")
 		var raw []string
 		for _, m := range boldTerm.FindAllStringSubmatch(text, -1) {
@@ -170,9 +174,14 @@ func missingPages(pages []lintPage) []map[string]any {
 				continue
 			}
 			if on[term] == nil {
-				on[term], display[term] = map[string]bool{}, strings.TrimSpace(r)
+				on[term], forms[term] = map[string]bool{}, map[string]int{}
 			}
 			on[term][p.Slug] = true
+			form := strings.TrimSpace(r)
+			if forms[term][form] == 0 {
+				firstSeen[term] = append(firstSeen[term], form)
+			}
+			forms[term][form]++
 		}
 	}
 	terms := make([]string, 0, len(on))
@@ -189,7 +198,13 @@ func missingPages(pages []lintPage) []map[string]any {
 			slugs = append(slugs, s)
 		}
 		sort.Strings(slugs)
-		findings = append(findings, map[string]any{"kind": "missing-page", "term": display[term], "pages": slugs})
+		display := ""
+		for _, form := range firstSeen[term] {
+			if display == "" || forms[term][form] > forms[term][display] {
+				display = form
+			}
+		}
+		findings = append(findings, map[string]any{"kind": "missing-page", "term": display, "pages": slugs})
 	}
 	return findings
 }

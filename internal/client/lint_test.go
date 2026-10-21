@@ -46,6 +46,14 @@ func TestMissingPages(t *testing.T) {
 		page("p7", "f", "F", "**this whole sentence is far too long to be a term**", 2),
 	}
 	got := missingPages(pages)
+	// Record order must not change the reported spelling.
+	reversed := make([]lintPage, len(pages))
+	for i, p := range pages {
+		reversed[len(pages)-1-i] = p
+	}
+	if again := missingPages(reversed); !reflect.DeepEqual(again, got) {
+		t.Fatalf("order changed the findings: %v vs %v", again, got)
+	}
 	if len(got) != 2 {
 		t.Fatalf("got %v", got)
 	}
