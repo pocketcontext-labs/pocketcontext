@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -144,5 +145,17 @@ func TestMissingPagesCapitalizedNames(t *testing.T) {
 	// lowercase prose. Stripe Minions counts once on p3 (link text and prose).
 	if !reflect.DeepEqual(terms, want) {
 		t.Fatalf("got %v, want %v", terms, want)
+	}
+}
+
+func TestMissingPagesSkipsFieldLabels(t *testing.T) {
+	var pages []lintPage
+	for i, slug := range []string{"a", "b", "c"} {
+		body := "**Video:** a recording.\n- **Status:** done\n1. **Owner:** me\nThen the **Glass wing:** review."
+		pages = append(pages, page(fmt.Sprintf("p%d", i), slug, strings.ToUpper(slug), body, 2))
+	}
+	got := missingPages(pages)
+	if len(got) != 1 || got[0]["term"] != "Glass wing" {
+		t.Fatalf("field labels must be skipped and a mid-sentence term kept without its colon: %v", got)
 	}
 }

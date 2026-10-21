@@ -33,6 +33,7 @@ var (
 	footnoteMark = regexp.MustCompile(`\[\^[^\]\n]*\]`)
 	mdLink       = regexp.MustCompile(`!?\[([^\]\n]+)\]\(([^)\n]*)\)`)
 	boldTerm     = regexp.MustCompile(`\*\*([^*\n]+)\*\*|__([^_\n]+)__`)
+	listPrefix   = regexp.MustCompile(`^\s*(?:[-*+]|\d+[.)])?\s*$`)
 )
 
 // withoutCode removes fenced code blocks and inline code spans.
@@ -318,6 +319,16 @@ func containsWords(s, term string) bool {
 	return strings.Contains(" "+s+" ", " "+term+" ")
 }
 
+// fieldLabel reports a bold label such as "**Video:**" that opens a line or a
+// list item: it names a field of the page, not a recurring term.
+func fieldLabel(text string, start int, term string) bool {
+	if !strings.HasSuffix(strings.TrimSpace(term), ":") {
+		return false
+	}
+	line := text[strings.LastIndexByte(text[:start], '\n')+1 : start]
+	return listPrefix.MatchString(line)
+}
+
 // missingPages finds terms on at least three pages when no published page has
 // that term as its title or slug. Terms are text written in **bold** (or
 // __bold__), the text of Markdown links [term](url) and capitalized names in
@@ -355,8 +366,12 @@ func missingPages(pages []lintPage) []map[string]any {
 	for _, p := range ordered {
 		text := footnoteMark.ReplaceAllString(withoutCode(p.Body), "")
 		var raw []string
-		for _, m := range boldTerm.FindAllStringSubmatch(text, -1) {
-			raw = append(raw, m[1]+m[2])
+		for _, loc := range boldTerm.FindAllStringSubmatchIndex(text, -1) {
+			term := text[max(loc[2], loc[4]):max(loc[3], loc[5])]
+			if fieldLabel(text, loc[0], term) {
+				continue
+			}
+			raw = append(raw, strings.TrimRight(term, ":"))
 		}
 		for _, m := range mdLink.FindAllStringSubmatch(text, -1) {
 			if !strings.HasPrefix(m[0], "!") {
