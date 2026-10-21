@@ -345,7 +345,8 @@ def structured_ingest(pc, notes):
           'repeated ingest reuses the source and rendition and keeps its date')
 
     # A v1 rendition (fixed 24,000-character cuts) stays valid and resumes with its own splitter.
-    text = episode.read_text(encoding='utf-8')
+    # The exact bytes ingest read: on Windows write_text stored CRLF, which read_text would hide.
+    text = episode.read_bytes().decode('utf-8')
     v1 = [{'locator': f'document; characters 1-{len(text)}', 'body': text}]
     digest = hashlib.sha256(json.dumps(v1, sort_keys=True).encode()).hexdigest()
     pc.json('create', 'renditions', json.dumps({'source': first['source'], 'kind': 'text', 'processor': 'utf-8 text / pocketcontext-1',
