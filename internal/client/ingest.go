@@ -29,12 +29,14 @@ var textExtensions = map[string]string{
 const (
 	maxSource = 100 << 20
 	// The default rendition version. Version labels are free text; the splitter
-	// is chosen by the rendition's processor, so v1 renditions stay valid.
-	defaultVersion = "v2"
-	processor      = "utf-8 text / pocketcontext-2 structure"
+	// is chosen by the rendition's processor, so v1 and v2 renditions stay valid.
+	defaultVersion = "v3"
+	processor      = "utf-8 text / pocketcontext-3 structure"
+	processorV2    = "utf-8 text / pocketcontext-2 structure"
 	processorV1    = "utf-8 text / pocketcontext-1"
 	chunkRunes     = 24000 // v1 fixed cut
-	passageRunes   = 4000  // v2 upper bound, far below the server's 30,000
+	passageRunes   = 4000  // v2/v3 upper bound, far below the server's 30,000
+	tinyRunes      = 200   // v3 folds shorter passages into a neighbour
 	locatorRunes   = 500
 	titleRunes     = 500
 	dateRunes      = 100
@@ -45,6 +47,12 @@ var alnum = regexp.MustCompile(`^[a-z0-9]+$`)
 type passage struct {
 	Locator string
 	Body    string
+	// Where a whole-line passage came from, for merging tiny passages (v3).
+	// Only Locator and Body are stored.
+	path     []string
+	name     string
+	from, to int  // line indices, to exclusive
+	cut      bool // a character range of a long line
 }
 
 // pythonSpace mirrors Python's str.isspace, which decides empty chunks.
@@ -64,15 +72,18 @@ func chunksV1(text, locator string) []passage {
 		if strings.TrimFunc(body, pythonSpace) == "" {
 			continue
 		}
-		out = append(out, passage{fmt.Sprintf("%s; characters %d-%d", locator, offset+1, end), body})
+		out = append(out, passage{Locator: fmt.Sprintf("%s; characters %d-%d", locator, offset+1, end), Body: body})
 	}
 	return out
 }
 
 // splitFor returns the passages a rendition with this processor holds.
 func splitFor(proc, text string, markdown bool) []passage {
-	if proc == processorV1 {
+	switch proc {
+	case processorV1:
 		return chunksV1(text, "document")
+	case processor:
+		return chunksV3(text, markdown)
 	}
 	return chunks(text, markdown)
 }
@@ -184,7 +195,7 @@ type section struct {
 	size     int
 }
 
-// chunks splits text by structure for v2 renditions: Markdown front matter and
+// chunks splits text by structure for v2 renditions (and v3 before merging): Markdown front matter and
 // headings first (outside code fences), then blank-line paragraphs, then lines,
 // then a hard cut, each passage at most passageRunes characters. Locators name
 // the heading path and the 1-based line range of the original text.
@@ -346,11 +357,7 @@ func splitBlock(out []passage, lines []string, path []string, name string, from,
 	body := strings.Join(lines[from:to], "\n")
 	size := runes(body)
 	if size <= passageRunes {
-		span := fmt.Sprintf("lines %d-%d", from+1, to)
-		if from+1 == to {
-			span = fmt.Sprintf("line %d", to)
-		}
-		return append(out, passage{locator(path, name, span), body})
+		return append(out, passage{Locator: locator(path, name, lineSpan(from, to)), Body: body, path: path, name: name, from: from, to: to})
 	}
 	// Paragraphs: runs of lines separated by blank lines outside code fences.
 	var paras [][2]int
@@ -413,6 +420,60 @@ func splitBlock(out []passage, lines []string, path []string, name string, from,
 	return out
 }
 
+func lineSpan(from, to int) string {
+	if from+1 == to {
+		return fmt.Sprintf("line %d", to)
+	}
+	return fmt.Sprintf("lines %d-%d", from+1, to)
+}
+
+// chunksV3 is chunks with passages under tinyRunes characters, such as a lone
+// video link after the front matter, folded into a neighbour. A tiny passage
+// joins the following one when that lies in the same or a deeper heading
+// scope; otherwise, at the end of its section, it joins the previous one when
+// that lies in the same or an enclosing scope. The merged passage covers the
+// full line range and names the shared heading path. Front matter and
+// character cuts of long lines are never merged, and no merge exceeds
+// passageRunes.
+func chunksV3(text string, markdown bool) []passage {
+	ps := chunks(text, markdown)
+	if len(ps) < 2 {
+		return ps
+	}
+	lines := splitLines(text)
+	mergeable := func(p passage) bool { return !p.cut && p.name == "" }
+	tiny := func(p passage) bool { return mergeable(p) && runes(p.Body) < tinyRunes }
+	join := func(a, b passage, path []string) (passage, bool) {
+		body := strings.Join(lines[a.from:b.to], "\n")
+		if runes(body) > passageRunes {
+			return passage{}, false
+		}
+		return passage{Locator: locator(path, "", lineSpan(a.from, b.to)), Body: body, path: path, from: a.from, to: b.to}, true
+	}
+	var fwd []passage
+	for i := 0; i < len(ps); i++ {
+		p := ps[i]
+		if i+1 < len(ps) && tiny(p) && mergeable(ps[i+1]) && hasPrefix(ps[i+1].path, p.path) {
+			if m, ok := join(p, ps[i+1], p.path); ok {
+				ps[i+1] = m // it may still be tiny and fold further
+				continue
+			}
+		}
+		fwd = append(fwd, p)
+	}
+	var out []passage
+	for _, p := range fwd {
+		if n := len(out); n > 0 && tiny(p) && mergeable(out[n-1]) && hasPrefix(p.path, out[n-1].path) {
+			if m, ok := join(out[n-1], p, out[n-1].path); ok {
+				out[n-1] = m
+				continue
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 // cutLine hard-cuts line n, preferring whitespace near the limit. Lines from
 // head to n join the first piece; character ranges count within line n.
 func cutLine(out []passage, lines []string, path []string, name string, head, n int) []passage {
@@ -439,7 +500,7 @@ func cutLine(out []passage, lines []string, path []string, name string, head, n 
 			span = fmt.Sprintf("lines %d-%d, characters %d-%d of line %d", head+1, n+1, at+1, end, n+1)
 		}
 		if piece := prefix + string(r[at:end]); !blank(piece) {
-			out = append(out, passage{locator(path, name, span), piece})
+			out = append(out, passage{Locator: locator(path, name, span), Body: piece, path: path, name: name, from: head, to: n + 1, cut: true})
 		}
 		at, prefix = end, ""
 	}
@@ -500,7 +561,7 @@ func manifest(passages []passage) string {
 }
 
 // IngestOptions are the optional ingest flags. An empty Version selects an
-// existing text rendition of the source (v2 first) or creates v2. DateSet
+// existing text rendition of the source (v3, then v2 first) or creates v3. DateSet
 // distinguishes an explicit empty --date from no --date.
 type IngestOptions struct {
 	Title, Date, Version string
@@ -510,11 +571,12 @@ type IngestOptions struct {
 // Ingest stores one immutable text source and its evidence passages.
 //
 // Compatibility: v1 renditions (processor pocketcontext-1) hold fixed
-// 24,000-character passages and stay valid; passages are immutable and resume
+// 24,000-character passages and v2 renditions (pocketcontext-2 structure) keep
+// tiny passages apart; both stay valid. Passages are immutable and resume
 // compares them by ordinal, so each rendition is always checked with the
 // splitter of its own processor. Without --version a source that already has a
-// text rendition reuses it (v2 if present, else the latest), so re-running
-// ingest never adds a second extraction silently; --version v2 re-extracts.
+// text rendition reuses it (v3, else v2, else the latest), so re-running ingest
+// never adds a second extraction silently; --version v3 re-extracts.
 func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 	version := o.Version
 	if o.VersionSet && (version == "" || utf8.RuneCountInString(version) > 100) {
@@ -628,9 +690,11 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range labels {
-			if version, _ = r["version_label"].(string); version == defaultVersion {
-				break
+		rank := func(label string) int { return map[string]int{defaultVersion: 2, "v2": 1}[label] }
+		for i, r := range labels {
+			label, _ := r["version_label"].(string)
+			if i == 0 || rank(label) >= rank(version) {
+				version = label
 			}
 		}
 	}
@@ -640,7 +704,7 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 		return nil, err
 	}
 	var rendition map[string]any
-	passages := chunks(text, markdown)
+	passages := splitFor(processor, text, markdown)
 	if len(existing) > 0 {
 		proc, _ := existing[0]["processor"].(string)
 		passages = splitFor(proc, text, markdown)
@@ -668,9 +732,13 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 	}
 	renditionID, _ := rendition["id"].(string)
 	result["rendition"], result["version"], result["passages"] = renditionID, version, len(passages)
-	if proc, _ := rendition["processor"].(string); proc == processorV1 {
+	switch proc, _ := rendition["processor"].(string); proc {
+	case processorV1:
 		result["processor"] = proc
-		result["note"] = "passages come from a v1 extraction (fixed 24,000-character cuts); run with --version v2 for structure-aware passages"
+		result["note"] = "passages come from a v1 extraction (fixed 24,000-character cuts); run with --version v3 for structure-aware passages"
+	case processorV2:
+		result["processor"] = proc
+		result["note"] = "passages come from a v2 extraction (tiny passages kept apart); run with --version v3 to re-extract with them merged"
 	}
 	for i, p := range passages {
 		ordinal := i + 1

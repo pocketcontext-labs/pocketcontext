@@ -49,7 +49,9 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
                                      front matter title: and published:/date:
                                      fill title and source date unless given;
                                      reuses an existing rendition unless
-                                     --version is given (new ones are v2)
+                                     --version is given (new ones are v3,
+                                     which fold passages under 200 characters
+                                     into a neighbour)
   search TERMS [--limit N] [--offset N --generation G --publication ID] [--sequence N]
   lint                               check published graph structure
   stage SPEC|- [--dry-run]           validate a JSON spec of page revisions, then

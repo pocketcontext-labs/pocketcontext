@@ -332,7 +332,7 @@ def structured_ingest(pc, notes):
                        '# Episode one\n\nIntro.\n\n## Transcript\n\n### Level 1 - Setup\n' + talk + '\n\n'
                        '### Level 4 - Bash Tool + Whitelist\n' + talk + '\n', encoding='utf-8')
     first = pc.json('ingest', str(episode))
-    check(first['title'] == 'Episode one: agents' and first['source_date'] == '2025-06-16' and first['version'] == 'v2',
+    check(first['title'] == 'Episode one: agents' and first['source_date'] == '2025-06-16' and first['version'] == 'v3',
           f'front matter supplies title and source date: {first}')
     row = pc.json('sql', f"SELECT title, source_date FROM sources WHERE id = '{first['source']}'")['rows'][0]
     check(row == ['Episode one: agents', '2025-06-16'], f'sources.source_date is stored: {row}')
@@ -354,7 +354,34 @@ def structured_ingest(pc, notes):
     legacy = pc.json('ingest', str(episode), '--version', 'v1')
     rows = pc.json('sql', f"SELECT locator FROM passages WHERE rendition = '{legacy['rendition']}'")['rows']
     check(legacy['passages'] == 1 and rows == [[v1[0]['locator']]] and 'v1' in legacy['note'], f'a partial v1 rendition resumes: {legacy}')
-    check(pc.json('ingest', str(episode))['rendition'] == first['rendition'], 'without --version ingest prefers the v2 rendition')
+    check(pc.json('ingest', str(episode))['rendition'] == first['rendition'], 'without --version ingest prefers the v3 rendition')
+
+    # v3 folds a lone link after the front matter into the next passage; a v2 rendition
+    # (released in v0.5.0) keeps it apart and still resumes with the v2 splitter.
+    tiny = notes / 'tiny.md'
+    talk_lines = ['---', 'title: Tiny lead', '---', '[video](https://video.example/watch/42)', '', '# Talk', '', talk]
+    tiny.write_bytes(('\n'.join(talk_lines) + '\n').encode('utf-8'))
+    custom = pc.json('ingest', str(tiny), '--version', 'custom')
+    rows = pc.json('sql', f"SELECT locator FROM passages WHERE rendition = '{custom['rendition']}' ORDER BY ordinal")['rows']
+    check([r[0] for r in rows] == ['front matter; lines 1-3', 'document; lines 4-8'], f'v3 merges a tiny passage into the next: {rows}')
+    v2 = [{'locator': 'front matter; lines 1-3', 'body': '\n'.join(talk_lines[:3])},
+          {'locator': 'document; line 4', 'body': talk_lines[3]},
+          {'locator': '# Talk; lines 6-8', 'body': '\n'.join(talk_lines[5:])}]
+    digest = hashlib.sha256(json.dumps(v2, sort_keys=True).encode()).hexdigest()
+    pc.json('create', 'renditions', json.dumps({'source': custom['source'], 'kind': 'text', 'processor': 'utf-8 text / pocketcontext-2 structure',
+                                                'version_label': 'v2', 'notes': json.dumps({'passages': 3, 'sha256': digest})}))
+    old = pc.json('ingest', str(tiny), '--version', 'v2')
+    rows = pc.json('sql', f"SELECT locator, body FROM passages WHERE rendition = '{old['rendition']}' ORDER BY ordinal")['rows']
+    check(old['passages'] == 3 and rows == [[p['locator'], p['body']] for p in v2] and 'v2' in old['note'],
+          f'a partial v2 rendition resumes with the v2 splitter: {old} {[r[0] for r in rows]}')
+    text = tiny.read_bytes().decode('utf-8')
+    v1 = [{'locator': f'document; characters 1-{len(text)}', 'body': text}]
+    digest = hashlib.sha256(json.dumps(v1, sort_keys=True).encode()).hexdigest()
+    pc.json('create', 'renditions', json.dumps({'source': custom['source'], 'kind': 'text', 'processor': 'utf-8 text / pocketcontext-1',
+                                                'version_label': 'v1', 'notes': json.dumps({'passages': 1, 'sha256': digest})}))
+    check(pc.json('ingest', str(tiny))['rendition'] == old['rendition'], 'without --version ingest prefers v2 over a newer rendition')
+    check(pc.json('ingest', str(tiny), '--version', 'v3')['passages'] == 2, '--version v3 re-extracts with tiny passages merged')
+    check(pc.json('ingest', str(tiny))['version'] == 'v3', 'without --version ingest then prefers the v3 rendition')
 
     dated = notes / 'dated.md'
     dated.write_text('---\ndate: 2024-02-03\n---\nPlain text without headings.\n', encoding='utf-8')
