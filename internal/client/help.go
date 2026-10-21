@@ -86,6 +86,9 @@ var commandHelp = map[string]helpEntry{
 	"ingest": {"ingest PATH [--title T] [--date D] [--version V]",
 		"Store a UTF-8 text note as an immutable original and extract passages; it does not synthesize or publish. Markdown front matter supplies the title (`title:`) and the source date (`published:`, else `date:`); --title and --date override it. Passages follow headings and paragraphs and are labelled with heading path and line range; a passage under 200 characters, such as a lone link after the front matter, joins the next passage of the same or a deeper heading (else the previous one), and its locator covers both. Repeating the command deduplicates by content and resumes an interrupted extraction; without --version an existing rendition is reused (v3, else v2, else the latest). Earlier extractions keep their renditions: v1 (fixed 24,000-character passages) and v2 (tiny passages kept apart); --version v3 adds a current one.",
 		"pocketcontext ingest notes/episode.md --date 2026-06-15"},
+	"passages": {"passages SOURCE_ID [--version V] [--out FILE]",
+		"Print the passages of one source as plain text in ordinal order, each after a header line `=== ORDINAL · PASSAGE_ID · LOCATOR` (for example `=== 3 · PASSAGE_ID · # Episode > ## Transcript; lines 124-148`), with a blank line between passages and LF line endings. It reads the rendition ingest reuses (v3, else v2, else the newest) unless --version names one, through bounded SQL pages, so nothing is truncated. With --out FILE it writes the text there (UTF-8) and prints {\"source\", \"rendition\", \"version\", \"passages\", \"file\"} instead. Takes a source ID, not a title: `ingest` prints it as `source`, and `pocketcontext sql \"SELECT id, title FROM sources ORDER BY created DESC LIMIT 20\"` lists them.",
+		"pocketcontext passages SOURCE_ID______ --out episode-passages.txt"},
 	"search": {"search TERMS [--limit N] [--offset N --generation G --publication ID] [--sequence N]",
 		"Rank published pages of the latest (or the given) publication by full-text match of title, summary and body. 1-16 terms. To page, pass the returned publication and generation with --offset; a generation conflict (exit 4) means restart at offset 0.",
 		"pocketcontext search \"espresso descaling\" --limit 10"},
@@ -98,14 +101,15 @@ var commandHelp = map[string]helpEntry{
 			"   \"pages\": [{\"slug\": \"plan-mode\", \"kind\": \"concept\", \"title\": \"...\", \"summary\": \"...\",\n" +
 			"              \"body\": \"... [^1] ... [[other-page]]\", \"citations\": {\"1\": \"PASSAGE_ID\"},\n" +
 			"              \"properties\": {}, \"property_evidence\": {}, \"archived\": false},\n" +
-			"             {\"slug\": \"existing-page\", \"append\": \"text with local markers [^1]\", \"citations\": {\"1\": \"PASSAGE_ID\"}}]}\n\n" +
-			"An `append` page adds text to the published body; its markers are renumbered after the highest existing one (property_evidence uses the renumbered markers), and fields not given are copied from the published revision. Relationship properties may only name pages that already exist; [[slug]] links may name pages staged in the same spec. Then run check-run and publish.",
+			"             {\"slug\": \"existing-page\", \"edits\": [{\"old\": \"exact published text\", \"new\": \"replacement [^1]\"}],\n" +
+			"              \"append\": \"text with local markers [^2]\", \"citations\": {\"1\": \"PASSAGE_ID\", \"2\": \"PASSAGE_ID\"}}]}\n\n" +
+			"A page without `body` changes its published revision: `edits` are applied in order, each `old` matched against the published body as earlier edits left it and required to occur exactly once (\"new\": \"\" deletes it), then `append` adds text at the end. Markers in `new` and `append` are local and share one numbering: [^k] there means citations[k] and is renumbered after the highest existing marker (property_evidence uses the renumbered markers). Published markers outside `old` keep their numbers; a published marker that no longer appears in the body, and is not named by property_evidence, loses its citation. Fields not given are copied from the published revision. Relationship properties may only name pages that already exist; [[slug]] links may name pages staged in the same spec. Then run check-run and publish.",
 		"pocketcontext stage batch-01.json --dry-run"},
 	"check-run": {"check-run RUN_ID",
 		"Report every problem that would stop the run from publishing, for all its pages at once: missing or unused citation markers, footnote definitions in a body, uncited text without [needs verification], [[slug]] links without page_links records, link targets not published in the resulting manifest, stale base revisions and property rules. Prints {\"run\", \"ok\", \"problems\": [{\"page\", \"kind\", \"detail\"}]}; exit 3 when not ok.",
 		"pocketcontext check-run RUN_ID_________"},
 	"page": {"page SLUG [--publication ID] [--sequence N]",
-		"Print a published page (latest publication, or the given one) as one stage spec page object, with citations as marker to passage ID, ready to edit and pass to `stage`.",
+		"Print a published page (latest publication, or the given one) as one stage spec page object, with citations as marker to passage ID, ready to edit and pass to `stage`. For a targeted change, copy exact text from its body into `edits` of a spec page instead (see `stage --help`).",
 		"pocketcontext page plan-mode > plan-mode.json"},
 	"stage-home": {"stage-home RUN_ID --expected-revision N (--home SLUG | --clear-home) [--home-base ID]",
 		"Record the reader home page choice on a staging run. The expected current home is captured from the latest publication unless --home-base gives it (use '' for none).",

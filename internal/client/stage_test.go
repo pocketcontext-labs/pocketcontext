@@ -55,7 +55,10 @@ func TestBodyLinksAndMarkers(t *testing.T) {
 func TestAppendRenumbersMarkers(t *testing.T) {
 	body := "Published.[^1] More.[^3]\n"
 	citations := map[string]string{"1": "p1", "2": "p2", "3": "p3"} // 2 is used only by property evidence
-	merged, all := appendPage(body, citations, "\n## New\n\nAdded.[^1] Also[^2].[^1]", map[string]string{"1": "q1", "2": "q2"})
+	merged, all, problems := revisePage(body, citations, nil, "\n## New\n\nAdded.[^1] Also[^2].[^1]", map[string]string{"1": "q1", "2": "q2"}, nil)
+	if problems != nil {
+		t.Fatalf("problems %v", problems)
+	}
 	if merged != "Published.[^1] More.[^3]\n\n## New\n\nAdded.[^4] Also[^5].[^4]" {
 		t.Fatalf("merged body %q", merged)
 	}
@@ -63,7 +66,7 @@ func TestAppendRenumbersMarkers(t *testing.T) {
 	if !reflect.DeepEqual(all, want) {
 		t.Fatalf("citations %v", all)
 	}
-	if same, _ := appendPage(body, citations, "", nil); same != body {
+	if same, kept, _ := revisePage(body, citations, nil, "", nil, nil); same != body || !reflect.DeepEqual(kept, citations) {
 		t.Fatal("an empty append keeps the body")
 	}
 	if got := highestMarker("a[^12]", map[string]string{"3": "x"}); got != 12 {
@@ -71,6 +74,72 @@ func TestAppendRenumbersMarkers(t *testing.T) {
 	}
 	if got := renumber("[^1] [^10] [^x]", 9); got != "[^10] [^19] [^x]" {
 		t.Fatalf("renumber %q", got)
+	}
+}
+
+func strp(s string) *string { return &s }
+
+func TestReviseEditsRenumberAndPrune(t *testing.T) {
+	body := "Orbits take 97 minutes.[^1] Beacons answer in 4 seconds.[^2] Cadence is fixed.[^3]\n"
+	citations := map[string]string{"1": "p1", "2": "p2", "3": "p3", "4": "p4"} // 4 is used only by property evidence
+	edits := []specEdit{
+		{Old: "Beacons answer in 4 seconds.[^2]", New: strp("Beacons answer in 3 seconds.[^1]")},
+		{Old: "Cadence is fixed.", New: strp("Cadence is fixed.[^2] It drifts in winter.[^1]")},
+	}
+	merged, all, problems := revisePage(body, citations, edits, "Later.[^3]", map[string]string{"1": "q1", "2": "q2", "3": "q3"}, map[string]bool{"4": true})
+	if problems != nil {
+		t.Fatalf("problems %v", problems)
+	}
+	want := "Orbits take 97 minutes.[^1] Beacons answer in 3 seconds.[^5] Cadence is fixed.[^6] It drifts in winter.[^5][^3]\n\nLater.[^7]"
+	if merged != want {
+		t.Fatalf("body %q", merged)
+	}
+	// [^2] left the body and is dropped; [^3] stays after its sentence; [^4] is kept for property evidence.
+	wantCitations := map[string]string{"1": "p1", "3": "p3", "4": "p4", "5": "q1", "6": "q2", "7": "q3"}
+	if !reflect.DeepEqual(all, wantCitations) {
+		t.Fatalf("citations %v", all)
+	}
+	// Without the evidence marker in keep, an unused published marker that was never in the body stays too.
+	_, all, _ = revisePage(body, citations, edits[:1], "", map[string]string{"1": "q1"}, nil)
+	if !reflect.DeepEqual(all, map[string]string{"1": "p1", "3": "p3", "4": "p4", "5": "q1"}) {
+		t.Fatalf("citations without keep %v", all)
+	}
+	// Deleting text with new "" drops its marker.
+	deleted, all, _ := revisePage(body, citations, []specEdit{{Old: " Cadence is fixed.[^3]", New: strp("")}}, "", nil, nil)
+	if deleted != "Orbits take 97 minutes.[^1] Beacons answer in 4 seconds.[^2]\n" || all["3"] != "" {
+		t.Fatalf("delete: %q %v", deleted, all)
+	}
+}
+
+func TestReviseEditsMustMatchOnce(t *testing.T) {
+	body := "A cat. A cat. A dog. aaa"
+	edits := []specEdit{
+		{Old: "A cat.", New: strp("x")},  // twice
+		{Old: "A bird.", New: strp("x")}, // missing
+		{Old: "A dog.", New: strp("A dog and a cat.")},
+		{Old: "a cat.", New: strp("y")}, // created by the previous edit: case-sensitive and unique now
+		{Old: "aa", New: strp("b")},     // overlapping occurrences count twice
+	}
+	merged, _, problems := revisePage(body, nil, edits, "", nil, nil)
+	if merged != "A cat. A cat. A dog and y aaa" {
+		t.Fatalf("body %q", merged)
+	}
+	if len(problems) != 3 || !strings.HasPrefix(problems[0], "edits[0]: old text occurs more than once") ||
+		!strings.HasPrefix(problems[1], "edits[1]: old text not found") || !strings.HasPrefix(problems[2], "edits[4]: old text occurs more than once") {
+		t.Fatalf("problems %q", problems)
+	}
+	_, specProblems, err := parseSpec([]byte(`{"run_key":"k","pages":[{"slug":"a","body":"x","edits":[{"old":"","new":"y"},{"old":"z"}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var details []string
+	for _, p := range specProblems {
+		details = append(details, p.Kind+": "+p.Detail)
+	}
+	want := []string{"spec: give body or edits, not both; edits change the published body", "edit: edits[0]: old is empty",
+		`edit: edits[1]: new is required ("" deletes the old text)`}
+	if !reflect.DeepEqual(details, want) {
+		t.Fatalf("spec problems %q", details)
 	}
 }
 

@@ -560,6 +560,21 @@ func manifest(passages []passage) string {
 	return fmt.Sprintf(`{"passages": %d, "sha256": "%s"}`, len(passages), passagesDigest(passages))
 }
 
+// preferredRendition returns the index of the text rendition ingest reuses
+// without --version: v3, else v2, else the newest; rows are ordered by created,
+// id. It returns -1 for no rows.
+func preferredRendition(rows []map[string]any) int {
+	rank := func(label string) int { return map[string]int{defaultVersion: 2, "v2": 1}[label] }
+	best, bestRank := -1, -1
+	for i, r := range rows {
+		label, _ := r["version_label"].(string)
+		if rank(label) >= bestRank {
+			best, bestRank = i, rank(label)
+		}
+	}
+	return best
+}
+
 // IngestOptions are the optional ingest flags. An empty Version selects an
 // existing text rendition of the source (v3, then v2 first) or creates v3. DateSet
 // distinguishes an explicit empty --date from no --date.
@@ -690,12 +705,8 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		rank := func(label string) int { return map[string]int{defaultVersion: 2, "v2": 1}[label] }
-		for i, r := range labels {
-			label, _ := r["version_label"].(string)
-			if i == 0 || rank(label) >= rank(version) {
-				version = label
-			}
+		if i := preferredRendition(labels); i >= 0 {
+			version, _ = labels[i]["version_label"].(string)
 		}
 	}
 	findRendition := "SELECT id, processor, notes FROM renditions WHERE source = " + literal(sourceID) + " AND kind = 'text' AND version_label = " + literal(version) + " LIMIT 1"

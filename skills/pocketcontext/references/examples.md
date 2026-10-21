@@ -7,6 +7,7 @@ pocketcontext check
 pocketcontext spaces
 pocketcontext ingest /path/to/source.md --title 'Source title'
 pocketcontext sql "SELECT id, sequence, manifest FROM publications WHERE space = 'SPACE_ID_______' ORDER BY sequence DESC LIMIT 1"
+pocketcontext passages SOURCE_ID______ --out source-passages.txt   # every passage as text: === ORDINAL · PASSAGE_ID · LOCATOR
 pocketcontext sql "SELECT id, ordinal, locator, body FROM passages WHERE rendition = 'RENDITION_ID_15' ORDER BY ordinal LIMIT 10 OFFSET 0"
 ```
 
@@ -106,8 +107,8 @@ JSON
 Without `--dry-run` it prints `{"run", "revision", "staged", "skipped", "problems"}`.
 Exit 3 means problems: nothing is written when the spec itself is wrong; after
 writing, `problems` come from `check-run`. Rerun the same spec (same `run_key`)
-to resume an interrupted run; pages already staged in it are skipped. In an
-`append` page, markers are local (`[^1]`...) and are renumbered after the
+to resume an interrupted run; pages already staged in it are skipped. In `edits`
+and `append`, markers are local (`[^1]`...) and are renumbered after the
 page's highest existing marker; omitted title, summary and properties are
 copied from the published revision.
 
@@ -119,6 +120,27 @@ pocketcontext page existing-page > page.json              # published page as an
 
 To rewrite a page as one summary, edit the `page` output (body and citations,
 marker to passage ID) and stage it inside `{"run_key": "...", "pages": [ ... ]}`.
+
+For a targeted change, give `edits` instead of a body. Each `old` is exact
+text from the published body (copy it from `page` output) and must occur
+exactly once; edits apply in order, then `append`. If the published body is
+`Beacons answer within 4 seconds.[^1] They retry twice.[^2]`:
+
+```json
+{"run_key": "example-fix-1", "pages": [
+  {"slug": "lantern-protocol",
+   "edits": [{"old": "Beacons answer within 4 seconds.[^1]", "new": "As of 2026-05 beacons answer within 3 seconds.[^1]"},
+             {"old": "They retry twice.", "new": "They retry twice, then raise an alarm."}],
+   "append": "## Range\n\nBeacons reach 40 km.[^2]",
+   "citations": {"1": "NEW_PASSAGE_ID_", "2": "RANGE_PASSAGE__"}}]}
+```
+
+Markers in `new` and `append` are local and share one numbering, so `[^1]`
+and `[^2]` become `[^3]` and `[^4]`. The staged body is `As of 2026-05 beacons
+answer within 3 seconds.[^3] They retry twice, then raise an alarm.[^2]`
+followed by the appended section citing `[^4]`. Published `[^2]` stayed
+outside `old` and keeps its citation; published `[^1]` left the body with the
+replaced text, so its citation is dropped.
 
 
 ## Ranked published-page search

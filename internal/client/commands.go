@@ -292,6 +292,7 @@ parsed:
 		"batch":                 {nil, nil},
 		"ingest":                {{"title", "date", "version"}, nil},
 		"search":                {{"publication", "sequence", "limit", "offset", "generation"}, nil},
+		"passages":              {{"version", "out"}, nil},
 		"lint":                  {nil, nil},
 		"stage":                 {nil, {"dry-run"}},
 		"check-run":             {nil, nil},
@@ -692,6 +693,18 @@ func runData(c *Client, command string, a *args, pretty bool) error {
 			return err
 		}
 		data, err = c.Search(a.pos[0], o)
+	case "passages":
+		if err := a.need(1, "passages SOURCE_ID [--version V] [--out FILE]"); err != nil {
+			return err
+		}
+		if a.has("out") && a.flags["out"] == "" {
+			return fail(2, "--out needs a file path")
+		}
+		result, err := c.SourcePassages(a.pos[0], a.flags["version"], a.has("version"))
+		if err != nil {
+			return err
+		}
+		return writePassages(result, a.flags["out"], pretty)
 	case "lint":
 		data, err = c.Lint()
 	case "stage":
