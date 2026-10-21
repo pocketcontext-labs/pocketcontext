@@ -43,8 +43,13 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
   update COLLECTION ID JSON|-        change fields (needs expected_revision)
   batch JSON|-                       up to 20 writes in one transaction
   newid                              print a new 15-character record ID
-  ingest PATH [--title T] [--version V]
+  ingest PATH [--title T] [--date D] [--version V]
                                      store a UTF-8 text note and extract passages
+                                     split by headings and paragraphs; Markdown
+                                     front matter title: and published:/date:
+                                     fill title and source date unless given;
+                                     reuses an existing rendition unless
+                                     --version is given (new ones are v2)
   search TERMS [--limit N] [--offset N --generation G --publication ID] [--sequence N]
   lint                               check published graph structure
   stage-home RUN_ID --expected-revision N (--home SLUG | --clear-home) [--home-base ID]

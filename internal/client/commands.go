@@ -275,7 +275,7 @@ parsed:
 		"create":                {nil, nil},
 		"update":                {nil, nil},
 		"batch":                 {nil, nil},
-		"ingest":                {{"title", "version"}, nil},
+		"ingest":                {{"title", "date", "version"}, nil},
 		"search":                {{"publication", "sequence", "limit", "offset", "generation"}, nil},
 		"lint":                  {nil, nil},
 		"publish":               {{"expected-revision", "home", "home-base"}, {"clear-home"}},
@@ -654,14 +654,11 @@ func runData(c *Client, command string, a *args, pretty bool) error {
 			return err
 		}
 	case "ingest":
-		if err := a.need(1, "ingest PATH [--title T] [--version V]"); err != nil {
+		if err := a.need(1, "ingest PATH [--title T] [--date D] [--version V]"); err != nil {
 			return err
 		}
-		version := a.flags["version"]
-		if !a.has("version") {
-			version = "v1"
-		}
-		data, err = c.Ingest(a.pos[0], a.flags["title"], version)
+		data, err = c.Ingest(a.pos[0], IngestOptions{Title: a.flags["title"], Date: a.flags["date"], Version: a.flags["version"],
+			VersionSet: a.has("version"), DateSet: a.has("date")})
 	case "search":
 		if err := a.need(1, "search TERMS [--limit N] [--offset N --generation G --publication ID]"); err != nil {
 			return err

@@ -297,6 +297,7 @@ def scenario(pc):
     check('other-laptop' in blocked.stderr, 'a fresh lease from another computer blocks start')
     pc.json('ensure-running', '--take-over')
     check(pc.json('status')['running'], '--take-over starts the server')
+    structured_ingest(pc, notes)
 
     skills = pc.root / 'skill'
     installed = pc.json('skill', '--dir', str(skills))
@@ -312,6 +313,43 @@ def scenario(pc):
     target = pc.home / '.claude' / 'skills' / 'pocketcontext'
     check(agent['installed'].get('claude-code') == str(target) and (target / 'SKILL.md').is_file()
           and (target / '.pocketcontext').is_file(), 'the Claude Code skill is installed as pocketcontext')
+
+
+def structured_ingest(pc, notes):
+    """Markdown front matter fills title and date; passages follow headings."""
+    talk = ' '.join(['The agent runs bash commands only from the whitelist.'] * 50)
+    episode = notes / 'episode.md'
+    episode.write_text('---\ntitle: "Episode one: agents"\npublished: 2025-06-16\nauthor:\n  - Dan\n  - Ann\n---\n'
+                       '# Episode one\n\nIntro.\n\n## Transcript\n\n### Level 1 - Setup\n' + talk + '\n\n'
+                       '### Level 4 - Bash Tool + Whitelist\n' + talk + '\n', encoding='utf-8')
+    first = pc.json('ingest', str(episode))
+    check(first['title'] == 'Episode one: agents' and first['source_date'] == '2025-06-16' and first['version'] == 'v2',
+          f'front matter supplies title and source date: {first}')
+    row = pc.json('sql', f"SELECT title, source_date FROM sources WHERE id = '{first['source']}'")['rows'][0]
+    check(row == ['Episode one: agents', '2025-06-16'], f'sources.source_date is stored: {row}')
+    rows = pc.json('sql', f"SELECT locator FROM passages WHERE rendition = '{first['rendition']}' ORDER BY ordinal")['rows']
+    want = ['front matter; lines 1-7', '# Episode one; lines 8-15',
+            '# Episode one > ## Transcript > ### Level 4 - Bash Tool + Whitelist; lines 17-18']
+    check([r[0] for r in rows] == want, f'passages carry heading paths and line ranges: {rows}')
+    again = pc.json('ingest', str(episode), '--title', 'Other', '--date', '2020-01-01')
+    check(again['rendition'] == first['rendition'] and again['source_date'] == '2025-06-16' and 'immutable' in again['note'],
+          'repeated ingest reuses the source and rendition and keeps its date')
+
+    # A v1 rendition (fixed 24,000-character cuts) stays valid and resumes with its own splitter.
+    text = episode.read_text(encoding='utf-8')
+    v1 = [{'locator': f'document; characters 1-{len(text)}', 'body': text}]
+    digest = hashlib.sha256(json.dumps(v1, sort_keys=True).encode()).hexdigest()
+    pc.json('create', 'renditions', json.dumps({'source': first['source'], 'kind': 'text', 'processor': 'utf-8 text / pocketcontext-1',
+                                                'version_label': 'v1', 'notes': json.dumps({'passages': 1, 'sha256': digest})}))
+    legacy = pc.json('ingest', str(episode), '--version', 'v1')
+    rows = pc.json('sql', f"SELECT locator FROM passages WHERE rendition = '{legacy['rendition']}'")['rows']
+    check(legacy['passages'] == 1 and rows == [[v1[0]['locator']]] and 'v1' in legacy['note'], f'a partial v1 rendition resumes: {legacy}')
+    check(pc.json('ingest', str(episode))['rendition'] == first['rendition'], 'without --version ingest prefers the v2 rendition')
+
+    dated = notes / 'dated.md'
+    dated.write_text('---\ndate: 2024-02-03\n---\nPlain text without headings.\n', encoding='utf-8')
+    source = pc.json('ingest', str(dated), '--date', '2026-01-01')
+    check(source['title'] == 'dated' and source['source_date'] == '2026-01-01', f'--date wins over front matter: {source}')
 
 
 def remote_scenario(pc, r):
