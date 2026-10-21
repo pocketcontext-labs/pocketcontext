@@ -235,11 +235,26 @@ parsed:
 	if len(argv) > 0 {
 		argv = append([]string{argv[0]}, append(global, argv[1:]...)...)
 	}
-	if len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" || argv[0] == "-h" {
-		fmt.Print(Usage)
-		return nil
+	if len(argv) == 0 || argv[0] == "--help" || argv[0] == "-h" {
+		return printHelp("")
 	}
 	command, rest := argv[0], argv[1:]
+	// Help comes before argument parsing, so `COMMAND --help` works for every command.
+	if command == "help" {
+		if wantsHelp(rest) {
+			return printHelp("help")
+		}
+		topic, err := helpTopic(rest)
+		if err != nil {
+			return err
+		}
+		return printHelp(topic)
+	}
+	if wantsHelp(rest) {
+		if _, known := commandHelp[command]; known {
+			return printHelp(command)
+		}
+	}
 	if command == "version" || command == "--version" {
 		line := "pocketcontext " + bundle.Version
 		if bundle.Commit != "" {

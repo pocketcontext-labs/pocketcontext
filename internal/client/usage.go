@@ -71,6 +71,7 @@ tailcat or SSH forward of the same port; --url URL or POCKETCONTEXT_URL):
   server; serve, start, ensure-running, stop, flush, recover, init, password,
   account and login-code are not available with --url.
 
+Run ` + "`pocketcontext help COMMAND`" + ` or ` + "`pocketcontext COMMAND --help`" + ` for usage, details and an example.
 Options for every command: --db PATH or --url URL, --space ID, --pretty.
 --url and --db exclude each other; --db overrides POCKETCONTEXT_URL.
 Exit codes: 0 ok, 1 HTTP or transport error, 2 usage, 3 check differences, 4 HTTP 409.

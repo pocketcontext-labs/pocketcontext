@@ -223,6 +223,12 @@ def scenario(pc):
     usage = pc.run('help')
     text = usage.stdout + usage.stderr
     check('pocketcontext' in text and RETIRED not in text.lower(), 'help names pocketcontext and not the retired product')
+    batch_help = pc.run('batch', '--help').stdout
+    check(batch_help.startswith('usage: pocketcontext batch') and '"method"' in batch_help and '"url"' in batch_help
+          and '"body"' in batch_help, 'batch --help documents the request shape')
+    check(pc.run('help', 'lint').stdout == pc.run('lint', '-h').stdout and 'unlinked-mention' in pc.run('help', 'lint').stdout,
+          'help COMMAND and COMMAND -h print the same help')
+    check('unknown command' in pc.run('help', 'no-such-command', expect=2).stderr, 'help refuses an unknown command')
 
     init = pc.json('init', '--email', 'tester@example.localhost', '--name', 'Tester', '--port', str(pc.port),
                    '--password-stdin', stdin=PASSWORD + '\n')
