@@ -28,6 +28,8 @@ Publication rejects:
 - links or relationships to pages that are absent or archived in the resulting manifest, including links from unchanged published pages to a newly archived page;
 - more than 10,000 pages in one manifest.
 
+`GET /api/pocketcontext/runs/{id}/check` (`pocketcontext check-run`) runs the same checks without publishing and returns every problem of a staging run at once; it is read-only and open to members of the run's space. `pocketcontext stage` writes a whole run from a JSON spec (page identities, revisions with the latest published `base_revision`, citations, and `page_links` derived from `[[slug]]` links and relationship properties) through `/api/batch` in groups of up to 20 requests, after validating the spec, and then runs that check. A spec page with `append` extends the published body; its local markers are renumbered after the page's highest marker. Rerunning a spec with the same `run_key` resumes the staging run.
+
 Archived revisions stay in the manifest as history but are not rendered. Structural validation never establishes factual truth; claim-level support needs review.
 
 Each publication also stores an optional home page outside its manifest. A run selects `home` or `clear_home` (never both) and records `home_base`, the home it expected. Publication compares that base with the latest publication and returns 409 on disagreement. Runs without a home choice carry the prior home forward; home-only runs are allowed. The resulting home must be published and unarchived.

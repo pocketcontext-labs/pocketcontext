@@ -39,6 +39,52 @@ LIMIT 10 OFFSET 0
 If an update returns HTTP 409, retrieve current published content, reassess changes and create a new run with new immutable revisions. Do not simply replace base_revision with the newest ID without reviewing its content.
 
 
+## Staging a run from a spec
+
+`stage` writes a whole run in one step: page identities, revisions with the
+right `base_revision`, citations, and `page_links` derived from `[[slug]]`
+links. Everything is validated before the first write. Placeholders below are
+illustrative.
+
+```sh
+pocketcontext stage - --dry-run <<'JSON'
+{
+  "run_key": "example-batch-1",
+  "description": "Synthesize synthetic example evidence",
+  "sources": ["SOURCE_ID______"],
+  "home": "example-concept",
+  "pages": [
+    {"slug": "example-concept", "kind": "concept", "title": "Example concept", "summary": "A synthetic example.",
+     "body": "The source describes an example.[^1] It relies on [[example-tool|the tool]].",
+     "citations": {"1": "PASSAGE_ID_____"}},
+    {"slug": "example-tool", "kind": "entity", "title": "Example tool", "summary": "A synthetic tool.",
+     "body": "The tool appears in the example.[^1] See [[example-concept]].",
+     "citations": {"1": "PASSAGE_ID_____"}},
+    {"slug": "existing-page", "append": "## Later\n\nA newer source adds this.[^1]",
+     "citations": {"1": "PASSAGE_ID_2___"}}
+  ]
+}
+JSON
+```
+
+Without `--dry-run` it prints `{"run", "revision", "staged", "skipped", "problems"}`.
+Exit 3 means problems: nothing is written when the spec itself is wrong; after
+writing, `problems` come from `check-run`. Rerun the same spec (same `run_key`)
+to resume an interrupted run; pages already staged in it are skipped. In an
+`append` page, markers are local (`[^1]`...) and are renumbered after the
+page's highest existing marker; omitted title, summary and properties are
+copied from the published revision.
+
+```sh
+pocketcontext check-run RUN_ID_________                  # every publication problem, all pages at once
+pocketcontext publish RUN_ID_________ --expected-revision REVISION_FROM_STAGE
+pocketcontext page existing-page > page.json              # published page as an editable spec page
+```
+
+To rewrite a page as one summary, edit the `page` output (body and citations,
+marker to passage ID) and stage it inside `{"run_key": "...", "pages": [ ... ]}`.
+
+
 ## Ranked published-page search
 
 ```sh

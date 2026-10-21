@@ -208,6 +208,7 @@ def main():
         pc = Project(binary, Path(temp))
         try:
             scenario(pc)
+            staging_scenario(pc)
             remote = Remote(binary, Path(temp) / 'other-computer', pc.url)
             remote_scenario(pc, remote)
             codes_scenario(pc, remote)
@@ -314,6 +315,97 @@ def scenario(pc):
           and (target / '.pocketcontext').is_file(), 'the Claude Code skill is installed as pocketcontext')
 
 
+def staging_scenario(pc):
+    """stage, check-run and page: a spec in, every problem at once, a page back out."""
+    notes = pc.root / 'staging-notes'
+    notes.mkdir()
+    (notes / 'orbit.md').write_text('# Orbit cadence\n\nThe Zephyrine satellite completes an orbit every 97 minutes.\n', encoding='utf-8')
+    (notes / 'lantern.md').write_text('# Lantern protocol\n\nLantern beacons answer the Zephyrine handshake within 4 seconds.\n', encoding='utf-8')
+    orbit = pc.json('ingest', str(notes / 'orbit.md'), '--title', 'Orbit cadence')
+    lantern = pc.json('ingest', str(notes / 'lantern.md'), '--title', 'Lantern protocol')
+    passage = {}
+    for name, source in (('orbit', orbit), ('lantern', lantern)):
+        passage[name] = pc.json('sql', f"SELECT id FROM passages WHERE rendition = '{source['rendition']}' ORDER BY ordinal LIMIT 1")['rows'][0][0]
+
+    spec_file = notes / 'spec.json'
+    spec = {'run_key': 'staging-v1', 'description': 'Zephyrine pages', 'sources': [orbit['source'], lantern['source']], 'home': 'orbit-cadence',
+            'pages': [
+                {'slug': 'orbit-cadence', 'kind': 'concept', 'title': 'Orbit cadence', 'summary': 'How often Zephyrine orbits.',
+                 'body': 'Zephyrine completes an orbit every 97 minutes.[^1] Beacons follow the [[lantern-protocol]].', 'citations': {'1': passage['orbit']}},
+                {'slug': 'lantern-protocol', 'kind': 'concept', 'title': 'Lantern protocol', 'summary': 'Beacon handshakes.',
+                 'body': 'Beacons answer within 4 seconds.[^1] See [[orbit-cadence|the orbit]].', 'citations': {'1': passage['lantern']}}]}
+    spec_file.write_text(json.dumps(spec), encoding='utf-8')
+    dry = pc.json('stage', str(spec_file), '--dry-run')
+    check(dry['problems'] == [] and dry['run'] is None and sorted(dry['staged']) == ['lantern-protocol', 'orbit-cadence'], 'a clean dry run lists the pages to stage')
+    check(pc.json('sql', "SELECT count(*) FROM ingestion_runs WHERE key = 'staging-v1'")['rows'][0][0] == 0, 'a dry run writes nothing')
+    staged = pc.json('stage', str(spec_file))
+    check(staged['problems'] == [] and staged['staged'] == ['orbit-cadence', 'lantern-protocol'] and staged['skipped'] == [], 'stage writes two linked pages')
+    links = pc.json('sql', f"SELECT count(*) FROM page_links l JOIN page_revisions r ON r.id = l.page_revision WHERE r.run = '{staged['run']}'")['rows'][0][0]
+    check(links == 2, 'stage derives page_links from [[links]] in the bodies')
+    again = pc.json('stage', '-', stdin=json.dumps(spec))
+    check(again['run'] == staged['run'] and again['staged'] == [] and sorted(again['skipped']) == ['lantern-protocol', 'orbit-cadence'], 'stage resumes a run by key and skips staged pages')
+    checked = pc.json('check-run', staged['run'])
+    check(checked == {'run': staged['run'], 'ok': True, 'problems': []}, 'check-run passes a complete run')
+    status, _ = pc.http('GET', f"/api/pocketcontext/runs/{staged['run']}/check")
+    check(status == 401, 'the run check route requires authentication')
+    published = pc.json('publish', staged['run'], '--expected-revision', str(again['revision']))
+    check(published['status'] == 'published', 'the staged run publishes')
+    home = pc.json('sql', "SELECT p.slug FROM publications pub JOIN pages p ON p.id = pub.home ORDER BY pub.sequence DESC LIMIT 1")['rows'][0][0]
+    check(home == 'orbit-cadence', 'the spec home becomes the publication home')
+    refused = pc.run('stage', str(spec_file), expect=3)
+    check(any(p['kind'] == 'run' for p in json.loads(refused.stdout)['problems']), 'stage refuses to resume a published run')
+
+    broken = {'run_key': 'staging-v2', 'pages': [
+        {'slug': 'orbit-cadence', 'append': '## Later\n\nThe cadence matters to [[lantern-protocol]] beacons.[^1]', 'citations': {'1': passage['lantern']}},
+        {'slug': 'broken-page', 'kind': 'concept', 'title': 'Broken', 'summary': 'Deliberately wrong.',
+         'body': 'Claim.[^1][^2] See [[no-such-page]].\n[^3]: a footnote', 'citations': {'1': 'zzzzzzzzzzzzzzz', '4': passage['orbit']}}]}
+    result = pc.run('stage', '-', '--dry-run', stdin=json.dumps(broken), expect=3)
+    kinds = {p['kind'] for p in json.loads(result.stdout)['problems'] if p['page'] == 'broken-page'}
+    check({'passage', 'missing-marker', 'unused-citation', 'link-target', 'footnote-definition'} <= kinds, f'a dry run lists several problems at once: {sorted(kinds)}')
+    check(all(p['page'] == 'broken-page' for p in json.loads(result.stdout)['problems']), 'the append page itself has no problems')
+    check(pc.json('sql', "SELECT count(*) FROM ingestion_runs WHERE key = 'staging-v2'")['rows'][0][0] == 0, 'a failing spec writes nothing')
+
+    broken['pages'].pop()
+    appended = pc.json('stage', '-', stdin=json.dumps(broken))
+    check(appended['problems'] == [] and appended['staged'] == ['orbit-cadence'], 'an append page stages')
+    pc.json('publish', appended['run'], '--expected-revision', str(appended['revision']))
+    page = pc.json('page', 'orbit-cadence')
+    check(page['body'].endswith('beacons.[^2]') and page['citations'] == {'1': passage['orbit'], '2': passage['lantern']}
+          and page['kind'] == 'concept' and page['title'] == 'Orbit cadence', 'append renumbers local markers after the existing ones')
+    first = pc.json('page', 'orbit-cadence', '--sequence', str(published_sequence(pc) - 1))
+    check('Later' not in first['body'], 'page reads an earlier publication')
+    roundtrip = pc.json('stage', '-', '--dry-run', stdin=json.dumps({'run_key': 'staging-v3', 'pages': [page]}))
+    check(roundtrip['problems'] == [] and roundtrip['staged'] == ['orbit-cadence'], 'page output is a valid spec page')
+
+    # The server reports every problem of a staged run; publish still refuses with its first one.
+    run = pc.json('create', 'ingestion_runs', json.dumps({'key': 'staging-broken', 'status': 'staging', 'description': 'Broken'}))
+    target = pc.json('sql', "SELECT id FROM pages WHERE slug = 'lantern-protocol'")['rows'][0][0]
+    pc.json('create', 'page_revisions', '-', stdin=json.dumps({'run': run['id'], 'page': target, 'base_revision': '', 'title': 'Lantern',
+            'summary': 'Stale.', 'body': 'Unsupported.[^1][^2] [[orbit-cadence]]'}))
+    report = json.loads(pc.run('check-run', run['id'], expect=3).stdout)
+    kinds = sorted(p['kind'] for p in report['problems'])
+    check(kinds == ['missing-link-record', 'missing-marker', 'missing-marker', 'stale-base'], f'check-run reports every problem at once: {kinds}')
+    stale = pc.run('publish', run['id'], '--expected-revision', '1', expect=4)
+    check('Page changed since synthesis' in stale.stderr, 'publish still refuses with the first problem and HTTP 409')
+
+    # An interrupted run: the revision exists but its citation and link do not. Publish names the first
+    # problem as before; stage with the same run_key adds only the missing records.
+    base = pc.json('sql', f"SELECT m.value FROM publications pub JOIN json_each(pub.manifest) m WHERE m.key = '{target}' ORDER BY pub.sequence DESC LIMIT 1")['rows'][0][0]
+    run = pc.json('create', 'ingestion_runs', json.dumps({'key': 'staging-resume', 'status': 'staging', 'description': 'Resume'}))
+    body = 'Beacons answer within 4 seconds.[^1] See [[orbit-cadence]].'
+    pc.json('create', 'page_revisions', '-', stdin=json.dumps({'run': run['id'], 'page': target, 'base_revision': base, 'title': 'Lantern protocol',
+            'summary': 'Beacon handshakes.', 'body': body}))
+    missing = pc.run('publish', run['id'], '--expected-revision', '1', expect=1)
+    check('Missing citation marker 1' in missing.stderr, 'publish still refuses with the first problem and HTTP 400')
+    resumed = pc.json('stage', '-', stdin=json.dumps({'run_key': 'staging-resume', 'pages': [
+        {'slug': 'lantern-protocol', 'body': body, 'citations': {'1': passage['lantern']}}]}))
+    check(resumed['skipped'] == ['lantern-protocol'] and resumed['problems'] == [], 'a resumed run gets the citations and links it missed')
+
+
+def published_sequence(pc):
+    return pc.json('sql', "SELECT max(sequence) FROM publications WHERE space = 'companyspace001'")['rows'][0][0]
+
+
 def remote_scenario(pc, r):
     instance = json.loads((pc.project / 'pocketcontext.json').read_text(encoding='utf-8'))['instance']
     user_password = 'synthetic user password'
@@ -360,6 +452,8 @@ def remote_scenario(pc, r):
     r.json('create', 'citations', json.dumps({'page_revision': revision['id'], 'passage': passage, 'marker': '1'}))
     current = r.json('get', 'ingestion_runs', run['id'])
     check(r.json('publish', run['id'], '--expected-revision', str(current['revision']))['status'] == 'published', 'remote publish works')
+    closed = json.loads(r.run('check-run', run['id'], expect=3).stdout)
+    check([p['kind'] for p in closed['problems']] == ['run-closed'], 'remote check-run reports a published run as closed')
     check([p['slug'] for p in r.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'remote search finds the remote page')
     check([p['slug'] for p in pc.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'the server sees the remote page')
 
