@@ -89,6 +89,50 @@ func TestStubs(t *testing.T) {
 	}
 }
 
+func TestTitleWords(t *testing.T) {
+	for in, want := range map[string]string{
+		"Cursor (Anysphere)":           "cursor anysphere",
+		"Zero-touch engineering (ZTE)": "zero touch engineering zte",
+		"ZTE: zero-touch engineering":  "zte zero touch engineering",
+		"GPT-5.5 «preview», O'Reilly":  "gpt 5 5 preview o reilly",
+		"  ":                           "",
+	} {
+		if got := titleWords(in); got != want {
+			t.Errorf("titleWords(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A capitalized name counts as part of a title when it is one of the title's
+// words once punctuation is removed; parts of words still do not count.
+func TestMissingPagesTitlePunctuation(t *testing.T) {
+	filler := "The team reviewed the agent output with care. "
+	body := filler + "They compared it with Anysphere and with ZTE in practice, and Cursorial too. Then Engineer Smith left. "
+	pages := []lintPage{
+		page("p1", "cursor", "Cursor (Anysphere)", filler, 2),
+		page("p2", "zte", "Zero-touch engineering (ZTE)", filler, 2),
+		page("p3", "zte-alt", "ZTE: zero-touch engineering", filler, 2),
+		page("p4", "a", "A", body, 2),
+		page("p5", "b", "B", body, 2),
+		page("p6", "c", "C", body, 2),
+	}
+	got := missingPages(pages)
+	terms := []string{}
+	for _, f := range got {
+		terms = append(terms, f["term"].(string))
+	}
+	if want := []string{"Cursorial", "Engineer Smith"}; !reflect.DeepEqual(terms, want) {
+		t.Fatalf("got %v, want %v", terms, want)
+	}
+	reversed := make([]lintPage, len(pages))
+	for i, p := range pages {
+		reversed[len(pages)-1-i] = p
+	}
+	if again := missingPages(reversed); !reflect.DeepEqual(again, got) {
+		t.Fatalf("order changed the findings: %v vs %v", again, got)
+	}
+}
+
 func TestCapitalizedNames(t *testing.T) {
 	lower := map[string]bool{"using": true, "agent": true, "review": true}
 	text := "Mario Zechner wrote it. The Stripe Minions merged it on Monday, and Cloudflare's review factory checked it.\n" +

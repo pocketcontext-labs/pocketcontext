@@ -313,6 +313,16 @@ func capitalizedNames(text string, lower map[string]bool) []string {
 	return names
 }
 
+// titleWords lowercases s and reduces it to its words: every run of
+// characters other than letters and digits becomes one space, so that
+// "Cursor (Anysphere)" reads "cursor anysphere" and "ZTE: zero-touch" reads
+// "zte zero touch".
+func titleWords(s string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}), " ")
+}
+
 // containsWords reports whether the words of term occur, in order and as
 // whole words, in the normalized text s.
 func containsWords(s, term string) bool {
@@ -333,7 +343,8 @@ func fieldLabel(text string, start int, term string) bool {
 // that term as its title or slug. Terms are text written in **bold** (or
 // __bold__), the text of Markdown links [term](url) and capitalized names in
 // prose (see capitalizedNames); a name is also skipped when it is part of a
-// page title or slug (Karpathy for a page "Andrej Karpathy"). Terms compare
+// page title or slug (Karpathy for a page "Andrej Karpathy", Anysphere for
+// "Cursor (Anysphere)"), comparing words with punctuation removed. Terms compare
 // case-insensitively with hyphens and spaces equal; code, [[page]] links and
 // headings are ignored.
 func missingPages(pages []lintPage) []map[string]any {
@@ -341,9 +352,10 @@ func missingPages(pages []lintPage) []map[string]any {
 	titles := []string{}
 	for _, p := range pages {
 		existing[normalTerm(p.Title)], existing[normalTerm(p.Slug)] = true, true
-		titles = append(titles, normalTerm(p.Title), normalTerm(p.Slug))
+		titles = append(titles, titleWords(p.Title), titleWords(p.Slug))
 	}
 	partOfTitle := func(term string) bool {
+		term = titleWords(term)
 		for _, t := range titles {
 			if containsWords(t, term) {
 				return true
