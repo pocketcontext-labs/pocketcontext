@@ -211,6 +211,7 @@ def main():
             remote = Remote(binary, Path(temp) / 'other-computer', pc.url)
             remote_scenario(pc, remote)
             codes_scenario(pc, remote)
+            lint_scenario(pc)
             pc.json('stop')
             leftovers = retired_names(pc.root)
             check(not leftovers, f'no file or directory name contains the retired product name: {leftovers}')
@@ -223,6 +224,12 @@ def scenario(pc):
     usage = pc.run('help')
     text = usage.stdout + usage.stderr
     check('pocketcontext' in text and RETIRED not in text.lower(), 'help names pocketcontext and not the retired product')
+    batch_help = pc.run('batch', '--help').stdout
+    check(batch_help.startswith('usage: pocketcontext batch') and '"method"' in batch_help and '"url"' in batch_help
+          and '"body"' in batch_help, 'batch --help documents the request shape')
+    check(pc.run('help', 'lint').stdout == pc.run('lint', '-h').stdout and 'unlinked-mention' in pc.run('help', 'lint').stdout,
+          'help COMMAND and COMMAND -h print the same help')
+    check('unknown command' in pc.run('help', 'no-such-command', expect=2).stderr, 'help refuses an unknown command')
 
     init = pc.json('init', '--email', 'tester@example.localhost', '--name', 'Tester', '--port', str(pc.port),
                    '--password-stdin', stdin=PASSWORD + '\n')
@@ -258,7 +265,8 @@ def scenario(pc):
     results = pc.json('search', 'espresso descaled')
     check([p['slug'] for p in results['pages']] == ['coffee-policy'], 'full-text search finds the published page')
     lint = pc.json('lint')
-    check({f['kind'] for f in lint['findings']} == {'orphan'}, 'lint reports structure only')
+    check({(f['kind'], f['page']) for f in lint['findings']} == {('orphan', 'coffee-policy'), ('stub', 'coffee-policy')},
+          'lint reports the orphan and the stub only')
 
     status, _ = pc.http('GET', '/')
     check(status == 200, 'the reader is served')
@@ -517,6 +525,49 @@ def codes_scenario(pc, r):
     expired = r.run('login', '--code-stdin', stdin=expiring['code'] + '\n', expect=1)
     check('used or expired' in expired.stderr, 'an expired code is refused')
     check(not r.json('status')['loggedIn'], 'an expired code leaves the remote logged out')
+
+
+def lint_scenario(pc):
+    """Editorial lint findings on pages written with one batch."""
+    note = pc.root / 'notes' / 'grinder.md'
+    note.write_text('# Grinder\n\nThe burr grinder is set to grind size twelve. The tamping station sits beside it.\n', encoding='utf-8')
+    source = pc.json('ingest', str(note), '--title', 'Grinder')
+    passage = pc.json('sql', f"SELECT id FROM passages WHERE rendition = '{source['rendition']}' LIMIT 1")['rows'][0][0]
+    run = pc.json('create', 'ingestion_runs', json.dumps({'key': 'grinder-v1', 'status': 'staging', 'description': 'Grinder',
+                                                          'sources': [source['source']]}))
+    filler = ' '.join(['The grinder setting is checked each morning before service begins.'] * 9)
+    pages = {  # slug: (title, body, markers, link targets)
+        'burr-grinder': ('Burr grinder', f'{filler}[^1] Follow the Coffee policy and the **Tamping station** rules.[^2]', 2, []),
+        'milk-frother': ('Milk frother', 'Placed next to the [[burr-grinder]] and the **Tamping station**.[^1]', 1, ['burr-grinder']),
+        'cleaning-rota': ('Cleaning rota', 'Wipe the burr grinder, the `Milk frother` and the **tamping station** daily.[^1][^2]', 2, []),
+    }
+    ids = {slug: (pc.run('newid').stdout.strip(), pc.run('newid').stdout.strip()) for slug in pages}
+    requests = []
+    for slug, (title, body, markers, links) in pages.items():
+        page_id, revision_id = ids[slug]
+        requests.append({'method': 'POST', 'url': '/api/collections/pages/records', 'body': {'id': page_id, 'slug': slug, 'kind': 'concept'}})
+        requests.append({'method': 'POST', 'url': '/api/collections/page_revisions/records', 'body': {
+            'id': revision_id, 'run': run['id'], 'page': page_id, 'base_revision': '', 'title': title, 'summary': title, 'body': body}})
+        for marker in range(1, markers + 1):
+            requests.append({'method': 'POST', 'url': '/api/collections/citations/records',
+                             'body': {'page_revision': revision_id, 'passage': passage, 'marker': str(marker)}})
+        for target in links:
+            requests.append({'method': 'POST', 'url': '/api/collections/page_links/records',
+                             'body': {'page_revision': revision_id, 'target': ids[target][0]}})
+    written = pc.json('batch', '-', stdin=json.dumps(requests))
+    check(len(written) == len(requests), 'batch writes pages, revisions, citations and links in one request')
+    current = pc.json('get', 'ingestion_runs', run['id'])
+    check(pc.json('publish', run['id'], '--expected-revision', str(current['revision']))['status'] == 'published',
+          'the batch-written run publishes')
+    findings = pc.json('lint')['findings']
+    mentions = {(f['page'], f['target']) for f in findings if f['kind'] == 'unlinked-mention'}
+    check(mentions == {('burr-grinder', 'coffee-policy'), ('cleaning-rota', 'burr-grinder')},
+          f'lint reports unlinked mentions, not linked ones or code: {mentions}')
+    missing = [(f['term'], f['pages']) for f in findings if f['kind'] == 'missing-page']
+    check(missing == [('Tamping station', ['burr-grinder', 'cleaning-rota', 'milk-frother'])],
+          f'lint reports a bold term on three pages without a page: {missing}')
+    stubbed = {f['page'] for f in findings if f['kind'] == 'stub'}
+    check({'milk-frother', 'cleaning-rota'} <= stubbed and 'burr-grinder' not in stubbed, f'lint reports short pages as stubs: {stubbed}')
 
 
 if __name__ == '__main__':
