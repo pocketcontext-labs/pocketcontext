@@ -203,7 +203,7 @@ func TestChunksCRLF(t *testing.T) {
 	crlf := strings.ReplaceAll(lf, "\n", "\r\n")
 	a, b := chunks(lf, true), chunks(crlf, true)
 	if fmt.Sprint(a) != fmt.Sprint(b) || strings.Contains(fmt.Sprint(b), "\r") {
-		t.Fatalf("CRLF %q differs from LF %q", b, a)
+		t.Fatalf("CRLF %v differs from LF %v", b, a)
 	}
 	if frontMatter(splitLines(crlf))["title"] != "T" {
 		t.Fatal("CRLF front matter")
@@ -214,7 +214,7 @@ func TestChunksNoHeadings(t *testing.T) {
 	text := "\n\nFirst paragraph.\n\nSecond paragraph.\n\n\n"
 	got := chunks(text, true)
 	if len(got) != 1 || got[0].Locator != "document; lines 3-5" || got[0].Body != "First paragraph.\n\nSecond paragraph." {
-		t.Fatalf("got %q", got)
+		t.Fatalf("got %v", got)
 	}
 	if len(chunks(" \n\t\n", true)) != 0 {
 		t.Fatal("whitespace produced passages")
@@ -258,8 +258,54 @@ func TestSplitFor(t *testing.T) {
 	if got := splitFor(processorV1, text, true); len(got) != 1 || got[0].Locator != "document; characters 1-11" {
 		t.Fatalf("v1 %q", locators(got))
 	}
-	if got := splitFor(processor, text, true); len(got) != 1 || got[0].Locator != "# A; lines 1-3" {
+	if got := splitFor(processorV2, text, true); len(got) != 1 || got[0].Locator != "# A; lines 1-3" {
 		t.Fatalf("v2 %q", locators(got))
+	}
+	// v2 keeps a tiny passage apart; v3 folds it into the next one.
+	text = "---\ntitle: T\n---\n![video](https://video.example/v/42)\n\n# A\n\n" + para("body", 60) + "\n"
+	if got := splitFor(processorV2, text, true); fmt.Sprint(locators(got)) != fmt.Sprint([]string{"front matter; lines 1-3", "document; line 4", "# A; lines 6-8"}) {
+		t.Fatalf("v2 %q", locators(got))
+	}
+	if got := splitFor(processor, text, true); fmt.Sprint(locators(got)) != fmt.Sprint([]string{"front matter; lines 1-3", "document; lines 4-8"}) {
+		t.Fatalf("v3 %q", locators(got))
+	}
+}
+
+func TestChunksV3MergesTiny(t *testing.T) {
+	big := para("word", 100) // about 500 characters
+	cases := []struct {
+		name, text string
+		want       []string
+	}{
+		// Tiny front matter stays its own passage; the lone link joins the next one.
+		{"video after front matter", "---\ntitle: T\n---\n[video](https://v.example/1)\n\n# Talk\n\n" + big + "\n",
+			[]string{"front matter; lines 1-3", "document; lines 4-8"}},
+		// A tiny section joins a following deeper one and keeps its own heading path.
+		{"into deeper", "# A\n\nShort.\n\n## B\n\n" + para("x", 1000) + "\n\n" + para("y", 1000) + "\n",
+			[]string{"# A; lines 1-7", "# A > ## B; line 9"}},
+		// A tiny sibling at the end of a document stays apart: no shared heading.
+		{"sibling at end", "# A\n\n" + para("x", 900) + "\n\n# B\n\nTail.\n",
+			[]string{"# A; lines 1-3", "# B; lines 5-7"}},
+		// A tiny subsection at the end of its section joins the previous passage.
+		{"into previous", "# A\n\n" + para("x", 700) + "\n\n" + para("y", 700) + "\n\n" + para("z", 700) + "\n\n## B\n\nTiny.\n\n# C\n\n" + big + "\n",
+			[]string{"# A; lines 1-5", "# A; lines 7-11", "# C; lines 13-15"}},
+		// Several tiny passages chain into the following one.
+		{"chain", "One.\n\n# A\n\nTwo.\n\n## B\n\n" + big + "\n",
+			[]string{"document; lines 1-9"}},
+		// No merge exceeds the passage bound.
+		{"bound", "# A\n\nShort.\n\n## B\n\n" + strings.Repeat("w ", 1995) + "\n",
+			[]string{"# A; lines 1-3", "# A > ## B; lines 5-7"}},
+	}
+	for _, c := range cases {
+		got := chunksV3(c.text, true)
+		checkBounds(t, got)
+		if c.want != nil && fmt.Sprint(locators(got)) != fmt.Sprint(c.want) {
+			t.Errorf("%s: locators %q, want %q", c.name, locators(got), c.want)
+		}
+	}
+	// Plain text and long-line cuts are left as they are.
+	if got := chunksV3(strings.Repeat("x", 8100), false); fmt.Sprint(locators(got)) != fmt.Sprint(locators(chunks(strings.Repeat("x", 8100), false))) {
+		t.Fatalf("cut pieces merged: %q", locators(got))
 	}
 }
 
@@ -278,14 +324,19 @@ func TestChunksInvariants(t *testing.T) {
 		}
 		text := b.String()
 		for _, md := range []bool{true, false} {
-			got := chunks(text, md)
-			checkBounds(t, got)
-			joined := ""
-			for _, p := range got {
-				joined += p.Body
-			}
-			if squash(joined) != squash(text) {
-				t.Fatalf("round %d markdown=%v: text lost, duplicated or reordered", round, md)
+			lines := splitLines(text)
+			for v, got := range [][]passage{chunks(text, md), chunksV3(text, md)} {
+				checkBounds(t, got)
+				joined := ""
+				for _, p := range got {
+					joined += p.Body
+					if !p.cut && p.Body != strings.Join(lines[p.from:p.to], "\n") {
+						t.Fatalf("round %d markdown=%v v%d: %q does not match its lines", round, md, v+2, p.Locator)
+					}
+				}
+				if squash(joined) != squash(text) {
+					t.Fatalf("round %d markdown=%v v%d: text lost, duplicated or reordered", round, md, v+2)
+				}
 			}
 		}
 	}
