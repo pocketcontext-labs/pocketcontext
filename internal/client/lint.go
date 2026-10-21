@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Text checks of `lint` on published pages. They are pure functions of the
@@ -142,15 +143,209 @@ func candidateTerm(term string) bool {
 		strings.IndexFunc(term, unicode.IsLetter) >= 0
 }
 
-// missingPages finds terms written in **bold** (or __bold__) or as the text
-// of a Markdown link [term](url) on at least three pages when no published
-// page has that term as its title or slug. Terms compare case-insensitively
-// with hyphens and spaces equal; code is ignored.
+var (
+	proseHeading = regexp.MustCompile(`(?m)^[ \t]{0,3}#{1,6}(?:[ \t][^\n]*)?$`)
+	bareURL      = regexp.MustCompile(`(?i)(?:\b[a-z][a-z0-9+.\-]*://|\bwww\.)[^\s<>()\[\]]+`)
+	nameToken    = regexp.MustCompile(`[\p{L}\p{N}](?:[\p{L}\p{N}.'’\-]*[\p{L}\p{N}])?`)
+)
+
+// nameStopwords are capitalized words that never name a thing on their own:
+// pronouns, determiners, sentence connectives, days, months, nationalities and
+// common abbreviations (also in the plural: APIs). They also end a run of
+// capitalized words.
+var nameStopwords = func() map[string]bool {
+	words := map[string]bool{}
+	for _, w := range strings.Fields(`
+		i i'm i've i'd i'll me my mine we us our ours you your yours he him his she her hers it its they them their theirs
+		a an the this that these those there here what which who whom whose why how when where whether
+		and or but nor so yet if then than because although though while unless until since once also too
+		in on at by for from of to with without within into onto over under after before during between
+		through across about above below against among around as like unlike via per
+		all any both each every few many more most much no none not only other several some such
+		is are was were be been being am do does did done has have had can could may might must shall should will would
+		yes ok okay however therefore thus hence meanwhile instead still even just now later next last first second third
+		finally overall similarly notably moreover furthermore today yesterday tomorrow
+		monday tuesday wednesday thursday friday saturday sunday
+		january february march april may june july august september october november december
+		american british english european french german italian japanese chinese indian spanish
+		mr mrs ms dr st jr sr
+		ai api apis cli cpu gpu ui ux url urls id ids json html css http https sql sdk llm llms os pdf csv faq
+		ceo cto cfo coo vp hr pr prs qa usd eur utc tbd todo etc
+		note see figure table section chapter part step page
+		shift ctrl alt cmd esc tab`) {
+		words[w] = true
+	}
+	return words
+}()
+
+// stopword reports whether a word is in nameStopwords, or is the plural of an
+// abbreviation there (CLIs, UIs).
+func stopword(word string) bool {
+	l := strings.ToLower(word)
+	if nameStopwords[l] {
+		return true
+	}
+	stem := strings.TrimSuffix(word, "s")
+	return stem != word && strings.ToUpper(stem) == stem && nameStopwords[strings.ToLower(stem)]
+}
+
+// nameText is the prose that names are read from: no headings, code,
+// footnote markers, [[page]] links or bare URLs. Bold and Markdown link text
+// are terms of their own and become a comma, which ends a run of names
+// without opening a sentence.
+func nameText(body string) string {
+	text := footnoteMark.ReplaceAllString(withoutCode(proseHeading.ReplaceAllString(body, "")), "")
+	for _, re := range []*regexp.Regexp{pageLinkText, mdLink, boldTerm, bareURL} {
+		text = re.ReplaceAllString(text, " , ")
+	}
+	return text
+}
+
+// productLike reports whether a word's capitals cannot come from its position
+// in a sentence: inner capitals beside small letters (OpenCode, iPhone) or
+// capitals with digits (GPT-5.5, H100).
+func productLike(word string) bool {
+	upper, lower, digit, innerUpper := false, false, false, false
+	for i, r := range []rune(word) {
+		switch {
+		case unicode.IsUpper(r):
+			upper, innerUpper = true, innerUpper || i > 0
+		case unicode.IsLower(r):
+			lower = true
+		case unicode.IsDigit(r):
+			digit = true
+		}
+	}
+	return (innerUpper && lower) || (upper && digit)
+}
+
+// sentenceStart reports whether the token at byte offset i opens a sentence,
+// line, list item or table cell: skipping spaces, quotes, brackets, emphasis
+// and dashes, the text before it ends with . ! ? : | or a newline, or begins.
+func sentenceStart(text string, i int) bool {
+	for i > 0 {
+		r, size := utf8.DecodeLastRuneInString(text[:i])
+		switch {
+		case strings.ContainsRune(".!?:|\n\r", r):
+			return true
+		case strings.ContainsRune(" \t*_~\"'“”‘’()[]>-–—", r):
+			i -= size
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// lowercaseWords is the set of words written entirely in lowercase somewhere
+// in the prose of the pages: in this knowledge base they are ordinary words.
+func lowercaseWords(texts []string) map[string]bool {
+	words := map[string]bool{}
+	for _, text := range texts {
+		for _, w := range nameToken.FindAllString(text, -1) {
+			w, _ = trimPossessive(w)
+			if strings.IndexFunc(w, unicode.IsLetter) >= 0 && strings.ToLower(w) == w {
+				words[w] = true
+			}
+		}
+	}
+	return words
+}
+
+// trimPossessive removes a trailing 's or ’s.
+func trimPossessive(w string) (string, bool) {
+	for _, suffix := range []string{"'s", "’s", "'S", "’S"} {
+		if strings.HasSuffix(w, suffix) && len(w) > len(suffix) {
+			return strings.TrimSuffix(w, suffix), true
+		}
+	}
+	return w, false
+}
+
+// capitalizedNames returns the names in prose: runs of up to five capitalized
+// or product-like words joined by spaces (Mario Zechner, Stripe Minions), and
+// single such words (Cloudflare, OpenCode, GPT-5.5). Stopwords end a run. A
+// run that opens a sentence loses its first word when that word is common
+// (a stopword or written in lowercase elsewhere); a single word that opens a
+// sentence counts only when product-like; a single word inside a sentence
+// counts only when it is not common.
+func capitalizedNames(text string, lower map[string]bool) []string {
+	common := func(w string) bool {
+		l := strings.ToLower(w)
+		return stopword(w) || lower[l]
+	}
+	names := []string{}
+	var run []string
+	initial, prevEnd := false, -1
+	flush := func() {
+		words := run
+		run, prevEnd = nil, -1
+		if len(words) > 0 && initial && !productLike(words[0]) && (len(words) == 1 || common(words[0])) {
+			words = words[1:]
+		}
+		if len(words) == 1 && !productLike(words[0]) && (common(words[0]) || len([]rune(words[0])) < 3) {
+			return
+		}
+		if len(words) > 0 && len(words) <= 5 {
+			names = append(names, strings.Join(words, " "))
+		}
+	}
+	for _, loc := range nameToken.FindAllStringIndex(text, -1) {
+		word, possessive := trimPossessive(text[loc[0]:loc[1]])
+		if prevEnd >= 0 && strings.Trim(text[prevEnd:loc[0]], " \t") != "" {
+			flush()
+		}
+		first, _ := utf8.DecodeRuneInString(word)
+		if !(unicode.IsUpper(first) || productLike(word)) || stopword(word) {
+			flush()
+			continue
+		}
+		if len(run) == 0 {
+			initial = sentenceStart(text, loc[0])
+		}
+		run, prevEnd = append(run, word), loc[1]
+		if possessive {
+			flush()
+		}
+	}
+	flush()
+	return names
+}
+
+// containsWords reports whether the words of term occur, in order and as
+// whole words, in the normalized text s.
+func containsWords(s, term string) bool {
+	return strings.Contains(" "+s+" ", " "+term+" ")
+}
+
+// missingPages finds terms on at least three pages when no published page has
+// that term as its title or slug. Terms are text written in **bold** (or
+// __bold__), the text of Markdown links [term](url) and capitalized names in
+// prose (see capitalizedNames); a name is also skipped when it is part of a
+// page title or slug (Karpathy for a page "Andrej Karpathy"). Terms compare
+// case-insensitively with hyphens and spaces equal; code, [[page]] links and
+// headings are ignored.
 func missingPages(pages []lintPage) []map[string]any {
 	existing := map[string]bool{}
+	titles := []string{}
 	for _, p := range pages {
 		existing[normalTerm(p.Title)], existing[normalTerm(p.Slug)] = true, true
+		titles = append(titles, normalTerm(p.Title), normalTerm(p.Slug))
 	}
+	partOfTitle := func(term string) bool {
+		for _, t := range titles {
+			if containsWords(t, term) {
+				return true
+			}
+		}
+		return false
+	}
+	prose, texts := map[string]string{}, []string{}
+	for _, p := range pages {
+		prose[p.ID] = nameText(p.Body)
+		texts = append(texts, prose[p.ID])
+	}
+	lower := lowercaseWords(texts)
 	on := map[string]map[string]bool{}
 	// The reported spelling is the most frequent one, ties going to the page
 	// first in slug order, so the result does not depend on record order.
@@ -168,9 +363,11 @@ func missingPages(pages []lintPage) []map[string]any {
 				raw = append(raw, m[1])
 			}
 		}
-		for _, r := range raw {
+		names := len(raw)
+		raw = append(raw, capitalizedNames(prose[p.ID], lower)...)
+		for i, r := range raw {
 			term := normalTerm(r)
-			if !candidateTerm(term) || existing[term] {
+			if !candidateTerm(term) || existing[term] || (i >= names && partOfTitle(term)) {
 				continue
 			}
 			if on[term] == nil {
