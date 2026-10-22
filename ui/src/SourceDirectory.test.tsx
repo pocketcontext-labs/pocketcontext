@@ -115,3 +115,35 @@ it("handles empty pages and denied reads without displaying a stale table", asyn
   expect(screen.queryByRole("table")).toBeNull();
   expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
 });
+
+it.each([
+  undefined,
+  null,
+  "",
+  "invalid",
+  "constructor",
+  "title; DROP TABLE sources",
+])(
+  "defaults an absent or invalid runtime sort (%s) before constructing SQL",
+  async (order) => {
+    const request = vi.spyOn(api, "query").mockResolvedValue([]);
+    render(
+      <SourceDirectory
+        {...props}
+        space="personalspace01"
+        count={0}
+        order={order as typeof props.order}
+      />,
+    );
+    await screen.findByText(
+      "No sources yet. Ingest an original to add evidence to this space.",
+    );
+    expect(request).toHaveBeenCalledWith(
+      "SELECT id,title,original_name,source_date,created FROM sources WHERE space='personalspace01' ORDER BY created DESC, id DESC LIMIT 51 OFFSET 0",
+    );
+    expect(screen.getByRole("combobox", { name: "Sort sources" })).toHaveValue(
+      "newest",
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  },
+);

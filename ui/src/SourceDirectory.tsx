@@ -10,8 +10,10 @@ const orders = {
   title: "title COLLATE NOCASE ASC, id ASC",
 } as const;
 export type SourceOrder = keyof typeof orders;
-export function sourceOrder(value: string): SourceOrder {
-  return Object.hasOwn(orders, value) ? (value as SourceOrder) : "newest";
+export function sourceOrder(value: unknown): SourceOrder {
+  return typeof value === "string" && Object.hasOwn(orders, value)
+    ? (value as SourceOrder)
+    : "newest";
 }
 export function sourceDirectoryHref(
   offset = 0,
@@ -70,15 +72,18 @@ export default function SourceDirectory({
   space,
   count,
   offset,
-  order,
+  order: requestedOrder,
   publication = "",
 }: {
   space: string;
   count: number | null;
   offset: number;
-  order: SourceOrder;
+  order?: SourceOrder;
   publication?: string;
 }) {
+  // Runtime state can outlive a route shape during development hot reload.
+  // Normalize again at the SQL boundary rather than trusting a typed prop.
+  const order = sourceOrder(requestedOrder);
   const [authEpoch, setAuthEpoch] = useState(0);
   useEffect(
     () => pb.authStore.onChange(() => setAuthEpoch((value) => value + 1)),
