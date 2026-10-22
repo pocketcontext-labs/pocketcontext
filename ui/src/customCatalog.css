@@ -1,0 +1,39 @@
+.custom-catalog-table {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-block: 20px;
+}
+.custom-catalog-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.custom-catalog-table th,
+.custom-catalog-table td {
+  padding: 14px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  min-width: 130px;
+  max-width: 320px;
+}
+.custom-catalog-table th[scope="row"] {
+  font-weight: 500;
+}
+.custom-catalog-table th p {
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.6;
+}
+.welcome-navigation-definitions {
+  margin-top: 28px;
+}
+.welcome-navigation-definitions ul {
+  list-style: none;
+  padding: 0;
+}
+.welcome-navigation-definitions a {
+  display: block;
+  padding: 10px 0;
+}

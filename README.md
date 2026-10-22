@@ -84,6 +84,10 @@ A different local port is refused by the server's Host check. `--url` (or `POCKE
 
 Ingestion accepts UTF-8 text notes only (`.txt .md .markdown .csv .json .rst .log` or no extension); anything else is rejected before upload. There is no audio, image or PDF ingestion, no export, no external identity provider, no object storage and no hosted deployment. See [docs/data-model.md](docs/data-model.md) and [docs/spaces.md](docs/spaces.md) for the rules the server enforces, and [origin](docs/origin.md) for maintenance history.
 
+The reader's topics and custom catalogs come from published page properties: `topics` and `catalogs` list group keys. Optional definition pages (`navigation_kind: "topic"` or `"catalog"`, keyed by their slug) supply labels, order and catalog columns. Existing pages with no topic membership appear under the unassigned group; titles never assign membership. Definitions, memberships and catalog settings follow the selected publication, including historical views. See the [navigation contract and examples](docs/data-model.md#topic-and-catalog-navigation).
+
+Sources includes uncited originals in the selected space. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Source text remains untrusted evidence.
+
 ## Build
 
 Requires Go (see `go.mod`) with CGO and a C compiler, Node.js 24 and pnpm 10.33.2.

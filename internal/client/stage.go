@@ -111,6 +111,9 @@ func parseSpec(data []byte) (*stageSpec, []problem, error) {
 			add(name, "duplicate", "slug appears more than once in the spec")
 		}
 		seen[p.Slug] = true
+		for _, detail := range navigationPropertyProblems(p.Slug, p.Properties) {
+			add(name, "property", "%s", detail)
+		}
 		if p.Kind != "" && !pageKinds[p.Kind] {
 			add(name, "kind", "unknown kind %q (summary, concept, entity, transcript, answer, legacy)", p.Kind)
 		}
@@ -516,6 +519,9 @@ func (c *Client) Stage(data []byte, dryRun bool) (map[string]any, error) {
 		s.properties, s.evidence = p.Properties, p.PropertyEvidence
 		if s.properties == nil && prior != nil {
 			s.properties = decodeJSONField(prior["properties"])
+			for _, detail := range navigationPropertyProblems(p.Slug, s.properties) {
+				add(p.Slug, "property", "%s", detail)
+			}
 		}
 		if s.evidence == nil && prior != nil {
 			s.evidence = decodeJSONField(prior["property_evidence"])

@@ -134,7 +134,8 @@ function validate(app,r){
   const metadata=require(`${__hooks}/properties.js`).validate(r).properties;
   if(metadata.catalog_type==='repository_document'&&metadata.output_mode==='exact_copy')local(app,'sources',metadata.source_id,space);
   draft(app,r.getString('run'));
-  local(app,'pages',r.getString('page'),space);
+  const page=local(app,'pages',r.getString('page'),space);
+  if(metadata.navigation_kind&&page.getString('slug').length>64)invalid('Navigation definition page slug must be at most 64 characters');
   const base=r.getString('base_revision');
   if(base&&local(app,'page_revisions',base,space).getString('page')!==r.getString('page'))invalid('Base revision belongs to another page');
  }

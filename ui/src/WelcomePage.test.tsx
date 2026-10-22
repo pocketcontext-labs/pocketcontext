@@ -21,7 +21,18 @@ const page = (
   title,
   summary,
   kind: "concept",
-  properties: order === undefined ? {} : { onboarding_order: order },
+  properties: {
+    ...(order === undefined ? {} : { onboarding_order: order }),
+    topics:
+      (
+        {
+          "colleague-onboarding": ["getting-started"],
+          "application-skills": ["apps-workflows"],
+          "login-guide": ["getting-started"],
+          "release-notes": ["handoffs-history"],
+        } as Record<string, string[]>
+      )[slug] || [],
+  },
 });
 const pages = [
   page("colleague-onboarding", "Colleague onboarding", "", 1),
@@ -115,7 +126,7 @@ it("filters topics, focuses the directory and supports alphabetical mode", () =>
   const index = within(
     screen.getByRole("region", { name: "The complete page index" }),
   );
-  fireEvent.click(screen.getByRole("button", { name: /Handoffs & history/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Handoffs history/ }));
   expect(index.getAllByRole("link")).toHaveLength(1);
   expect(index.getByRole("link", { name: "Release notes" })).toBeVisible();
   expect(
@@ -164,7 +175,7 @@ it("follows topic navigation and keeps all onboarding guides behind a disclosure
       onSearch={() => {}}
       pages={catalog}
       publication={publication}
-      topic="all"
+      topic=""
     />,
   );
   expect(index.getAllByRole("link")).toHaveLength(catalog.length);
@@ -237,7 +248,7 @@ it("synchronizes topic choices with navigation and resets when Welcome opens", (
     screen.getByRole("region", { name: "The complete page index" }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-  expect(onTopicChange).toHaveBeenLastCalledWith("all");
+  expect(onTopicChange).toHaveBeenLastCalledWith("");
   fireEvent.click(screen.getByRole("button", { name: /Getting started/ }));
   expect(onTopicChange).toHaveBeenLastCalledWith("getting-started");
   expect(index.getAllByRole("link").length).toBeLessThan(pages.length);
@@ -252,7 +263,7 @@ it("synchronizes topic choices with navigation and resets when Welcome opens", (
   );
   expect(index.getAllByRole("link")).toHaveLength(pages.length);
   fireEvent.click(screen.getByRole("button", { name: "Browse all pages ↓" }));
-  expect(onTopicChange).toHaveBeenLastCalledWith("all");
+  expect(onTopicChange).toHaveBeenLastCalledWith("");
 });
 
 it("defaults to page types for uncategorized knowledge, switches views and reports the choice", () => {
@@ -298,9 +309,7 @@ it("defaults to page types for uncategorized knowledge, switches views and repor
     "aria-pressed",
     "true",
   );
-  expect(
-    index.getByRole("heading", { name: "People & relationships" }),
-  ).toBeVisible();
+  expect(index.getByRole("heading", { name: "Other knowledge" })).toBeVisible();
   fireEvent.click(views.getByRole("button", { name: "A–Z" }));
   expect(onViewChange).toHaveBeenLastCalledWith("alphabetical");
   expect(index.getAllByRole("link")[0]).toHaveTextContent(
@@ -400,10 +409,11 @@ it("shows recent selected revisions with dates and preserves historical links", 
   ]);
   expect(recent.getByRole("link", { name: /Release notes/ })).toBeVisible();
   expect(screen.queryByText("stale recent title")).toBeNull();
-  expect(screen.getByRole("region", { name: "Recently published" }).querySelector("time")).toHaveAttribute(
-    "datetime",
-    "2026-01-01T12:00:00.000Z",
-  );
+  expect(
+    screen
+      .getByRole("region", { name: "Recently published" })
+      .querySelector("time"),
+  ).toHaveAttribute("datetime", "2026-01-01T12:00:00.000Z");
   expect(
     recent.getByText("New and updated pages in this historical view."),
   ).toBeVisible();
@@ -448,10 +458,31 @@ it("omits stale, missing and duplicate recent revisions and clears them when the
 });
 
 it("limits recent pages to six while retaining the complete directory", () => {
-  const catalog = Array.from({ length: 10 }, (_, index) => page(`page-${index}`, `Page ${index}`));
-  render(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} pages={catalog} publication={publication} recentPages={catalog.map(item => ({ ...item, publishedAt: "2026-01-01" }))} />);
-  expect(within(screen.getByRole("region", { name: "Recently published" })).getAllByRole("link")).toHaveLength(6);
-  expect(within(screen.getByRole("region", { name: "The complete page index" })).getAllByRole("link")).toHaveLength(10);
+  const catalog = Array.from({ length: 10 }, (_, index) =>
+    page(`page-${index}`, `Page ${index}`),
+  );
+  render(
+    <WelcomePage
+      onTopicChange={() => {}}
+      onSearch={() => {}}
+      pages={catalog}
+      publication={publication}
+      recentPages={catalog.map((item) => ({
+        ...item,
+        publishedAt: "2026-01-01",
+      }))}
+    />,
+  );
+  expect(
+    within(
+      screen.getByRole("region", { name: "Recently published" }),
+    ).getAllByRole("link"),
+  ).toHaveLength(6);
+  expect(
+    within(
+      screen.getByRole("region", { name: "The complete page index" }),
+    ).getAllByRole("link"),
+  ).toHaveLength(10);
 });
 
 it("keeps an empty Home compact without empty topic cards or inferred onboarding", () => {
@@ -483,16 +514,103 @@ it("keeps an empty Home compact without empty topic cards or inferred onboarding
 });
 
 it("focuses the page directory when a view opens directly or changes through navigation", () => {
-  const rendered = render(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} pages={pages} publication={publication} view="alphabetical" />);
-  const heading = screen.getByRole("heading", { name: "The complete page index" });
+  const rendered = render(
+    <WelcomePage
+      onTopicChange={() => {}}
+      onSearch={() => {}}
+      pages={pages}
+      publication={publication}
+      view="alphabetical"
+    />,
+  );
+  const heading = screen.getByRole("heading", {
+    name: "The complete page index",
+  });
   expect(heading).toHaveFocus();
   const scrollIntoView = vi.fn();
   heading.scrollIntoView = scrollIntoView;
   screen.getByRole("searchbox", { name: "Search published pages" }).focus();
-  rendered.rerender(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} pages={pages} publication={publication} view="types" />);
+  rendered.rerender(
+    <WelcomePage
+      onTopicChange={() => {}}
+      onSearch={() => {}}
+      pages={pages}
+      publication={publication}
+      view="types"
+    />,
+  );
   expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
   expect(heading).toHaveFocus();
   scrollIntoView.mockClear();
-  rendered.rerender(<WelcomePage onTopicChange={() => {}} onSearch={() => {}} pages={pages} publication={publication} />);
+  rendered.rerender(
+    <WelcomePage
+      onTopicChange={() => {}}
+      onSearch={() => {}}
+      pages={pages}
+      publication={publication}
+    />,
+  );
   expect(scrollIntoView).not.toHaveBeenCalled();
+});
+
+it("uses selected definition labels, overlaps topic membership and preserves the unique page total", () => {
+  const member = {
+    ...page("tool", "Synthetic tool"),
+    properties: { topics: ["research", "operations"] },
+  };
+  const definition = {
+    ...page("research", "Research definition"),
+    properties: {
+      navigation_kind: "topic",
+      navigation_order: 0,
+      topics: ["operations"],
+    },
+  };
+  const selected = [member, definition];
+  render(
+    <WelcomePage
+      pages={selected}
+      publication={publication}
+      pinned={publication.id}
+      onSearch={() => {}}
+      onTopicChange={() => {}}
+      view="topics"
+    />,
+  );
+  expect(
+    screen.getByText("2 pages", { selector: ".welcome-count" }),
+  ).toBeVisible();
+  const index = within(
+    screen.getByRole("region", { name: "The complete page index" }),
+  );
+  expect(index.getAllByRole("link", { name: "Synthetic tool" })).toHaveLength(
+    2,
+  );
+  expect(index.queryByRole("link", { name: "Research definition" })).toBeNull();
+  expect(
+    screen.getByRole("region", { name: "Navigation definitions" }),
+  ).toHaveTextContent("Research definition");
+  expect(
+    screen.getByRole("button", { name: /Research definition/ }),
+  ).toHaveTextContent("1 pages");
+});
+
+it("does not silently show all pages for a topic absent from the viewed publication", () => {
+  render(
+    <WelcomePage
+      pages={pages}
+      publication={publication}
+      topic="future-topic"
+      onSearch={() => {}}
+      onTopicChange={() => {}}
+    />,
+  );
+  const index = within(
+    screen.getByRole("region", { name: "The complete page index" }),
+  );
+  expect(
+    index.getByText("Topic unavailable in this publication"),
+  ).toBeVisible();
+  expect(index.queryAllByRole("link")).toHaveLength(0);
+  expect(index.getByRole("button", { name: "Clear filters" })).toBeVisible();
 });

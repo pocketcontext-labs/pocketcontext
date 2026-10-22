@@ -89,26 +89,30 @@ try {
   await until(async () => (await fetch(`${origin}/api/bundle/instance`)).ok, 'reader readiness');
 
   const note = path.join(temporary, 'observatory.md');
-  await writeFile(note, '# Observatory evidence\n\nThe synthetic observatory opened in October. The telescope measures starlight every clear night.\n');
+  await writeFile(note, '# Observatory evidence\n\nThe synthetic observatory opened in October. The telescope measures starlight every clear night.\n\n## Original notes\n\n**Original Markdown** keeps [[literal-internal-link]] and a footnote.[^1]\n\n[^1]: A normal original footnote.\n\n<script>window.__sourceInjected=true</script>\n');
   const source = await cli(['ingest', note, '--title', 'Observatory evidence']);
   const passage = (await cli(['sql', `SELECT id FROM passages WHERE rendition='${source.rendition}' ORDER BY ordinal LIMIT 1`])).rows[0][0];
   const pages = [];
-  const titles = ['Observatory edition one', 'Telescope catalog', 'Getting started', 'Account setup', 'Engineering handbook', 'Project notes', 'Team directory', 'Research transcript', 'Common answers', 'Historical notes', 'Release process', 'Newly published model'];
-  const kinds = ['concept', 'entity', 'concept', 'concept', 'summary', 'summary', 'entity', 'transcript', 'answer', 'legacy', 'concept', 'entity'];
-  for (let index = 0; index < 12; index++) {
-    pages.push(await create('pages', { slug: index === 0 ? 'observatory' : `reference-${String(index).padStart(2, '0')}`, kind: kinds[index] }));
+  const titles = ['Observatory edition one', 'Telescope catalog', 'Getting started', 'Account setup', 'Engineering handbook', 'Project notes', 'Team directory', 'Research transcript', 'Common answers', 'Historical notes', 'Release process', 'Newly published model', 'Agent research', 'Developer tools'];
+  const kinds = ['concept', 'entity', 'concept', 'concept', 'summary', 'summary', 'entity', 'transcript', 'answer', 'legacy', 'concept', 'entity', 'concept', 'concept'];
+  for (let index = 0; index < titles.length; index++) {
+    pages.push(await create('pages', { slug: index === 0 ? 'observatory' : index === 12 ? 'agent-engineering' : index === 13 ? 'developer-tools' : `reference-${String(index).padStart(2, '0')}`, kind: kinds[index] }));
   }
   const revisions = new Map();
   const publications = [];
   const body = edition => `## Observatory overview\n\nThe **observatory** opened in October, edition ${edition}.[^1] It follows [[reference-01|telescope catalog notes]].\n\n<img src=x onerror="window.__readerInjected=true">\n\n## Reading and evidence\n\n${'The observatory keeps synthetic field notes so colleagues can compare the claim with its source. '.repeat(10)}[^1]\n\n## Next steps\n\nRead the evidence before using these fictional examples.[^1]`;
   for (let edition = 1; edition <= 2; edition++) {
     const run = await create('ingestion_runs', { key: `reader-edition-${edition}`, status: 'staging', description: 'Synthetic reader fixture' });
-    const indexes = edition === 1 ? Array.from({ length: 11 }, (_, index) => index) : [0, 11];
+    const indexes = edition === 1 ? Array.from({ length: titles.length }, (_, index) => index).filter(index => index !== 11) : [0, 11, 12, 13];
     for (const index of indexes) {
-      const properties = index === 2 ? { onboarding_order: 1 } : index === 3 ? { onboarding_order: 2 } : index === 1 ? { catalog_type: 'resource' } : index === 6 ? { catalog_type: 'person' } : index === 11 ? { catalog_type: 'model' } : {};
+      const properties = index === 12 ? { navigation_kind: 'topic', navigation_order: 1 } : index === 13 ? { navigation_kind: 'catalog', navigation_order: 1, catalog_columns: edition === 1 ? ['title','provider'] : ['title','provider','license'], catalog_sort: 'title' } : index === 2 ? { onboarding_order: 1 } : index === 3 ? { onboarding_order: 2 } : index === 1 ? { catalog_type: 'resource' } : index === 6 ? { catalog_type: 'person' } : index === 11 ? { catalog_type: 'model' } : {};
+      if ([0, 1, 11].includes(index)) Object.assign(properties, {
+        topics: index === 0 ? ['agent-engineering', 'observations'] : ['agent-engineering'],
+        catalogs: ['developer-tools'], provider: 'Example Labs', license: 'CC-BY-4.0',
+      });
       const revision = await create('page_revisions', {
         run: run.id, page: pages[index].id, base_revision: revisions.get(index) || '',
-        title: index === 0 && edition === 2 ? 'Observatory edition two' : titles[index],
+        title: index === 0 && edition === 2 ? 'Observatory edition two' : index === 12 && edition === 2 ? 'Engineering research' : titles[index],
         summary: `Synthetic ${titles[index].toLowerCase()} for reader layout checks.`,
         body: index === 0 ? body(edition) : `## Overview\n\nSynthetic ${titles[index].toLowerCase()}. [needs verification]`, properties,
       });
@@ -198,7 +202,7 @@ try {
   await screenshot('home-desktop-light');
   await route(`#/welcome?publication=${publications[0]}`, 'Home');
   assert.equal(await page.getByText('Newly published model', { exact: true }).count(), 0, 'historical Home excludes pages first published later');
-  await recent.getByRole('link', { name: /Observatory edition one/ }).waitFor();
+  await recent.getByRole('link', { name: /Agent research/ }).waitFor();
   for (const href of await recent.getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href')))) {
     assert(href.includes(`publication=${publications[0]}`), 'historical recent links retain selected publication');
   }
@@ -333,6 +337,80 @@ try {
   assert.equal(await page.locator('.navigation-backdrop').count(), 0, 'resizing does not resurrect a previously open drawer beneath evidence');
   await page.keyboard.press('Escape');
   await evidence.waitFor({ state: 'hidden' });
+
+  // Navigation is derived from the selected immutable revision properties.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await route('#/welcome', 'Home');
+  await page.getByRole('heading', { name: 'Engineering research', exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Agent research', exact: true }).count(), 0);
+  await route(`#/welcome?publication=${publications[0]}`, 'Home');
+  await page.getByRole('heading', { name: 'Agent research', exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Engineering research', exact: true }).count(), 0);
+  // Start with only the historical manifest cached.
+  await page.reload();
+  await page.getByRole('heading', { name: 'Agent research', exact: true }).waitFor();
+  // Retained definition labels must keep their publication while the next load waits.
+  let releasePublication;
+  const publicationGate = new Promise(resolve => { releasePublication = resolve; });
+  let publicationPending = false;
+  const deferPublication = async request => { publicationPending = true; await publicationGate; await request.continue(); };
+  await page.route('**/api/context/query', deferPublication);
+  try {
+    await versions.selectOption('live');
+    await until(async () => publicationPending, 'publication replacement is waiting');
+    const topicLink = page.locator('.topic-navigation a').filter({ hasText: 'Agent research' });
+    assert((await topicLink.getAttribute('href')).includes(`publication=${publications[0]}`), 'retained topic links keep the displayed publication');
+    const catalogLink = page.locator('.catalog-navigation a').filter({ hasText: 'Developer tools' });
+    assert((await catalogLink.getAttribute('href')).includes(`publication=${publications[0]}`), 'retained catalog links keep the displayed publication');
+  } finally {
+    releasePublication();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+  await page.getByRole('heading', { name: 'Engineering research', exact: true }).waitFor();
+  await route('#/catalog/custom/developer-tools', 'Developer tools');
+  await page.getByRole('columnheader', { name: 'License', exact: true }).waitFor();
+  const customCatalog = page.locator('.catalog-page');
+  await customCatalog.getByRole('link', { name: 'Newly published model', exact: true }).waitFor();
+  assert.equal(await customCatalog.locator('tbody').getByRole('link', { name: 'Developer tools', exact: true }).count(), 0, 'definition is not a member of its own view');
+  await screenshot('custom-catalog-desktop-light');
+  await route(`#/catalog/custom/developer-tools?publication=${publications[0]}`, 'Developer tools');
+  assert.equal(await page.getByRole('columnheader', { name: 'License', exact: true }).count(), 0, 'historical catalog uses historical columns');
+  assert.equal(await customCatalog.getByRole('link', { name: 'Newly published model', exact: true }).count(), 0, 'historical membership excludes future page');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await noOverflow('mobile custom catalog');
+  await screenshot('custom-catalog-mobile-light');
+  ok('property topics and custom catalog membership, labels and columns follow the selected publication');
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const sourcesNav = page.getByRole('navigation', { name: 'Workspace', exact: true }).getByRole('link', { name: /Sources/ });
+  await until(async () => /Sources\s*1$/.test(await sourcesNav.innerText()), 'Sources nav counts the first original');
+  await page.goto(`${origin}/#/sources/${source.source}`);
+  await page.locator('.source-content .markdown').waitFor();
+  assert((await page.locator('.source-content .markdown').innerText()).includes('[[literal-internal-link]]'), 'original internal-link syntax stays literal');
+  await page.locator('.source-content .markdown strong').filter({ hasText: 'Original Markdown' }).waitFor();
+  assert.equal(await page.locator('.source-content .citation').count(), 0, 'original footnotes do not become page citation buttons');
+  assert.equal(await page.evaluate(() => window.__sourceInjected), undefined);
+  await screenshot('source-desktop-light');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await noOverflow('mobile Markdown source');
+  await screenshot('source-mobile-light');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const extraNote = path.join(temporary, 'uncited.txt');
+  await writeFile(extraNote, 'Another synthetic original, not cited by any publication.');
+  await cli(['ingest', extraNote, '--title', 'Uncited original']);
+  await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'source ingestion refreshes count without publication');
+  const unchangedPublication = (await cli(['sql', 'SELECT id FROM publications ORDER BY sequence DESC LIMIT 1'])).rows[0][0];
+  assert.equal(unchangedPublication, publications[1]);
+  const personal = await cli(['create-personal-space']);
+  await cli(['ingest', extraNote, '--space', personal.id, '--title', 'Personal original']);
+  await page.goto(`${origin}/#/sources/?space=${personal.id}`);
+  await page.reload();
+  await until(async () => /Sources\s*1$/.test(await sourcesNav.innerText()), 'source count isolates personal-space inventory');
+  assert.equal(await page.locator('#reader').getByText('Observatory evidence', { exact: true }).count(), 0);
+  await page.goto(`${origin}/#/sources/?space=companyspace001`);
+  await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'returning to company restores company count');
+  ok('protected Markdown originals render safely and source counts refresh independently per space');
+
   assert.equal(errors.length, 0, 'reader has no browser runtime errors');
   ok('search snippets safely render plain highlighted excerpts and fit mobile width');
   console.log(`Reader screenshots: ${screenshots}`);

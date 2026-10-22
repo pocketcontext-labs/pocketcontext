@@ -8,11 +8,11 @@ import {
   groupWelcomePagesByType,
   isWelcomeView,
   onboardingPages,
-  WELCOME_TOPICS,
   WELCOME_VIEWS,
   type WelcomeView,
 } from "./welcome";
 import "./welcome.css";
+import { isNavigationDefinition } from "./navigation";
 
 export default function WelcomePage({
   pages,
@@ -36,7 +36,7 @@ export default function WelcomePage({
   view?: string;
 }) {
   const [query, setQuery] = useState("");
-  const [topic, setTopic] = useState("all");
+  const [topic, setTopic] = useState("");
   const [chosenMode, setChosenMode] = useState<WelcomeView | undefined>(
     isWelcomeView(requestedView) ? requestedView : undefined,
   );
@@ -53,17 +53,17 @@ export default function WelcomePage({
   }, [requestedView]);
   useEffect(() => {
     if (!requestedTopic) {
-      setTopic("all");
+      setTopic("");
       return;
     }
     setTopic(
-      WELCOME_TOPICS.some((group) => group.id === requestedTopic)
+      groups.some((group) => group.id === requestedTopic)
         ? requestedTopic
-        : "all",
+        : requestedTopic,
     );
     directory.current?.scrollIntoView?.({ block: "start" });
     directory.current?.focus({ preventScroll: true });
-  }, [requestedTopic]);
+  }, [requestedTopic, groups]);
   const recent = useMemo(() => {
     const selectedPages = new Map(pages.map((page) => [page.page, page]));
     const seen = new Set<string>();
@@ -80,10 +80,17 @@ export default function WelcomePage({
     return result;
   }, [pages, recentPages]);
   const selected = groups.find((group) => group.id === topic);
-  const filtered = filterWelcomePages(selected?.pages ?? pages, "");
+  const filtered = filterWelcomePages(
+    topic ? (selected?.pages ?? []) : pages,
+    "",
+  );
   const results =
     mode === "topics"
-      ? groupWelcomePages(filtered)
+      ? topic
+        ? selected
+          ? [selected]
+          : []
+        : groups
       : mode === "types"
         ? groupWelcomePagesByType(filtered)
         : [
@@ -213,8 +220,8 @@ export default function WelcomePage({
             </div>
             <button
               onClick={() => {
-                setTopic("all");
-                onTopicChange("all");
+                setTopic("");
+                onTopicChange("");
                 setQuery("");
                 showDirectory();
               }}
@@ -224,7 +231,11 @@ export default function WelcomePage({
           </div>
           <div className="welcome-topics">
             {groups
-              .filter((group) => group.pages.length > 0)
+              .filter(
+                (group) =>
+                  group.pages.length > 0 ||
+                  Boolean("definition" in group && group.definition),
+              )
               .map((group, index) => (
                 <button
                   className="welcome-topic"
@@ -266,21 +277,29 @@ export default function WelcomePage({
             <h2 id="welcome-directory-heading" ref={directory} tabIndex={-1}>
               The complete page index
             </h2>
-            <p>Every published page in this view.</p>
+            <p>
+              Every published page in this view. Pages can belong to several
+              topics.
+            </p>
           </div>
         </div>
         <div className="welcome-controls">
           <div className="welcome-filter-info">
-            <strong>{selected?.title ?? "All topics"}</strong>
+            <strong>
+              {selected?.title ??
+                (topic
+                  ? "Topic unavailable in this publication"
+                  : "All topics")}
+            </strong>
             <span role="status">
               {filtered.length} of {pages.length} pages
             </span>
-            {topic !== "all" && (
+            {topic !== "" && (
               <button
                 onClick={() => {
                   setQuery("");
-                  setTopic("all");
-                  onTopicChange("all");
+                  setTopic("");
+                  onTopicChange("");
                 }}
               >
                 Clear filters
@@ -307,7 +326,11 @@ export default function WelcomePage({
           </div>
         </div>
         {results
-          .filter((group) => group.pages.length > 0)
+          .filter(
+            (group) =>
+              group.pages.length > 0 ||
+              Boolean("definition" in group && group.definition),
+          )
           .map((group) => (
             <section
               className="welcome-index-group"
@@ -333,11 +356,26 @@ export default function WelcomePage({
         {filtered.length === 0 && (
           <p className="welcome-empty">
             {pages.length
-              ? "No pages in this topic yet. Browse all pages to keep exploring."
+              ? "No pages in this topic in this publication. Browse all pages to keep exploring."
               : "No pages have been published in this view yet."}
           </p>
         )}
       </section>
+      {mode === "topics" && !topic && pages.some(isNavigationDefinition) && (
+        <section
+          className="welcome-navigation-definitions"
+          aria-label="Navigation definitions"
+        >
+          <h2>Navigation definitions</h2>
+          <ul>
+            {pages.filter(isNavigationDefinition).map((page) => (
+              <li key={page.page}>
+                <a href={href(page)}>{page.title}</a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <footer className="welcome-footer">
         <span>Published knowledge in this space.</span>
         <span>
