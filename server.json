@@ -8,7 +8,8 @@
       "created_by",
       "revision",
       "created",
-      "updated"
+      "updated",
+      "archived"
     ],
     "space_members": [
       "id",

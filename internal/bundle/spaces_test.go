@@ -131,6 +131,53 @@ func TestProjectSpacePolicy(t *testing.T) {
 			if fresh && personal != own {
 				t.Fatal("personal creation is not idempotent")
 			}
+			// Ordinary owner management never grants access to other accounts.
+			request(http.MethodPost, "/api/collections/spaces/records", "", `{"kind":"group","name":"Private project"}`, 400)
+			created := request(http.MethodPost, "/api/collections/spaces/records", token, `{"kind":"group","name":"Private project"}`, 200)
+			managed := created["id"].(string)
+			endpoint := "/api/collections/spaces/records/" + managed
+			request(http.MethodGet, endpoint, bobToken, "", 404)
+			request(http.MethodPatch, endpoint, bobToken, `{"name":"Intrusion","expected_revision":1}`, 404)
+			renamed := request(http.MethodPatch, endpoint, token, `{"name":"Renamed project","expected_revision":1}`, 200)
+			if renamed["name"] != "Renamed project" || renamed["revision"] != float64(2) {
+				t.Fatal(renamed)
+			}
+			request(http.MethodPatch, endpoint, token, `{"name":"Stale","expected_revision":1}`, 409)
+			request(http.MethodPatch, endpoint, token, `{"created_by":"other","expected_revision":2}`, 400)
+			request(http.MethodPatch, endpoint, token, `{"name":"  ","expected_revision":2}`, 400)
+			retained := request(http.MethodPost, "/api/collections/pages/records", token, `{"slug":"retained","kind":"concept","space":"`+managed+`"}`, 200)
+			request(http.MethodPatch, endpoint, token, `{"archived":true,"expected_revision":2}`, 200)
+			request(http.MethodGet, endpoint, token, "", 200)
+			request(http.MethodGet, "/api/collections/pages/records/"+retained["id"].(string), token, "", 200)
+			request(http.MethodPost, "/api/collections/pages/records", token, `{"slug":"archived-write","kind":"concept","space":"`+managed+`"}`, 403)
+			request(http.MethodPatch, endpoint, token, `{"archived":false,"expected_revision":3}`, 200)
+			request(http.MethodPost, "/api/collections/pages/records", token, `{"slug":"restored-write","kind":"concept","space":"`+managed+`"}`, 200)
+			request(http.MethodDelete, endpoint, token, "", 403)
+			request(http.MethodPatch, "/api/collections/spaces/records/companyspace001", token, `{"name":"Forbidden","expected_revision":1}`, 403)
+			personalID := personal.(string)
+			request(http.MethodPatch, "/api/collections/spaces/records/"+personalID, token, `{"archived":true,"expected_revision":1}`, 400)
+			request(http.MethodPatch, "/api/collections/spaces/records/"+personalID, token, `{"name":"My notes","expected_revision":1}`, 200)
+			request(http.MethodPost, "/api/collections/spaces/records", token, `{"kind":"group","name":"Bad","created_by":"other"}`, 400)
+			// Even a co-member with write access cannot manage the space itself.
+			memberCollection, _ := app.FindCollectionByNameOrId("space_members")
+			bob, _ := app.FindFirstRecordByFilter("users", "email='bob@example.localhost'")
+			editor := core.NewRecord(memberCollection)
+			editor.Set("space", managed)
+			editor.Set("account", bob.Id)
+			editor.Set("role", "editor")
+			editor.Set("active", true)
+			editor.Set("revision", 1)
+			if err := app.Save(editor); err != nil {
+				t.Fatal(err)
+			}
+			request(http.MethodPatch, endpoint, bobToken, `{"archived":true,"expected_revision":4}`, 403)
+			// Revoked owners cannot rename, restore, or obtain fresh access.
+			managedMembers, _ := app.FindRecordsByFilter("space_members", "space={:space} && account={:account}", "", 1, 0, map[string]any{"space": managed, "account": alice.Id})
+			managedMembers[0].Set("active", false)
+			if err := app.Save(managedMembers[0]); err != nil {
+				t.Fatal(err)
+			}
+			request(http.MethodPatch, endpoint, token, `{"name":"Revoked","expected_revision":4}`, 404)
 			memberships, err := app.FindRecordsByFilter("space_members", "space={:space} && account={:account}", "", 1, 0, map[string]any{"space": own, "account": alice.Id})
 			if err != nil || len(memberships) != 1 {
 				t.Fatalf("membership: %v", err)
@@ -150,6 +197,7 @@ func TestProjectSpacePolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			request(http.MethodGet, "/api/spaces/default", token, "", 401)
+			request(http.MethodPost, "/api/collections/spaces/records", token, `{"kind":"group","name":"Disabled"}`, 401)
 		})
 	}
 }

@@ -569,6 +569,10 @@
       "name": "spaces",
       "columns": [
         {
+          "name": "archived",
+          "type": "BOOLEAN"
+        },
+        {
           "name": "created",
           "type": "TEXT"
         },

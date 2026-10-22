@@ -19,6 +19,7 @@ function requireMember(app, space, account, write) {
   try { record = app.findRecordById('spaces', space); } catch (_) { missing(); }
   const row = membership(app, record.id, account);
   if (!row || !row.getBool('active')) missing();
+  if (write && record.getBool('archived')) throw new ForbiddenError('Restore this archived space before making changes.');
   if (write && !WRITE_ROLES.includes(row.getString('role'))) throw new ForbiddenError('This space membership is read-only.');
   return record;
 }
@@ -112,8 +113,7 @@ function activeOwners(app, space) {
   return app.findRecordsByFilter('space_members', "space = {:space} && role = 'owner' && active = true", '', 0, 0, {space}).length;
 }
 
-// Group space operations are disabled for ordinary REST callers at launch. These
-// functions are the reviewed enablement path; actor '' means a trusted operator.
+// Creation atomically grants the creator ownership; actor '' means a trusted operator.
 function createGroupSpace(app, actorId, name) {
   let id = '';
   app.runInTransaction(tx => {
@@ -182,15 +182,17 @@ function trusted(e) {
 }
 
 function createRequest(e) {
-  trusted(e);
+  if (e.record.collection().name !== 'spaces') trusted(e);
+  if (!e.hasSuperuserAuth()) activeUser(e.app, e.auth.id);
   const body = e.requestInfo().body;
   const t = e.record.collection().name;
   for (const k of ['revision', 'created_by', 'updated_by', 'created', 'updated']) {
     if (Object.prototype.hasOwnProperty.call(body, k)) invalid(k + ' is server managed');
   }
   if (t === 'spaces') {
+    for (const k of Object.keys(body)) if (!['name', 'kind'].includes(k)) invalid(k + ' is server managed');
     if (body.kind !== 'group') invalid('Personal spaces are created by the server.');
-    const id = createGroupSpace(e.app, '', body.name);
+    const id = createGroupSpace(e.app, e.hasSuperuserAuth() ? '' : e.auth.id, body.name);
     return e.json(200, e.app.findRecordById('spaces', id));
   }
   const space = requireSpace(e.app, body.space);
@@ -203,25 +205,40 @@ function createRequest(e) {
 }
 
 function updateRequest(e) {
-  trusted(e);
   const body = e.requestInfo().body;
   const t = e.record.collection().name;
   const original = e.record.original();
   if (!Number.isInteger(body.expected_revision)) invalid('expected_revision required');
   if (t === 'spaces') {
-    for (const k of Object.keys(body)) if (!['name', 'expected_revision'].includes(k)) invalid(k + ' is immutable');
+    for (const k of Object.keys(body)) if (!['name', 'archived', 'expected_revision'].includes(k)) invalid(k + ' is immutable');
+    const actor = e.hasSuperuserAuth() ? '' : e.auth.id;
     let record;
     e.app.runInTransaction(tx => {
-      record = tx.findRecordById('spaces', original.id);
+      if (actor) activeUser(tx, actor);
+      record = actor ? requireMember(tx, original.id, actor, false) : requireSpace(tx, original.id);
+      if (actor && membership(tx, record.id, actor).getString('role') !== 'owner') throw new ForbiddenError('Only space owners can manage this space.');
       if (record.getInt('revision') !== body.expected_revision) throw new ApiError(409, 'Revision conflict', {});
-      if (record.getString('kind') !== 'group') invalid('Personal spaces are fixed.');
-      record.set('name', validName(body.name));
+      const changes = {};
+      if (Object.prototype.hasOwnProperty.call(body, 'name')) {
+        changes.name = validName(body.name);
+        record.set('name', changes.name);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'archived')) {
+        if (typeof body.archived !== 'boolean') invalid('archived must be a boolean.');
+        if (record.id === COMPANY_SPACE || record.getString('kind') === 'personal') invalid('Company and Personal spaces cannot be archived.');
+        changes.archived = body.archived;
+        record.set('archived', body.archived);
+      }
+      if (!Object.keys(changes).length) invalid('No space changes supplied.');
+      record.set('updated_by', actor);
       record.set('revision', record.getInt('revision') + 1);
       tx.save(record);
-      audit(tx, record, 'update', '', 'superuser', {revision: record.getInt('revision')});
+      changes.revision = record.getInt('revision');
+      audit(tx, record, 'update', actor, actor ? 'user' : 'superuser', changes);
     });
     return e.json(200, record);
   }
+  trusted(e);
   for (const k of Object.keys(body)) if (!['role', 'active', 'expected_revision'].includes(k)) invalid(k + ' is immutable');
   let row;
   e.app.runInTransaction(tx => {

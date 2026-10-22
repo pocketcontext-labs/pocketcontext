@@ -267,6 +267,8 @@ export interface Space {
   kind: "personal" | "group";
   name: string;
   role: "owner" | "editor" | "reader";
+  revision?: number;
+  archived?: boolean;
 }
 export const companySpace = "companyspace001";
 /** Active memberships of the signed-in account. */
@@ -274,7 +276,7 @@ export async function listSpaces(): Promise<Space[]> {
   const account = pb.authStore.record?.id;
   if (!account) throw new Error("Please sign in to continue");
   const rows = await query<Space>(
-    `SELECT s.id, s.kind, s.name, m.role FROM spaces s JOIN space_members m ON m.space=s.id WHERE m.account=${identity(account)} AND m.active=1 ORDER BY CASE s.id WHEN 'companyspace001' THEN 0 ELSE 1 END, s.name, s.id LIMIT 200`,
+    `SELECT s.id, s.kind, s.name, s.revision, s.archived, m.role FROM spaces s JOIN space_members m ON m.space=s.id WHERE m.account=${identity(account)} AND m.active=1 ORDER BY CASE s.id WHEN 'companyspace001' THEN 0 ELSE 1 END, s.name, s.id LIMIT 200`,
   );
   return rows.filter(
     (row) =>
@@ -311,6 +313,17 @@ export async function defaultSpace(): Promise<{
 }
 export async function createPersonalSpace(): Promise<{ id: string }> {
   return pb.send("/api/spaces/personal", { method: "POST" });
+}
+export async function createSpace(name: string): Promise<{ id: string }> {
+  return pb.collection("spaces").create({ kind: "group", name });
+}
+export async function updateSpace(
+  space: Space,
+  changes: { name?: string; archived?: boolean },
+): Promise<{ id: string }> {
+  return pb
+    .collection("spaces")
+    .update(space.id, { ...changes, expected_revision: space.revision });
 }
 export async function evidenceSpace(
   collection: "sources" | "passages",
@@ -893,6 +906,8 @@ export const api = {
   listSpaces,
   defaultSpace,
   createPersonalSpace,
+  createSpace,
+  updateSpace,
   evidenceSpace,
   cancelLogin,
   loginPassword,

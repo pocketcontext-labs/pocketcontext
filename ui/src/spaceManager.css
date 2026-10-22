@@ -1,0 +1,124 @@
+.space-manage-button {
+  align-self: flex-end;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 6px 0;
+}
+.space-manager {
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+.space-manager::backdrop {
+  background: rgb(20 35 28 / 35%);
+}
+.space-manager header,
+.space-manager-row,
+.space-manager-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.space-manager h2 {
+  margin: 0;
+}
+.space-manager p,
+.space-manager small {
+  color: var(--muted);
+}
+.space-create-form,
+.space-rename-form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.space-manager label {
+  display: grid;
+  gap: 6px;
+}
+.space-create-form label,
+.space-rename-form label {
+  flex: 1;
+  min-width: 150px;
+}
+.space-manager input:not([type="checkbox"]) {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.space-manager button {
+  cursor: pointer;
+}
+.space-manager button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.space-manager-list {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.space-manager-list li {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.space-manager-row > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.space-manager small {
+  display: block;
+  margin-top: 4px;
+}
+.space-manager-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.space-manager-actions button,
+.space-rename-form button,
+.space-archive-confirm button {
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.space-manager .space-archive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.space-rename-form,
+.space-archive-confirm {
+  margin-top: 12px;
+}
+.space-archive-confirm button + button {
+  margin-left: 8px;
+}
+.space-manager-hint {
+  font-size: 12px;
+  margin-bottom: 0;
+}
+@media (max-width: 520px) {
+  .space-manager {
+    padding: 16px;
+  }
+  .space-manager-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

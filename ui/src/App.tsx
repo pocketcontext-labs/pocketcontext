@@ -1,4 +1,5 @@
 import Brand from "./Brand";
+import SpaceManager from "./SpaceManager";
 import SourceSearch from "./SourceSearch";
 import SourceDirectory, { sourceOrder } from "./SourceDirectory";
 import { EvidenceExcerpt } from "./EvidenceExcerpt";
@@ -888,18 +889,32 @@ function Reader() {
                   Choose a space
                 </option>
               )}
-              {spaces.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                  {item.role === "reader" ? " (read only)" : ""}
-                </option>
-              ))}
+              {spaces
+                .filter((item) => !item.archived || item.id === space?.id)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                    {item.archived ? " (archived)" : ""}
+                    {item.role === "reader" ? " (read only)" : ""}
+                  </option>
+                ))}
             </select>
           </label>
         ) : (
           <div className="workspace-label">
             <span className="workspace-dot" /> {space?.name || "Company"}
           </div>
+        )}
+        {membershipsLoaded && (
+          <SpaceManager
+            selected={space?.id}
+            onChanged={async (destination) => {
+              await readMemberships(true);
+              if (destination)
+                location.hash = `#/?space=${encodeURIComponent(destination)}`;
+              else await refresh();
+            }}
+          />
         )}
         {membershipsLoaded &&
           !spaces.some((item) => item.kind === "personal") && (

@@ -86,6 +86,8 @@ Ingestion accepts UTF-8 text notes only (`.txt .md .markdown .csv .json .rst .lo
 
 The reader's topics and custom catalogs come from published page properties: `topics` and `catalogs` list group keys. Optional definition pages (`navigation_kind: "topic"` or `"catalog"`, keyed by their slug) supply labels, order and catalog columns. Existing pages with no topic membership appear under the unassigned group; titles never assign membership. Definitions, memberships and catalog settings follow the selected publication, including historical views. See the [navigation contract and examples](docs/data-model.md#topic-and-catalog-navigation).
 
+Manage spaces beside the space selector creates private named spaces and provides owner-only rename and reversible archive/restore controls. Archived spaces retain readable evidence and history; Company and Personal remain protected.
+
 Overview shows recent knowledge, guides and topic shortcuts; All pages is a separate filterable directory. Catalog navigation shows populated built-in catalogs and explicitly defined custom catalogs.
 
 Sources includes uncited originals in the selected space. Its directory loads 50 metadata rows per page, with name/date ordering and direct page navigation; original files load only when opened. The search scope selector switches between publication-scoped Pages and space-scoped Sources, whose ranked results cover filenames, metadata and extracted passage text. Evidence excerpts render safe Markdown; View in source opens the verified passage range in its original. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Source text remains untrusted evidence.
