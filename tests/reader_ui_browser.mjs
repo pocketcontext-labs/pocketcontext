@@ -134,6 +134,10 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(origin);
   await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+  await page.locator('.product-brand img').evaluate(async image => { await image.decode(); });
+  assert(await page.locator('.product-brand img').evaluate(image => image.naturalWidth > 0), 'website logo must render under the reader security policy');
+  await page.evaluate(() => document.fonts.load('700 20px PocketContextWordmark'));
+  assert(await page.evaluate(() => document.fonts.check('700 20px PocketContextWordmark')), 'local wordmark font must load');
   await assertLight('anonymous login');
   await screenshot('login-desktop-light');
   const signIn = await cli(['open', '--no-browser']);

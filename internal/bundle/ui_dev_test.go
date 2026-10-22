@@ -255,7 +255,7 @@ func TestEmbeddedReaderKeepsProductionPolicy(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "assets"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for path, data := range map[string]string{"index.html": "<html>synthetic reader</html>", "assets/index-test.js": "/* synthetic asset */", "assets/private.txt": "must not be served"} {
+	for path, data := range map[string]string{"index.html": "<html>synthetic reader</html>", "assets/index-test.js": "/* synthetic asset */", "assets/logo-test.svg": `<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1"/></svg>`, "assets/private.txt": "must not be served"} {
 		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(path)), []byte(data), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -274,6 +274,7 @@ func TestEmbeddedReaderKeepsProductionPolicy(t *testing.T) {
 	}{
 		{"/", "synthetic reader", "no-store", 200},
 		{"/assets/index-test.js", "synthetic asset", "public, max-age=31536000, immutable", 200},
+		{"/assets/logo-test.svg", "<svg", "public, max-age=31536000, immutable", 200},
 		{"/assets/private.txt", "", "", 404},
 		{"/src/main.tsx", "", "", 404},
 		{"/@vite/client", "", "", 404},

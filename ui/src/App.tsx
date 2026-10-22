@@ -1,3 +1,4 @@
+import Brand from "./Brand";
 import { PageActions, versionDate, useMediaQuery, trapFocus } from "./readerControls";
 import { ReconciledRead } from "./reconciledRead";
 import { spaceLink } from "./spaceLinks";
@@ -555,12 +556,7 @@ function Reader() {
         onKeyDown={event => { if (compactNavigation && menu) { if (event.key === "Escape") { event.preventDefault(); setMenu(false); } trapFocus(event); } }}
       >
         <button className="icon-button navigation-close" aria-label="Close navigation" onClick={() => setMenu(false)}>×</button>
-        <a className="brand" href={pageHref("")}>
-          <span className="brand-mark">P</span>
-          <span>
-            PocketContext<small>YOUR CONNECTED KNOWLEDGE</small>
-          </span>
-        </a>
+        <Brand href={pageHref("")} />
         {spaces.length > 0 && (spaces.length > 1 || !space) ? <label className="publication-control">Space<select aria-label="Space" value={space?.id || ""} onChange={e => { location.hash = `#/?space=${encodeURIComponent(e.target.value)}`; }}>
           {!space && <option value="" disabled>Choose a space</option>}
           {spaces.map(item => <option key={item.id} value={item.id}>{item.kind === "personal" ? "Personal space" : item.name}{item.role === "reader" ? " (read only)" : ""}</option>)}
@@ -1017,8 +1013,7 @@ function Login() {
   return (
     <main className="login-shell">
       <section className="login-card">
-        <div className="brand-mark large">P</div>
-        <div className="page-eyebrow">POCKETCONTEXT</div>
+        <Brand />
         <h1>
           Your knowledge.
           <br />

@@ -7,7 +7,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-var readerAssetName = regexp.MustCompile(`^[A-Za-z0-9_-]+\.(js|css|woff2)$`)
+var readerAssetName = regexp.MustCompile(`^[A-Za-z0-9_-]+\.(js|css|woff2|svg)$`)
 
 // registerReader keeps embedded reader routes narrow. Development mode selects
 // its own routes instead; the immutable unpacked application cache is untouched.

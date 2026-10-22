@@ -1,0 +1,23 @@
+@font-face {
+  font-family: PocketContextWordmark;
+  src: url("./assets/brand/ibm-plex-sans-700-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+.product-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #263b32;
+  font-family: PocketContextWordmark, Arial, sans-serif;
+  font-weight: 700;
+  font-synthesis: none;
+  font-size: 17px;
+  letter-spacing: -0.6px;
+  text-decoration: none;
+}
+.product-brand img { display: block; flex-shrink: 0; }
+a.product-brand:hover { text-decoration: underline; }
+a.product-brand:focus-visible { outline: 2px solid #2e493e; outline-offset: 5px; }
+.login-card .product-brand { margin-bottom: 35px; font-size: 20px; }

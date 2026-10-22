@@ -82,36 +82,6 @@ select {
   display: flex;
   flex-direction: column;
 }
-.brand {
-  display: flex;
-  gap: 11px;
-  align-items: center;
-  color: var(--text);
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.4px;
-}
-.brand-mark {
-  width: 34px;
-  height: 36px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--accent-border);
-  border-radius: 9px;
-  font:
-    700 24px Georgia,
-    serif;
-}
-.brand small {
-  display: block;
-  font-size: 8px;
-  font-weight: 500;
-  letter-spacing: 1.8px;
-  color: var(--muted);
-  margin-top: 6px;
-}
 .workspace-label {
   display: flex;
   align-items: center;
@@ -753,16 +723,6 @@ select {
 .login-card {
   width: 360px;
   max-width: 100%;
-}
-.brand-mark.large {
-  width: 51px;
-  height: 53px;
-  font-size: 34px;
-  margin-bottom: 35px;
-}
-.login-card .page-eyebrow {
-  font-size: 10px;
-  letter-spacing: 2.5px;
 }
 .login-card h1 {
   font-family: Georgia, serif;
