@@ -15,13 +15,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it("keeps a deep-linked source visible when it is outside the result page, without listing raw IDs", async () => {
+it("reads a deep-linked source directly without fetching a sibling list", async () => {
   vi.spyOn(readerAPI.api, "sourceText").mockResolvedValue(
     "Synthetic original content",
   );
   const selected = { id: "source000000001", title: "Synthetic source" };
   vi.spyOn(readerAPI, "query")
-    .mockResolvedValueOnce([{ id: "source000000002", title: "Other source" }])
     .mockResolvedValueOnce([selected])
     .mockResolvedValueOnce([
       {
@@ -46,13 +45,20 @@ it("keeps a deep-linked source visible when it is outside the result page, witho
       onTitleChange={onTitleChange}
     />,
   );
-  const current = await screen.findByRole("navigation", {
-    name: "Current evidence record",
-  });
   expect(
-    within(current).getByRole("link", { name: selected.title }),
-  ).toHaveAttribute("aria-current", "page");
-  expect(current).not.toHaveTextContent(selected.id);
+    await screen.findByRole("heading", { name: selected.title }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("navigation", { name: "Evidence records" }),
+  ).toBeNull();
+  expect(screen.getByRole("link", { name: "← All sources" })).toHaveAttribute(
+    "href",
+    "#/sources/?offset=20&order=newest",
+  );
+  expect(readerAPI.query).toHaveBeenCalledTimes(2);
+  expect(readerAPI.query).not.toHaveBeenCalledWith(
+    expect.stringContaining("LIMIT 21"),
+  );
   expect(
     screen.getByRole("link", { name: "View source passages" }),
   ).toHaveAttribute("href", `#/passages/?q=${selected.id}`);
@@ -66,7 +72,7 @@ it("keeps a deep-linked source visible when it is outside the result page, witho
   );
   expect(readerAPI.query).toHaveBeenNthCalledWith(
     2,
-    expect.stringContaining("WHERE s.space='companyspace001' AND"),
+    expect.stringContaining("WHERE space='companyspace001' AND"),
   );
 });
 

@@ -88,7 +88,7 @@ The reader's topics and custom catalogs come from published page properties: `to
 
 Overview shows recent knowledge, guides and topic shortcuts; All pages is a separate filterable directory. Catalog navigation shows populated built-in catalogs and explicitly defined custom catalogs.
 
-Sources includes uncited originals in the selected space. The search scope selector switches between publication-scoped Pages and space-scoped Sources, whose ranked results cover filenames, metadata and extracted passage text. Evidence excerpts render safe Markdown; View in source opens the verified passage range in its original. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Source text remains untrusted evidence.
+Sources includes uncited originals in the selected space. Its directory loads 50 metadata rows per page, with name/date ordering and direct page navigation; original files load only when opened. The search scope selector switches between publication-scoped Pages and space-scoped Sources, whose ranked results cover filenames, metadata and extracted passage text. Evidence excerpts render safe Markdown; View in source opens the verified passage range in its original. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Source text remains untrusted evidence.
 
 ## Build
 
@@ -127,6 +127,8 @@ After downloading an original, restarting Vite may require manually refreshing t
 `--ui-dev` is a foreground `serve` option, accepts only a loopback HTTP upstream, and is never stored in project configuration. Without it the executable serves its embedded reader. Go code, hooks and migrations still need a rebuild and restart. For manual process management, run Vite with `POCKETCONTEXT_DEV_PORT` set to the project port and start `serve --db PATH --ui-dev http://127.0.0.1:5173` separately.
 
 Hot reload does not type-check. Run `pnpm --dir ui typecheck`, `pnpm --dir ui test`, and `pnpm --dir ui build` after changes, plus `node --test tests/dev_launcher.test.mjs` after launcher changes. Before shipping, rebuild the embedded reader and executable and run the Go, name and end-to-end checks above.
+
+For a source-directory volume check, run `python3 tests/source_directory.py --binary bin/pocketcontext`; it creates 2,001 small synthetic originals in an isolated project and checks first, middle and last pages plus each sort order.
 
 The browser regression check uses synthetic data and a temporary UI copy. Install its pinned Chromium once with `pnpm --dir ui exec playwright install chromium`, then run `node tests/ui_dev_browser.mjs --binary bin/pocketcontext`. Run `node tests/reader_ui_browser.mjs --binary bin/pocketcontext` for reader navigation, version links, Overview, All pages, search and evidence checks at desktop, split-window and mobile widths. Add `--screenshots /absolute/path/to/output` to retain screenshots in a chosen folder. CI runs both checks on Linux amd64. Use `--browser /path/to/chromium` for a custom browser executable, or `--playwright /absolute/path/to/playwright/index.mjs` for a separate Playwright installation.
 

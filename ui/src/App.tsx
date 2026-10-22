@@ -1,5 +1,6 @@
 import Brand from "./Brand";
 import SourceSearch from "./SourceSearch";
+import SourceDirectory, { sourceOrder } from "./SourceDirectory";
 import { EvidenceExcerpt } from "./EvidenceExcerpt";
 import PagesDirectory, { pagesHref } from "./PagesDirectory";
 import { availableCatalogTypes } from "./catalogNavigation";
@@ -118,6 +119,7 @@ function route() {
       100000,
       Math.max(0, parseInt(params.get("offset") || "0", 10) || 0),
     ),
+    sourceOrder: sourceOrder(params.get("order") || ""),
     heading: params.get("heading") || "",
     query: params.get("q") || "",
   };
@@ -311,7 +313,7 @@ function Reader() {
         if (document.querySelector('[aria-modal="true"]')) return;
         event.preventDefault();
         const welcomeSearch = document.querySelector<HTMLInputElement>(
-          '.welcome-page input[type="search"], .catalog-page input[type="search"]',
+          '.welcome-page input[type="search"], .catalog-page input[type="search"], .source-directory-search input[type="search"]',
         );
         if (welcomeSearch) {
           setMenu(false);
@@ -967,7 +969,7 @@ function Reader() {
             {sourceCount !== null && <small>{sourceCount}</small>}
           </a>
         </nav>
-        {current.collection !== "pages" && (
+        {current.collection === "passages" && (
           <label className="publication-control">
             Evidence
             <select
@@ -1050,14 +1052,14 @@ function Reader() {
           />
           <kbd>/</kbd>
         </label>
-        <div className="nav-label">
+        <div className="nav-label" hidden={current.collection === "sources"}>
           {current.collection.toUpperCase()}
           {current.collection === "pages" && <span>{pages.length}</span>}
         </div>
         <div
           ref={setEvidenceNavigation}
           className="evidence-navigation"
-          hidden={current.collection === "pages"}
+          hidden={current.collection !== "passages"}
         />
         <div
           className="page-navigation"
@@ -1290,22 +1292,32 @@ function Reader() {
             )}
             {view.collection !== "pages" &&
               space &&
-              !(
-                view.collection === "sources" &&
-                !view.record &&
-                view.query.trim()
-              ) && (
+              !(view.collection === "sources" && !view.record) && (
                 <EvidenceBrowser
                   key={`evidence-${accessEpoch}-${space.id}`}
                   space={space.id}
                   collection={view.collection}
                   id={view.record}
                   passage={view.passage}
+                  sourceOrder={view.sourceOrder}
                   term={view.query}
                   publication={view.publication}
                   offset={view.offset}
                   navigation={evidenceNavigation}
                   onTitleChange={setEvidenceTitle}
+                />
+              )}
+            {space &&
+              view.collection === "sources" &&
+              !view.record &&
+              !view.query.trim() && (
+                <SourceDirectory
+                  key={`sources-${accessEpoch}-${space.id}`}
+                  space={space.id}
+                  count={sourceCount}
+                  offset={view.offset}
+                  order={view.sourceOrder}
+                  publication={view.publication}
                 />
               )}
             {space && (
@@ -1324,7 +1336,9 @@ function Reader() {
             <SearchResults
               key={`search-${accessEpoch}-${space?.id || "none"}`}
               publication={snapshot?.publication.id || lastPublication.current}
-              query={view.collection === "pages" && !view.catalog ? view.query : ""}
+              query={
+                view.collection === "pages" && !view.catalog ? view.query : ""
+              }
               visible={searching && matchingPublication}
               epoch={accessEpoch}
             />

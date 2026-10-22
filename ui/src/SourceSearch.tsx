@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { pb, SearchChangedError } from "./api";
+import { SourceSearchForm } from "./SourceDirectory";
 import {
   searchSources,
   sourceSearchHitHref,
@@ -139,6 +140,7 @@ export default function SourceSearch({
         Matches for “{query}” in source metadata and extracted text, including
         uncited sources.
       </p>
+      {visible && <SourceSearchForm term={query} />}
       <p className="search-status" role="status">
         {busy
           ? "Searching…"

@@ -190,7 +190,7 @@ select {
 .sidebar-bottom {
   padding: 20px 7px 0;
   border-top: 1px solid var(--border);
-  margin-top: 15px;
+  margin-top: auto;
 }
 .connection {
   display: flex;

@@ -53,6 +53,7 @@ export default function EvidenceBrowser({
   navigation,
   onTitleChange,
   passage = "",
+  sourceOrder = "newest",
 }: {
   space: string;
   collection: EvidenceCollection;
@@ -63,6 +64,7 @@ export default function EvidenceBrowser({
   navigation: HTMLElement | null;
   onTitleChange?: (title: string) => void;
   passage?: string;
+  sourceOrder?: string;
 }) {
   const [cited, setCited] = useState<{
     key: string;
@@ -120,9 +122,12 @@ export default function EvidenceBrowser({
               collection === "sources"
                 ? "s.title || ' ' || s.original_name || ' ' || s.id"
                 : "s.title || ' ' || p.locator || ' ' || p.body || ' ' || p.id || ' ' || s.id";
-            const found = await query<Row>(
-              `${base.replace("p.locator, p.body,", "p.locator,")} WHERE ${inSpace} AND instr(lower(${fields}), lower(${literal(term)}))>0 ORDER BY ${key} LIMIT 21 OFFSET ${offset}`,
-            );
+            const found =
+              collection === "sources" && id
+                ? []
+                : await query<Row>(
+                    `${base.replace("p.locator, p.body,", "p.locator,")} WHERE ${inSpace} AND instr(lower(${fields}), lower(${literal(term)}))>0 ORDER BY ${key} LIMIT 21 OFFSET ${offset}`,
+                  );
             const record = id
               ? (
                   await query<Row>(
@@ -301,6 +306,14 @@ export default function EvidenceBrowser({
   );
   return (
     <section className="evidence-browser" aria-busy={busy}>
+      {collection === "sources" && id && (
+        <a
+          className="source-directory-back"
+          href={`${evidenceHref("sources", "", term, publication, offset)}${evidenceHref("sources", "", term, publication, offset).includes("?") ? "&" : "?"}order=${encodeURIComponent(sourceOrder)}`}
+        >
+          ← {term ? "Back to search results" : "All sources"}
+        </a>
+      )}
       {!id && (
         <header className="evidence-heading">
           <h1>{collection === "sources" ? "Sources" : "Passages"}</h1>
@@ -507,7 +520,8 @@ export default function EvidenceBrowser({
           )}
         </div>
       )}
-      {navigation ? createPortal(results, navigation) : id ? results : null}
+      {collection === "passages" &&
+        (navigation ? createPortal(results, navigation) : id ? results : null)}
     </section>
   );
 }

@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { pb, SearchChangedError } from "./api";
@@ -57,7 +58,9 @@ it("renders one safe source link with its matching passage, appends one generati
   ]);
   fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
   await screen.findByRole("button", { name: "Restart search" });
-  expect(screen.queryAllByRole("link")).toHaveLength(0);
+  expect(within(screen.getByRole("list")).queryAllByRole("link")).toHaveLength(
+    0,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Restart search" }));
   await screen.findByRole("link", { name: "Rocket 3" });
 });
@@ -92,14 +95,18 @@ it("clears loaded results when pagination reports lost space access", async () =
   await screen.findByRole("link", { name: "Rocket 1" });
   fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
   await screen.findByRole("alert");
-  expect(screen.queryAllByRole("link")).toHaveLength(0);
+  expect(within(screen.getByRole("list")).queryAllByRole("link")).toHaveLength(
+    0,
+  );
 });
 it("clears private results immediately on authentication change", async () => {
   vi.spyOn(sources, "searchSources").mockResolvedValue(batch(1));
   render(<SourceSearch space={space} query="rocket" visible epoch={0} />);
   await screen.findByRole("link", { name: "Rocket 1" });
   act(() => pb.authStore.clear());
-  expect(screen.queryAllByRole("link")).toHaveLength(0);
+  expect(within(screen.getByRole("list")).queryAllByRole("link")).toHaveLength(
+    0,
+  );
 });
 it("metadata-only results omit passage and publication parameters", async () => {
   vi.spyOn(sources, "searchSources").mockResolvedValue({
