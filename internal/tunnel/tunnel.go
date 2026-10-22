@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/tailscale/tailcat"
@@ -144,8 +145,8 @@ func Listen(host string, port int) (net.Listener, error) {
 // Forward accepts connections on ln and carries each one to the same port on
 // the server at addr, until ctx ends.
 func Forward(ctx context.Context, addr tailcat.Addr, ln net.Listener, port int) error {
-	c := &tailcat.Client{Server: addr, Logf: quiet}
-	defer c.Close()
+	f := newForwarder(addr)
+	defer f.close()
 	go func() {
 		<-ctx.Done()
 		ln.Close()
@@ -159,15 +160,117 @@ func Forward(ctx context.Context, addr tailcat.Addr, ln net.Listener, port int) 
 			return err
 		}
 		go func() {
-			dial, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			remote, err := c.DialTCPPort(dial, uint16(port))
+			remote, done, err := f.dial(ctx, uint16(port))
 			if err != nil {
-				io.WriteString(os.Stderr, "pocketcontext: the agent computer did not answer through the tunnel; check that `pocketcontext tunnel serve` runs there\n")
+				if ctx.Err() == nil {
+					io.WriteString(os.Stderr, "pocketcontext: the agent computer did not answer through the tunnel; check that `pocketcontext tunnel serve` runs there\n")
+				}
 				conn.Close()
 				return
 			}
+			defer done()
 			tailcat.ProxyConns(conn, remote)
 		}()
 	}
+}
+
+// forwarder holds the tailcat client of a forward. A client announces itself
+// to the server only on its first dial, so after `tunnel serve` restarts (same
+// address, no peers) the old client's packets are dropped for good. A failed
+// dial therefore replaces the client, and the new one announces itself again.
+// A replaced client stays open until the connections it still carries end, so
+// one slow dial does not cut healthy connections.
+type forwarder struct {
+	addr tailcat.Addr
+	mu   sync.Mutex
+	cur  *session
+	all  map[*session]bool // every client not yet closed
+}
+
+// session is one tailcat client and the dials and connections using it.
+type session struct {
+	c       *tailcat.Client
+	active  int
+	retired bool
+}
+
+func newForwarder(addr tailcat.Addr) *forwarder {
+	f := &forwarder{addr: addr, all: map[*session]bool{}}
+	f.cur = f.newSession()
+	return f
+}
+
+// newSession starts a client; f.mu must be held or f not yet shared.
+func (f *forwarder) newSession() *session {
+	s := &session{c: &tailcat.Client{Server: f.addr, Logf: quiet}}
+	f.all[s] = true
+	return s
+}
+
+// acquire returns the current session, counted as in use until release.
+func (f *forwarder) acquire() *session {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cur.active++
+	return f.cur
+}
+
+// release ends one use of s, closing it once it is replaced and unused.
+func (f *forwarder) release(s *session) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s.active--
+	if s.retired && s.active == 0 && f.all[s] {
+		delete(f.all, s)
+		s.c.Close()
+	}
+}
+
+// replace retires s in favour of a new session, unless another failed dial
+// already replaced it, so concurrent failures rebuild the client once.
+func (f *forwarder) replace(s *session) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cur != s {
+		return
+	}
+	s.retired = true
+	f.cur = f.newSession()
+}
+
+// close closes every client, including replaced ones still carrying connections.
+func (f *forwarder) close() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for s := range f.all {
+		s.c.Close()
+	}
+	clear(f.all)
+}
+
+// dial reaches port on the server, replacing the client and retrying once
+// when the first attempt fails, so the connection that found the stale client
+// still gets through. done must be called when the connection ends.
+func (f *forwarder) dial(ctx context.Context, port uint16) (net.Conn, func(), error) {
+	s := f.acquire()
+	first, cancel := context.WithTimeout(ctx, 10*time.Second)
+	remote, err := s.c.DialTCPPort(first, port)
+	cancel()
+	if err == nil {
+		return remote, func() { f.release(s) }, nil
+	}
+	f.replace(s)
+	f.release(s)
+	if ctx.Err() != nil {
+		return nil, nil, err
+	}
+	s = f.acquire()
+	again, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	remote, err = s.c.DialTCPPort(again, port)
+	if err != nil {
+		f.release(s)
+		return nil, nil, err
+	}
+	return remote, func() { f.release(s) }, nil
 }

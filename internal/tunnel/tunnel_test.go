@@ -206,6 +206,86 @@ func TestServeForward(t *testing.T) {
 	}
 }
 
+// TestForwardSurvivesServeRestart keeps one forward running while the server
+// side restarts with the same identity: the first connection after the
+// restart must get through, promptly.
+func TestForwardSurvivesServeRestart(t *testing.T) {
+	region := localRelay(t)
+
+	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") })}
+	go web.Serve(backend)
+	t.Cleanup(func() { web.Close() })
+	port := backend.Addr().(*net.TCPAddr).Port
+
+	id, err := LoadIdentity(filepath.Join(t.TempDir(), "tunnel.json"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id.Region = region
+	serve := func() (tailcat.Addr, context.CancelFunc, chan error) {
+		ctx, cancel := context.WithCancel(context.Background())
+		ready, done := make(chan tailcat.Addr, 1), make(chan error, 1)
+		go func() { done <- Serve(ctx, port, id, func(a tailcat.Addr) { ready <- a }) }()
+		select {
+		case addr := <-ready:
+			return addr, cancel, done
+		case err := <-done:
+			t.Fatalf("Serve: %v", err)
+		case <-time.After(30 * time.Second):
+			t.Fatal("Serve did not become ready")
+		}
+		return "", cancel, done
+	}
+	addr, stopServe, served := serve()
+
+	ln, err := Listen("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, stopForward := context.WithCancel(context.Background())
+	forwarded := make(chan error, 1)
+	go func() { forwarded <- Forward(ctx, addr, ln, port) }()
+	defer func() {
+		stopForward()
+		<-forwarded
+	}()
+
+	// Each request opens a new connection, as each CLI command does: a
+	// connection opened before the restart is lost with the old session.
+	get := func() error {
+		client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
+		resp, err := client.Get("http://" + ln.Addr().String() + "/")
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		return nil
+	}
+	if err := get(); err != nil {
+		t.Fatal(err)
+	}
+
+	stopServe()
+	<-served
+	_, stopAgain, servedAgain := serve()
+	defer func() {
+		stopAgain()
+		<-servedAgain
+	}()
+
+	start := time.Now()
+	if err := get(); err != nil {
+		t.Fatalf("the forward did not recover after the server restarted: %v", err)
+	}
+	if took := time.Since(start); took > 20*time.Second {
+		t.Fatalf("the forward took %v to recover", took)
+	}
+}
+
 // TestBuildTagsFollowTailcat keeps build-tags.txt in step with the tailcat
 // release in go.mod: it must hold every ts_omit_ tag tailcat ships with.
 func TestBuildTagsFollowTailcat(t *testing.T) {
@@ -229,5 +309,39 @@ func TestBuildTagsFollowTailcat(t *testing.T) {
 		if !have[tag] {
 			t.Errorf("build-tags.txt lacks tailcat's %s", tag)
 		}
+	}
+}
+
+// TestReplacedClientDrains keeps a replaced client open while it still carries
+// a connection, rebuilds it once for concurrent failures, and closes it when
+// its last connection ends.
+func TestReplacedClientDrains(t *testing.T) {
+	valid := tailcat.NewPrivateKey().Public
+	valid.RegionID = 1
+	f := newForwarder(valid.Addr())
+	defer f.close()
+
+	open := f.acquire() // a healthy proxied connection
+	failed := f.acquire()
+	f.replace(failed)
+	f.replace(failed) // a second failure of the same client
+	f.release(failed)
+	if f.cur == open || len(f.all) != 2 {
+		t.Fatalf("after one replacement: %d clients, want 2", len(f.all))
+	}
+	if !f.all[open] {
+		t.Fatal("the replaced client was closed while it still carried a connection")
+	}
+	f.release(open)
+	if f.all[open] || len(f.all) != 1 {
+		t.Fatal("the replaced client was not closed after its last connection ended")
+	}
+	if next := f.acquire(); next != f.cur || next.retired {
+		t.Fatal("a new connection did not use the new client")
+	} else {
+		f.release(next)
+	}
+	if !f.all[f.cur] {
+		t.Fatal("the current client was closed")
 	}
 }
