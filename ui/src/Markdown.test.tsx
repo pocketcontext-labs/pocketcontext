@@ -75,3 +75,16 @@ it("home links preserve a dynamic root with optional publication", () => {
   expect(pageHref("")).toBe("#/");
   expect(pageHref("", "publication-id")).toBe("#/?publication=publication-id");
 });
+
+it("renders original Markdown with normal footnotes and anchors but no publication citation or page controls", () => {
+  const { container } = render(<Markdown mode="source" body={"## Source section\n\n[[literal-page]] and [^42].\n\nA real footnote[^1].\n\n[^1]: Original footnote text.\n\n[Jump](#source-section) [False citation](citation:1) [False page](page:example)\n\n![remote](https://example.com/image)\n\n<script>alert(1)</script>"} />);
+  expect(screen.getByRole("heading", { name: "Source section" })).toHaveAttribute("id", "source-section");
+  expect(container).toHaveTextContent("[[literal-page]] and [^42]");
+  expect(container.querySelector(".citation")).toBeNull();
+  expect(screen.getByText("False citation").closest("a")).toBeNull();
+  expect(screen.getByText("False page").closest("a")).toBeNull();
+  expect(screen.getByRole("link", { name: "Jump" })).toHaveAttribute("href", "#source-section");
+  expect(container.querySelector('a[href="#user-content-fn-1"]')).toHaveAttribute("id", "user-content-fnref-1");
+  expect(container).toHaveTextContent("Original footnote text.");
+  expect(container.querySelector("img, script")).toBeNull();
+});

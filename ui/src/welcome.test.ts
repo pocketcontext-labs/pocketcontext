@@ -1,38 +1,52 @@
 import { expect, test } from "vitest";
 import type { PageSummary } from "./types";
-import { classifyWelcomePage, defaultWelcomeView, filterWelcomePages, groupWelcomePages, groupWelcomePagesByType, isWelcomeView, onboardingPages, WELCOME_TOPICS } from "./welcome";
+import {
+  classifyWelcomePage,
+  defaultWelcomeView,
+  filterWelcomePages,
+  groupWelcomePages,
+  groupWelcomePagesByType,
+  isWelcomeView,
+  onboardingPages,
+} from "./welcome";
 
 function page(title: string, kind = "concept"): PageSummary {
   const slug = title.toLowerCase().replaceAll(" ", "-");
-  return { id: `revision-${slug}`, page: `page-${slug}`, slug, title, kind, summary: "" };
+  return {
+    id: `revision-${slug}`,
+    page: `page-${slug}`,
+    slug,
+    title,
+    kind,
+    summary: "",
+  };
 }
 
 test("every catalog page is included exactly once, including unknown subjects beyond 100 pages", () => {
-  const pages = Array.from({ length: 150 }, (_, index) => page(`Unclassified ${index}`));
+  const pages = Array.from({ length: 150 }, (_, index) =>
+    page(`Unclassified ${index}`),
+  );
   const groups = groupWelcomePages(pages);
-  expect(groups.map(group => group.id)).toEqual(WELCOME_TOPICS.map(topic => topic.id));
-  const included = groups.flatMap(group => group.pages);
+  expect(groups.map((group) => group.id)).toEqual(["__unassigned"]);
+  const included = groups.flatMap((group) => group.pages);
   expect(included).toHaveLength(150);
-  expect(new Set(included.map(item => item.page)).size).toBe(150);
-  expect(groups.find(group => group.id === "other")!.pages).toHaveLength(150);
+  expect(new Set(included.map((item) => item.page)).size).toBe(150);
+  expect(
+    groups.find((group) => group.id === "__unassigned")!.pages,
+  ).toHaveLength(150);
   expect(groupWelcomePages([...pages].reverse())).toEqual(groups);
 });
 
-test("generic categories use title, slug and kind, with more specific historical intent first", () => {
-  const fixtures = [
-    ["New colleague onboarding", "getting-started"],
-    ["Business strategy", "company-strategy"],
-    ["Application workflow", "apps-workflows"],
-    ["Platform architecture", "platform-security"],
-    ["Customer relationships", "people-relationships"],
-    ["Application proposal", "research-proposals"],
-    ["Security meeting notes", "meetings-notes"],
-    ["Onboarding release handoff", "handoffs-history"],
-    ["Unfamiliar subject", "other"],
-  ];
-  for (const [title, category] of fixtures) expect(classifyWelcomePage(page(title))).toBe(category);
-  expect(classifyWelcomePage({ ...page("Unfamiliar subject"), slug: "deployment-reference" })).toBe("platform-security");
-  expect(classifyWelcomePage(page("Unfamiliar subject", "meeting"))).toBe("meetings-notes");
+test("topic membership is explicit and never inferred from title, slug, kind or catalog type", () => {
+  expect(classifyWelcomePage(page("Company security onboarding"))).toBe(
+    "__unassigned",
+  );
+  expect(
+    classifyWelcomePage({
+      ...page("Named"),
+      properties: { topics: ["biology", "research"] },
+    }),
+  ).toBe("biology");
 });
 
 test("onboarding is explicitly designated by positive safe-integer revision metadata", () => {
@@ -66,11 +80,21 @@ test("onboarding is explicitly designated by positive safe-integer revision meta
 });
 
 test("catalog filtering matches all terms across metadata and sorts without mutating inputs", () => {
-  const pages = [page("Zulu workflow"), { ...page("Alpha workflow"), summary: "Connect the device" }, page("Beta handbook")];
-  expect(filterWelcomePages(pages, " WORKFLOW ").map(item => item.title)).toEqual(["Alpha workflow", "Zulu workflow"]);
+  const pages = [
+    page("Zulu workflow"),
+    { ...page("Alpha workflow"), summary: "Connect the device" },
+    page("Beta handbook"),
+  ];
+  expect(
+    filterWelcomePages(pages, " WORKFLOW ").map((item) => item.title),
+  ).toEqual(["Alpha workflow", "Zulu workflow"]);
   expect(filterWelcomePages(pages, "device alpha")).toEqual([pages[1]]);
   expect(filterWelcomePages(pages, "absent")).toEqual([]);
-  expect(filterWelcomePages(pages, "").map(item => item.title)).toEqual(["Alpha workflow", "Beta handbook", "Zulu workflow"]);
+  expect(filterWelcomePages(pages, "").map((item) => item.title)).toEqual([
+    "Alpha workflow",
+    "Beta handbook",
+    "Zulu workflow",
+  ]);
   expect(pages[0].title).toBe("Zulu workflow");
 });
 
@@ -89,24 +113,44 @@ test("explicit onboarding order is stable for ties and never inferred from title
 test("groups contain only pages supplied by the publication selection", () => {
   const selected = page("Current workflow");
   // Archived and draft revisions never enter the API's PageSummary list.
-  expect(groupWelcomePages([selected]).flatMap(group => group.pages)).toEqual([selected]);
-  expect(groupWelcomePages([]).every(group => group.pages.length === 0)).toBe(true);
+  expect(groupWelcomePages([selected]).flatMap((group) => group.pages)).toEqual(
+    [selected],
+  );
+  expect(groupWelcomePages([]).every((group) => group.pages.length === 0)).toBe(
+    true,
+  );
 });
 
 function entity(title: string, catalogType?: string): PageSummary {
-  return { ...page(title, "entity"), properties: catalogType === undefined ? {} : { catalog_type: catalogType } };
+  return {
+    ...page(title, "entity"),
+    properties: catalogType === undefined ? {} : { catalog_type: catalogType },
+  };
 }
 
 test("page type groups split entities by catalog type and include every page once in a stable order", () => {
   const pages = [
-    page("Zeta source", "summary"), page("Alpha source", "summary"), page("Agent loops"), page("Why retries fail", "answer"),
-    page("Weekly call", "transcript"), page("Old import", "legacy"), page("Odd kind", "unknown"),
-    entity("Mario Example", "person"), entity("Ada Example", "person"), entity("Platform team", "group"), entity("Build server", "resource"),
-    entity("Stripe Example"), entity("Mystery entity", "spaceship"),
-    entity("Example Labs", "organization"), entity("Example CLI", "product"), entity("Example Model 2", "model"),
+    page("Zeta source", "summary"),
+    page("Alpha source", "summary"),
+    page("Agent loops"),
+    page("Why retries fail", "answer"),
+    page("Weekly call", "transcript"),
+    page("Old import", "legacy"),
+    page("Odd kind", "unknown"),
+    entity("Mario Example", "person"),
+    entity("Ada Example", "person"),
+    entity("Platform team", "group"),
+    entity("Build server", "resource"),
+    entity("Stripe Example"),
+    entity("Mystery entity", "spaceship"),
+    entity("Example Labs", "organization"),
+    entity("Example CLI", "product"),
+    entity("Example Model 2", "model"),
   ];
   const groups = groupWelcomePagesByType(pages);
-  const filled = groups.filter(group => group.pages.length).map(group => [group.title, group.pages.map(item => item.title)]);
+  const filled = groups
+    .filter((group) => group.pages.length)
+    .map((group) => [group.title, group.pages.map((item) => item.title)]);
   expect(filled).toEqual([
     ["Source summaries", ["Alpha source", "Zeta source"]],
     ["Concepts", ["Agent loops"]],
@@ -121,24 +165,25 @@ test("page type groups split entities by catalog type and include every page onc
     ["Other entities", ["Mystery entity", "Stripe Example"]],
     ["Other pages", ["Odd kind", "Old import"]],
   ]);
-  expect(groups.flatMap(group => group.pages)).toHaveLength(pages.length);
-  expect(new Set(groups.map(group => group.id)).size).toBe(groups.length);
+  expect(groups.flatMap((group) => group.pages)).toHaveLength(pages.length);
+  expect(new Set(groups.map((group) => group.id)).size).toBe(groups.length);
   expect(groupWelcomePagesByType([...pages].reverse())).toEqual(groups);
   // A catalog_type on a non-entity page does not move it out of its kind.
-  expect(groupWelcomePagesByType([{ ...page("Typed concept"), properties: { catalog_type: "person" } }]).find(group => group.title === "Concepts")!.pages).toHaveLength(1);
+  expect(
+    groupWelcomePagesByType([
+      { ...page("Typed concept"), properties: { catalog_type: "person" } },
+    ]).find((group) => group.title === "Concepts")!.pages,
+  ).toHaveLength(1);
 });
 
-test("organizations join people and relationships; products and models join apps and workflows", () => {
-  expect(classifyWelcomePage(entity("Example Labs", "organization"))).toBe("people-relationships");
-  expect(classifyWelcomePage(entity("Example CLI", "product"))).toBe("apps-workflows");
-  expect(classifyWelcomePage(entity("Example Model 2", "model"))).toBe("apps-workflows");
-});
-
-test("the default view prefers page types only when most pages would land in Other knowledge", () => {
-  expect(defaultWelcomeView([])).toBe("topics");
-  expect(defaultWelcomeView([page("Agent loops"), page("Platform architecture")])).toBe("topics");
-  expect(defaultWelcomeView([page("Agent loops"), page("Context windows"), page("Platform architecture")])).toBe("types");
-  expect(defaultWelcomeView([entity("Ada Example", "person"), page("Agent loops")])).toBe("topics");
+test("the default view uses topics only with explicit membership", () => {
+  expect(defaultWelcomeView([])).toBe("types");
+  expect(defaultWelcomeView([page("Platform architecture")])).toBe("types");
+  expect(
+    defaultWelcomeView([
+      { ...page("Any title"), properties: { topics: ["science"] } },
+    ]),
+  ).toBe("topics");
   expect(isWelcomeView("types")).toBe(true);
   expect(isWelcomeView("grouped")).toBe(false);
   expect(isWelcomeView(undefined)).toBe(false);

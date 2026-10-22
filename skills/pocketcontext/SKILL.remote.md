@@ -52,6 +52,10 @@ This build accepts UTF-8 text notes only (`.txt .md .markdown .csv .json .rst .l
 
 Write one summary page per source, give a concept its own page once it recurs in two or more sources, give a named product, company, system, tool, model or person mentioned in two or more sources its own `entity` page (linked from broader concept pages, with `catalog_type` `person`, `organization`, `product` or `model` when one fits), and keep a hub page set as home. Revise a concept page by rewriting it as one synthesis (with a short dated "How this changed" list at the end), not by appending dated sections; use `page SLUG` to start from the published version; for a targeted fix to a page that otherwise stays right, stage `edits` (exact `old` → `new` replacements) instead. Reconcile contradictions explicitly and date time-sensitive claims. After publishing, run `lint` and act on its findings; resolve `missing-page` by creating the page or linking. Details: [workflows](references/workflows.md).
 
+## Reader navigation
+
+For reader navigation, set explicit `properties.topics` and `properties.catalogs` lists of canonical group slugs. Optional ordinary definition pages use `navigation_kind: "topic"` or `"catalog"`, keyed by their immutable page slug. These memberships are not relationships and require no `page_links`. Preserve all existing properties when supplying a replacement object to `stage`; omitted properties are copied from the published revision. Read [navigation workflow](references/workflows.md#reader-navigation) before changing groups or catalog layouts.
+
 ## Questions
 
 Use `pocketcontext search "terms"` for ranked published pages, then read the revisions and their cited passages through SQL before answering. Search excerpts are navigation, not evidence. Say when the knowledge base lacks an answer. A useful answer may be published as an `answer` page within the user's request.

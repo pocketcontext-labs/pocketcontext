@@ -2,6 +2,52 @@
 
 `pocketcontext` below means the command line given in SKILL.md (the absolute binary path with its database or server URL option). Never paste tokens into examples.
 
+## Reader navigation properties
+
+This synthetic spec creates ordinary definition pages and an explicitly assigned
+member. Definitions are optional; memberships work without them. `properties`
+objects replace existing metadata in full, so copy every still-valid key when
+adapting this example to an existing page. Group keys are not page relations.
+
+```json
+{
+  "run_key": "synthetic-reader-navigation",
+  "pages": [
+    {
+      "slug": "research", "kind": "concept", "title": "Research",
+      "summary": "Research notes and tools.",
+      "body": "A synthetic research guide. [needs verification]",
+      "properties": {"navigation_kind": "topic", "navigation_order": 0}
+    },
+    {
+      "slug": "research-tools", "kind": "concept", "title": "Research tools",
+      "summary": "Tools grouped by provider.",
+      "body": "A synthetic tool directory. [needs verification]",
+      "properties": {
+        "navigation_kind": "catalog", "navigation_order": 1,
+        "catalog_columns": ["provider", "product_type"], "catalog_sort": "provider"
+      }
+    },
+    {
+      "slug": "example-research-tool", "kind": "entity", "title": "Example research tool",
+      "summary": "A fictional tool for the navigation example.",
+      "body": "This tool is synthetic. [needs verification]",
+      "properties": {
+        "catalog_type": "product", "provider": "Example Labs", "product_type": "cli",
+        "topics": ["research"], "catalogs": ["research-tools"]
+      }
+    }
+  ]
+}
+```
+
+Save it as `navigation.json`, then use `pocketcontext stage - --dry-run < navigation.json`,
+`pocketcontext stage - < navigation.json`, `check-run` and `publish` with returned
+run IDs/revisions. The same workflow changes labels, memberships, columns or order
+through new immutable revisions; historical publications retain the old settings.
+
+## Evidence and publication
+
 ```sh
 pocketcontext check
 pocketcontext spaces

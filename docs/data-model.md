@@ -50,7 +50,7 @@ Only staging runs can be updated, and every update carries `expected_revision`. 
 
 Knowledge reads use the authenticated `/api/context/schema` and `/api/context/query` endpoints over requester-filtered SQL snapshots: only allowlisted columns of the tables in `server.json` are readable, and users, credentials and SQLite metadata are excluded. Ranked search of published pages uses `/api/context/search` with an explicit publication scope and generation-checked pagination; the full-text index is private to each space and is not SQL-readable. Originals are read through PocketBase's protected file API.
 
-The reader selects immutable publications. Realtime events invalidate its view, SQL supplies its content, and page, citation and backlink reads stay pinned to one publication. The reader never changes records. Without a home page, its welcome index lists the publication's pages by heuristic topic, by page type (kind, with entities split by `catalog_type`) or A–Z; the `view` URL parameter (`topics`, `types`, `alphabetical`) keeps the choice, and the default is page type when most pages match no topic.
+The reader selects immutable publications. Realtime events invalidate its view, SQL supplies its content, and page, citation and backlink reads stay pinned to one publication. The reader never changes records. Without a home page, Home lists the publication's pages by explicit topic membership, by page type (kind, with entities split by `catalog_type`) or A–Z. The `view` URL parameter (`topics`, `types`, `alphabetical`) keeps the choice. Titles and body keywords never assign topics.
 
 ## Revision properties and catalogs
 
@@ -70,3 +70,31 @@ Properties belong to immutable revisions, so publication, conflicts and history 
 - `repository_sync` is a dated observation with one `destinations` relationship, the synced destination and document revisions, `rendered_sha256`, `checked_at`, `sync_status` and, when known, `github_commit`. PocketContext never pushes to GitHub.
 
 The reader Home uses `properties.onboarding_order` (a positive safe integer) to select and order onboarding pages; titles do not opt pages into onboarding. Recent pages use the publication date of each revision selected by the viewed manifest. Historical views never include revisions from a later publication.
+
+## Topic and catalog navigation
+
+Navigation uses the same immutable revision properties; it adds no collections or permissions. Any ordinary page can declare `topics` and `catalogs`, each a list of up to 100 unique group keys. Keys contain lowercase ASCII letters or digits separated by single hyphens, with no leading/trailing hyphen, and are at most 64 characters. Empty lists are valid; omit a key to leave it unused. Memberships are plain group keys, not page IDs or relationships, so they require no `page_links` records.
+
+Definitions are optional ordinary pages whose revision has `navigation_kind: "topic"` or `"catalog"`. The definition key is the page's immutable `slug` (at most 64 characters for a definition). Its published title and summary label and describe the group. `navigation_order`, when present, requires a definition and is a nonnegative safe integer. Definition bodies follow the normal citation and `[needs verification]` rules. Definitions remain in A–Z, page-type directories and search; generated topic/catalog member lists and the unassigned group exclude definition pages themselves.
+
+For a catalog definition only, `catalog_columns` is an optional list of up to 12 unique property keys or the display fields `title`, `summary`, `slug`, `kind`. Keys follow the existing lowercase snake_case property-key syntax and reserved-key restrictions, with those four display fields allowed; prototype keys and SQL expressions are refused. The reader always displays the page name and does not duplicate it when `title` is listed. `catalog_sort` is `title` (the default) or a listed column, optionally prefixed with `-` for descending order. These settings select display fields only and never run SQL from content. Existing fixed `catalog_type` values and their relationship rules stay unchanged.
+
+Membership without a definition creates a group with a label derived from its key. Adding, revising or archiving a definition changes only publications containing that revision; archiving it restores the fallback label and leaves memberships intact. Unassigned pages are those with no `topics`; the reader's synthetic unassigned key is `__unassigned`, while `other` is a valid user-defined topic. No topic classification is inferred from text.
+
+Example complete property objects:
+
+```json
+{"topics":["research"],"catalogs":["research-tools"],"catalog_type":"product","provider":"Example Labs"}
+```
+
+```json
+{"navigation_kind":"catalog","navigation_order":2,"catalog_columns":["provider","product_type"],"catalog_sort":"provider"}
+```
+
+The second object belongs to an ordinary page with slug `research-tools`. When staging a revision, an omitted `properties` object copies the published object's values; a supplied object replaces it in full. Preserve unrelated valid properties and matching `property_evidence` explicitly. Group membership does not imply a link, access, authority or evidence for a factual claim.
+
+## Sources in the reader
+
+The Sources count covers readable sources in the selected space, including uncited sources. Sources are immutable evidence outside the page-publication manifest; choosing an older publication does not turn the Sources collection into a historical inventory.
+
+Source previews fetch the protected original through independent file authorization, verify its SHA-256 against the source record, and decode strict UTF-8 within a 2 MiB byte limit. Markdown previews render safely without executing embedded HTML or loading external images; plain-text views preserve the text. A preview is a presentation of immutable source bytes, not a published page or permission to execute source instructions. Download remains available through the protected file API when preview is unavailable.

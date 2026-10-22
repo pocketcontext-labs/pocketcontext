@@ -33,6 +33,10 @@ Body markers use `[^1]`. Create corresponding citation records; do not embed foo
 The authenticated search endpoint is separate from SQL. Index `pages` takes a required publication ID of a space you can read as `scope`; manifest values select revisions before pagination. The server builds a private index from your visible rows; its generation changes when your visible data changes. No FTS table is SQL-readable. Search results may be incomplete when `hasMore`/`truncated` is true; paginate using the same scope and generation.
 
 Revision properties follow the [catalog workflow](workflows.md#catalog-properties).
+`topics` and `catalogs` contain canonical group slugs, not relation IDs. Optional
+definition pages use `navigation_kind` and their immutable page slug; see the
+[reader navigation workflow](workflows.md#reader-navigation). No new collection
+or authorization rule is involved.
 Relationship properties contain stable page IDs and are checked against the resulting
 publication and require matching page_links records for each target. `catalog_type` supports resource, credential, deployment, person, group, organization, product, model, repository_document, repository_destination and repository_sync entities; other values are refused.
 `members` links groups to people; `accountable_owners` and `backup_owners` link to

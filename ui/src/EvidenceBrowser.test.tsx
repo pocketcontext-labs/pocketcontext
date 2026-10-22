@@ -1,24 +1,246 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import * as readerAPI from "./api";
 import EvidenceBrowser from "./EvidenceBrowser";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 it("keeps a deep-linked source visible when it is outside the result page, without listing raw IDs", async () => {
+  vi.spyOn(readerAPI.api, "sourceText").mockResolvedValue(
+    "Synthetic original content",
+  );
   const selected = { id: "source000000001", title: "Synthetic source" };
   vi.spyOn(readerAPI, "query")
     .mockResolvedValueOnce([{ id: "source000000002", title: "Other source" }])
     .mockResolvedValueOnce([selected])
-    .mockResolvedValueOnce([{ ...selected, original_name: "notes.txt", original: "notes.txt", media_type: "text/plain", source_date: "", sha256: "synthetic" }]);
+    .mockResolvedValueOnce([
+      {
+        ...selected,
+        original_name: "notes.txt",
+        original: "notes.txt",
+        media_type: "text/plain",
+        source_date: "",
+        sha256: "synthetic",
+      },
+    ]);
   const onTitleChange = vi.fn();
-  render(<EvidenceBrowser space="companyspace001" collection="sources" id={selected.id} term="" publication="" offset={20} navigation={null} onTitleChange={onTitleChange} />);
-  const current = await screen.findByRole("navigation", { name: "Current evidence record" });
-  expect(within(current).getByRole("link", { name: selected.title })).toHaveAttribute("aria-current", "page");
+  render(
+    <EvidenceBrowser
+      space="companyspace001"
+      collection="sources"
+      id={selected.id}
+      term=""
+      publication=""
+      offset={20}
+      navigation={null}
+      onTitleChange={onTitleChange}
+    />,
+  );
+  const current = await screen.findByRole("navigation", {
+    name: "Current evidence record",
+  });
+  expect(
+    within(current).getByRole("link", { name: selected.title }),
+  ).toHaveAttribute("aria-current", "page");
   expect(current).not.toHaveTextContent(selected.id);
-  expect(screen.getByRole("link", { name: "View source passages" })).toHaveAttribute("href", `#/passages/?q=${selected.id}`);
-  expect(screen.getByRole("group", { name: "Record actions" })).toContainElement(screen.getByRole("button", { name: "Download original" }));
+  expect(
+    screen.getByRole("link", { name: "View source passages" }),
+  ).toHaveAttribute("href", `#/passages/?q=${selected.id}`);
+  expect(
+    screen.getByRole("group", { name: "Record actions" }),
+  ).toContainElement(screen.getByRole("button", { name: "Download original" }));
   expect(onTitleChange).toHaveBeenLastCalledWith(selected.title);
-  expect(readerAPI.query).toHaveBeenNthCalledWith(1, expect.stringContaining("WHERE s.space='companyspace001' AND"));
-  expect(readerAPI.query).toHaveBeenNthCalledWith(2, expect.stringContaining("WHERE s.space='companyspace001' AND"));
+  expect(readerAPI.query).toHaveBeenNthCalledWith(
+    1,
+    expect.stringContaining("WHERE s.space='companyspace001' AND"),
+  );
+  expect(readerAPI.query).toHaveBeenNthCalledWith(
+    2,
+    expect.stringContaining("WHERE s.space='companyspace001' AND"),
+  );
+});
+
+const sourceFixture = (
+  id: string,
+  title: string,
+  original_name = "note.md",
+) => ({
+  id,
+  title,
+  original_name,
+  original: original_name,
+  media_type: original_name.endsWith(".md") ? "text/markdown" : "text/plain",
+  source_date: "2026-10-22",
+  sha256: "a".repeat(64),
+});
+
+it("provides a paginated source reading list in the main content even with separate sidebar navigation", async () => {
+  const records = Array.from({ length: 21 }, (_, index) =>
+    sourceFixture(
+      `source${String(index).padStart(9, "0")}`,
+      `Original ${index}`,
+    ),
+  );
+  vi.spyOn(readerAPI, "query").mockResolvedValue(records);
+  const preview = vi.spyOn(readerAPI.api, "sourceText");
+  const sidebar = document.createElement("div");
+  document.body.append(sidebar);
+  try {
+    render(
+      <EvidenceBrowser
+        space="companyspace001"
+        collection="sources"
+        id=""
+        term=""
+        publication="publication0001"
+        offset={0}
+        navigation={sidebar}
+      />,
+    );
+    const list = await screen.findByRole("navigation", {
+      name: "Sources in this space",
+    });
+    await waitFor(() =>
+      expect(within(list).getAllByRole("link")).toHaveLength(20),
+    );
+    expect(
+      within(list).getByRole("link", { name: /Original 0 / }),
+    ).toHaveAttribute(
+      "href",
+      "#/sources/source000000000?publication=publication0001",
+    );
+    expect(screen.getByRole("link", { name: "Next sources" })).toHaveAttribute(
+      "href",
+      "#/sources/?offset=20&publication=publication0001",
+    );
+    expect(
+      screen.getByText(/not limited to the historical publication/),
+    ).toBeVisible();
+    expect(preview).not.toHaveBeenCalled();
+  } finally {
+    sidebar.remove();
+  }
+});
+
+it("renders original Markdown with page typography and keeps metadata tucked away", async () => {
+  const source = sourceFixture("source000000001", "Original research");
+  vi.spyOn(readerAPI, "query").mockResolvedValue([source]);
+  vi.spyOn(readerAPI.api, "sourceText").mockResolvedValue(
+    "## Original heading\n\n**Original words** and [[literal-link]].",
+  );
+  const { container } = render(
+    <EvidenceBrowser
+      space="companyspace001"
+      collection="sources"
+      id={source.id}
+      term=""
+      publication=""
+      offset={0}
+      navigation={null}
+    />,
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Original heading" }),
+  ).toBeVisible();
+  expect(
+    container.querySelector(".source-content .markdown strong"),
+  ).toHaveTextContent("Original words");
+  expect(
+    screen.getByRole("heading", { name: "Original research", level: 1 }),
+  ).toBeVisible();
+  expect(container.querySelector(".evidence-details")).not.toHaveAttribute(
+    "open",
+  );
+  expect(container.querySelector(".source-content .citation")).toBeNull();
+});
+
+it("retains original download and passages when a preview is refused", async () => {
+  const source = sourceFixture("source000000001", "Large original");
+  vi.spyOn(readerAPI, "query").mockResolvedValue([source]);
+  vi.spyOn(readerAPI.api, "sourceText").mockRejectedValue(
+    new readerAPI.SourcePreviewLimitError(),
+  );
+  render(
+    <EvidenceBrowser
+      space="companyspace001"
+      collection="sources"
+      id={source.id}
+      term=""
+      publication=""
+      offset={0}
+      navigation={null}
+    />,
+  );
+  expect(await screen.findByText(/2 MiB reading limit/)).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Download original" }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("link", { name: "View source passages" }),
+  ).toBeVisible();
+});
+
+it("aborts an old source preview and never displays its late content after navigation", async () => {
+  const first = sourceFixture("source000000001", "First original");
+  const second = sourceFixture(
+    "source000000002",
+    "Second original",
+    "note.txt",
+  );
+  vi.spyOn(readerAPI, "query").mockImplementation(async (sql) =>
+    sql.includes("LIMIT 21")
+      ? [first, second]
+      : [sql.includes(second.id) ? second : first],
+  );
+  let finish!: (value: string) => void;
+  let oldSignal: AbortSignal | undefined;
+  vi.spyOn(readerAPI.api, "sourceText").mockImplementation((source, signal) => {
+    if (source.id === first.id) {
+      oldSignal = signal;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    }
+    return Promise.resolve("# Literal plain text");
+  });
+  const rendered = render(
+    <EvidenceBrowser
+      space="companyspace001"
+      collection="sources"
+      id={first.id}
+      term=""
+      publication=""
+      offset={0}
+      navigation={null}
+    />,
+  );
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  rendered.rerender(
+    <EvidenceBrowser
+      space="companyspace001"
+      collection="sources"
+      id={second.id}
+      term=""
+      publication=""
+      offset={0}
+      navigation={null}
+    />,
+  );
+  expect(oldSignal?.aborted).toBe(true);
+  expect(await screen.findByText("# Literal plain text")).toHaveProperty(
+    "tagName",
+    "PRE",
+  );
+  await act(async () => finish("Stale original content"));
+  expect(screen.queryByText("Stale original content")).toBeNull();
 });

@@ -213,12 +213,96 @@ def main():
             remote_scenario(pc, remote)
             codes_scenario(pc, remote)
             lint_scenario(pc)
+            navigation_scenario(pc)
             pc.json('stop')
             leftovers = retired_names(pc.root)
             check(not leftovers, f'no file or directory name contains the retired product name: {leftovers}')
         finally:
             subprocess.run([str(binary), '--db', str(pc.db), 'stop'], env=pc.env, capture_output=True, timeout=60)
     print('all end-to-end checks passed')
+
+
+def navigation_scenario(pc):
+    """Navigation metadata is versioned content, not a relation or schema change."""
+    def stage(key, pages):
+        return pc.json('stage', '-', stdin=json.dumps({'run_key': key, 'pages': pages}))
+
+    def publish(staged):
+        pc.json('publish', staged['run'], '--expected-revision', str(staged['revision']))
+        return pc.json('sql', 'SELECT id FROM publications ORDER BY sequence DESC LIMIT 1')['rows'][0][0]
+
+    membership = {'catalog_type': 'product', 'provider': 'Example',
+                  'topics': ['custom-research', 'other'], 'catalogs': ['custom-tools']}
+    first = stage('navigation-membership', [{'slug': 'navigation-member', 'kind': 'entity',
+        'title': 'Synthetic navigation member', 'summary': 'A product with optional navigation groups.',
+        'body': 'A synthetic product. [needs verification]', 'properties': membership}])
+    before_definition = publish(first)
+    exported = pc.json('page', 'navigation-member')
+    check(exported['properties'] == membership, 'navigation memberships publish without definition pages and round-trip through page')
+    member = pc.json('sql', "SELECT id FROM pages WHERE slug='navigation-member'")['rows'][0][0]
+    links = pc.json('sql', f"SELECT count(*) FROM page_links l JOIN page_revisions r ON r.id=l.page_revision WHERE r.page='{member}'")
+    check(links['rows'][0][0] == 0, 'topic and catalog memberships create no relationship links')
+    definitions = stage('navigation-definitions', [
+        {'slug': 'custom-research', 'kind': 'concept', 'title': 'Research', 'summary': 'A named topic.',
+         'body': 'Research navigation. [needs verification]', 'properties': {'navigation_kind': 'topic', 'navigation_order': 0}},
+        {'slug': 'custom-tools', 'kind': 'concept', 'title': 'Research tools', 'summary': 'A configured catalog.',
+         'body': 'Tools navigation. [needs verification]', 'properties': {'navigation_kind': 'catalog', 'navigation_order': 1,
+             'catalog_columns': ['title', 'summary', 'slug', 'kind', 'provider'], 'catalog_sort': '-provider'}},
+    ])
+    defined_publication = publish(definitions)
+    archived = stage('navigation-archive-definition', [{'slug': 'custom-tools', 'archived': True}])
+    publish(archived)
+    check(pc.json('page', 'navigation-member')['properties'] == membership,
+          'archiving an optional definition does not rewrite memberships or block publication')
+    definition = pc.json('sql', "SELECT id FROM pages WHERE slug='custom-tools'")['rows'][0][0]
+    check(pc.json('sql', f"SELECT count(*) FROM publications, json_each(manifest) m WHERE publications.id='{before_definition}' AND m.key='{definition}'")['rows'][0][0] == 0,
+          'publications before a definition keep their original manifest')
+    check(pc.json('sql', f"SELECT r.archived FROM publications p JOIN json_each(p.manifest) m JOIN page_revisions r ON r.id=m.value WHERE p.id='{defined_publication}' AND m.key='{definition}'")['rows'][0][0] == 0,
+          'an older publication keeps the unarchived definition revision')
+
+    run = pc.json('create', 'ingestion_runs', '{"key":"navigation-invalid","status":"staging","description":"Synthetic rejected navigation metadata"}')
+    target = pc.json('create', 'pages', '{"slug":"navigation-validation","kind":"concept"}')
+    bad = [
+        {'topics': 'research'}, {'topics': None}, {'topics': ['Research']}, {'topics': [' research']},
+        {'topics': ['research_tools']}, {'topics': ['research--tools']}, {'topics': ['']}, {'topics': [1]},
+        {'topics': ['a' * 65]}, {'topics': [f'group-{i}' for i in range(101)]},
+        {'catalogs': ['tools', 'tools']}, {'catalogs': ['tools-']}, {'navigation_kind': 'group'},
+        {'navigation_kind': None}, {'navigation_order': 0},
+        *[{'navigation_kind': 'topic', 'navigation_order': value} for value in [-1, 0.5, '1', None, 9007199254740992]],
+        {'catalog_columns': ['provider']}, {'navigation_kind': 'topic', 'catalog_columns': []},
+        *[{'navigation_kind': 'catalog', 'catalog_columns': columns} for columns in [
+            None, 'provider', ['provider', 'provider'], ['provider.name'], ['title; DROP TABLE pages'],
+            ['constructor'], ['prototype'], ['__proto__'], ['body'], ['properties'],
+            [f'column_{i}' for i in range(13)]]],
+        {'navigation_kind': 'catalog', 'catalog_sort': 'provider'},
+        {'navigation_kind': 'catalog', 'catalog_sort': '--title'},
+        {'navigation_kind': 'catalog', 'catalog_sort': None},
+        {'navigation_kind': 'topic', 'catalog_sort': 'title'},
+    ]
+    for properties in bad:
+        pc.run('create', 'page_revisions', '-', stdin=json.dumps({'run': run['id'], 'page': target['id'],
+            'title': 'Invalid navigation', 'summary': 'Rejected synthetic metadata.',
+            'body': 'A synthetic definition. [needs verification]', 'properties': properties}), expect=1)
+    check(True, 'REST rejects malformed navigation keys, orders, columns and sort settings')
+    invalid_spec = {'run_key': 'navigation-invalid-stage', 'pages': [{'slug': 'navigation-would-write', 'kind': 'concept',
+        'title': 'Must not be created', 'summary': 'Synthetic dry-run check.', 'body': '[needs verification]',
+        'properties': {'topics': ['Not-Canonical']}}]}
+    for flags in [[], ['--dry-run']]:
+        result = pc.json('stage', '-', *flags, stdin=json.dumps(invalid_spec), expect=3)
+        check(any(problem['kind'] == 'property' for problem in result['problems']), 'stage reports malformed navigation before writes')
+    check(pc.json('sql', "SELECT count(*) FROM ingestion_runs WHERE key='navigation-invalid-stage'")['rows'][0][0] == 0,
+          'invalid navigation staging creates no run')
+    uncited = {'run_key': 'navigation-uncited-definition', 'pages': [{'slug': 'navigation-uncited', 'kind': 'concept',
+        'title': 'Uncited definition', 'summary': 'Definitions keep ordinary evidence rules.', 'body': 'A factual claim without evidence.',
+        'properties': {'navigation_kind': 'topic'}}]}
+    rejected = pc.json('stage', '-', '--dry-run', stdin=json.dumps(uncited), expect=3)
+    check(any(problem['kind'] == 'uncited' for problem in rejected['problems']), 'navigation definitions still require ordinary citation or verification markers')
+
+    long_page = pc.json('create', 'pages', json.dumps({'slug': 'a' * 65, 'kind': 'concept'}))
+    body = {'run': run['id'], 'page': long_page['id'], 'title': 'Long page slug', 'summary': 'Synthetic slug check.', 'body': '[needs verification]'}
+    pc.run('create', 'page_revisions', '-', stdin=json.dumps({**body, 'properties': {'navigation_kind': 'topic'}}), expect=1)
+    pc.json('create', 'page_revisions', '-', stdin=json.dumps(body))
+    check(True, 'definition keys are limited to 64 characters while ordinary long page slugs remain valid')
 
 
 def scenario(pc):

@@ -153,7 +153,7 @@ describe("published property catalogs", () => {
         title: "A mysterious item",
         slug: "item",
       }),
-    ).toBe("platform-security");
+    ).toBe("__unassigned");
   });
   it("paginates matching records and preserves publication in page links", () => {
     const pages = Array.from({ length: 51 }, (_, i) => ({
@@ -220,9 +220,9 @@ const owned: PageSummary = {
 const directory = [ada, ben, core, owned];
 
 describe("people and groups", () => {
-  it("places classified identities in the people topic regardless of their titles", () => {
-    expect(classifyWelcomePage(ada)).toBe("people-relationships");
-    expect(classifyWelcomePage(core)).toBe("people-relationships");
+  it("does not infer topic membership from built-in catalog types", () => {
+    expect(classifyWelcomePage(ada)).toBe("__unassigned");
+    expect(classifyWelcomePage(core)).toBe("__unassigned");
   });
   it("derives membership from only the supplied publication and searches group names", () => {
     expect(
@@ -361,7 +361,11 @@ describe("organizations, products and models", () => {
       filterCatalog(named, { ...state, type: "product" }).map((p) => p.page),
     ).toEqual(["cli"]);
     expect(
-      filterCatalog(named, { ...state, type: "model", provider: "Example Labs" }),
+      filterCatalog(named, {
+        ...state,
+        type: "model",
+        provider: "Example Labs",
+      }),
     ).toEqual([model]);
     render(
       <Catalog pages={named} state={{ ...state, type: "organization" }} />,
@@ -371,7 +375,9 @@ describe("organizations, products and models", () => {
     ).toBeInTheDocument();
     for (const label of ["Organizations", "Products", "Models"])
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Example Labs" })).not.toHaveLength(0);
+    expect(
+      screen.getAllByRole("link", { name: "Example Labs" }),
+    ).not.toHaveLength(0);
     expect(screen.getAllByText("lab")).toHaveLength(2);
     expect(screen.queryByText(/Needs verification ·/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Provider")).not.toBeInTheDocument();

@@ -18,7 +18,7 @@ export function pageHref(slug: string, publication?: string, anchor?: string) {
   return spaceLink(`${slug ? `#/page/${encodeURIComponent(slug)}` : "#/"}${query.size ? `?${query}` : ""}`);
 }
 // Operates on Markdown text nodes only: code spans and fenced code remain literal.
-function pageSyntax() {
+function pageSyntax(options: { source?: boolean } = {}) {
   return (tree: any) => {
     const counts = new Map<string, number>();
     const nodeText = (node: any): string =>
@@ -60,6 +60,7 @@ function pageSyntax() {
       });
     });
 
+    if (options.source) return;
     visit(tree, "text", (node: any, index: number | undefined, parent: any) => {
       if (index === undefined || !parent || parent.type === "link") return;
       const expression = /\[\[([^\]\n]+)\]\]|\[\^(\d+)\]/g;
@@ -101,11 +102,13 @@ export const Markdown = memo(function Markdown({
   publication,
   onCitation,
   resolveSlug,
+  mode = "page",
 }: {
   body: string;
   publication?: string;
-  onCitation: (marker: number, trigger?: HTMLElement) => void;
+  onCitation?: (marker: number, trigger?: HTMLElement) => void;
   resolveSlug?: (target: string) => string;
+  mode?: "page" | "source";
 }) {
   const heading = (level: number, children: ReactNode, id?: string) => {
     return level === 1 ? (
@@ -124,10 +127,10 @@ export const Markdown = memo(function Markdown({
   };
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, pageSyntax]}
+      remarkPlugins={[remarkGfm, [pageSyntax, { source: mode === "source" }]]}
       skipHtml
       urlTransform={(url) =>
-        /^(page:|citation:|https?:|mailto:|#)/i.test(url) ? url : ""
+        (mode === "source" ? /^(https?:|mailto:|#)/i : /^(page:|citation:|https?:|mailto:|#)/i).test(url) ? url : ""
       }
       components={{
         h1: ({ children, id }) => heading(1, children, id),
@@ -136,14 +139,14 @@ export const Markdown = memo(function Markdown({
         h4: ({ children, id }) => heading(4, children, id),
         h5: ({ children, id }) => heading(5, children, id),
         h6: ({ children, id }) => heading(6, children, id),
-        a: ({ href, children }) => {
+        a: ({ href, children, id, "aria-label": ariaLabel, "aria-describedby": ariaDescription }) => {
           if (href?.startsWith("citation:"))
             return (
               <button
                 className="citation"
                 data-citation={href.slice(9)}
                 aria-label={`Citation ${href.slice(9)}`}
-                onClick={event => onCitation(Number(href.slice(9)), event.currentTarget)}
+                onClick={event => onCitation?.(Number(href.slice(9)), event.currentTarget)}
               >
                 {children}
               </button>
@@ -171,7 +174,10 @@ export const Markdown = memo(function Markdown({
           if (href?.startsWith("#"))
             return (
               <a
+                id={id}
                 href={href}
+                aria-label={ariaLabel}
+                aria-describedby={ariaDescription}
                 onClick={(event) => {
                   event.preventDefault();
                   document

@@ -1,4 +1,6 @@
 import Brand from "./Brand";
+import { useSourceCount } from "./useSourceCount";
+import { navigationGroups } from "./navigation";
 import { PageActions, versionDate, useMediaQuery, trapFocus } from "./readerControls";
 import { ReconciledRead } from "./reconciledRead";
 import { spaceLink } from "./spaceLinks";
@@ -35,7 +37,7 @@ function route() {
     slug: path.startsWith("catalog/") || path === "welcome" || /^(sources|passages)\//.test(path) ? "" : safeDecode(path.replace(/^page\//, "")),
     welcome: path === "welcome",
     catalog: path.startsWith("catalog/"),
-    catalogState: { type: catalogTypes.includes(path.split("/")[1] as CatalogType) ? path.split("/")[1] as CatalogType : "resource", query: params.get("q") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || "title", offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
+    catalogState: { type: (path.split("/")[1] === "custom" ? "resource" : (path.split("/").length === 2 ? path.split("/")[1] : "") || "unavailable") as CatalogType, custom: path.split("/")[1] === "custom" ? safeDecode(path.split("/").slice(2).join("/")) : undefined, query: params.get("q") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || (path.startsWith("catalog/custom/") ? "" : "title"), offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
     topic: params.get("topic") || "",
     view: params.get("view") || "",
     collection: path.startsWith("sources/") ? "sources" as const : path.startsWith("passages/") ? "passages" as const : "pages" as const,
@@ -73,6 +75,7 @@ function Reader() {
   const personalCreation = useRef(0);
   const [space, setSpace] = useState<Space | null>(null);
   const selectedSpace = useRef("");
+  const sourceCount = useSourceCount(space?.id);
   const [emptySpace, setEmptySpace] = useState(false);
   const [creatingSpace, setCreatingSpace] = useState(false);
   const [snapshot, setSnapshot] = useState<{
@@ -408,7 +411,7 @@ function Reader() {
   }, [authenticated, refresh]);
   useEffect(() => {
     if (!(current.welcome && (current.topic || current.view))) reader.current?.scrollTo?.(0, 0);
-  }, [current.slug, current.welcome, current.publication, current.collection, current.record, current.topic, current.view, current.catalog, current.catalogState.type, current.offset]);
+  }, [current.slug, current.welcome, current.publication, current.collection, current.record, current.topic, current.view, current.catalog, current.catalogState.type, current.catalogState.custom, current.offset]);
   useEffect(() => {
     if (current.heading && snapshot)
       document
@@ -520,12 +523,13 @@ function Reader() {
   const view = selection && !sameView && selection.collection === "pages" && current.collection === "pages" ? selection : current;
   const displayedPinned = view.publication ? snapshot?.publication.id || view.publication : undefined;
   const searching = !view.catalog && view.collection === "pages" && Boolean(view.query.trim() && !view.slug);
-  const topicGroups = groupWelcomePages(pages).filter(group => group.pages.length);
-  const welcomeHref = (topic: string, indexView = current.view) => {
+  const topicGroups = groupWelcomePages(pages).filter(group => group.pages.length || group.definition);
+  const customCatalogs = navigationGroups(pages, "catalog");
+  const welcomeHref = (topic: string, indexView = view.view) => {
     const params = new URLSearchParams();
     if (topic) params.set("topic", topic);
     if (indexView) params.set("view", indexView);
-    if (pinned) params.set("publication", pinned);
+    if (displayedPinned) params.set("publication", displayedPinned);
     const query = params.toString();
     return spaceLink(query ? `#/welcome?${query}` : "#/welcome");
   };
@@ -570,7 +574,7 @@ function Reader() {
         <nav className="primary-navigation" aria-label="Workspace">
           <a href={welcomeHref("", "")} aria-current={welcoming && !view.view && !view.topic ? "page" : undefined}>⌂ <span>Home</span></a>
           <a href={welcomeHref("", "alphabetical")} aria-current={welcoming && view.view === "alphabetical" ? "page" : undefined}>▤ <span>Pages</span><small>{pages.length}</small></a>
-          <a href={evidenceHref("sources", "", "", current.publication)} aria-current={current.collection === "sources" ? "page" : undefined}>◈ <span>Sources</span></a>
+          <a href={evidenceHref("sources", "", "", current.publication)} aria-current={current.collection === "sources" ? "page" : undefined}>◈ <span>Sources</span>{sourceCount !== null && <small>{sourceCount}</small>}</a>
         </nav>
         {current.collection !== "pages" && <label className="publication-control">Evidence<select aria-label="Collection" value={current.collection} onChange={e => { location.hash = evidenceHref(e.target.value as "sources" | "passages", "", "", current.publication); }}><option value="sources">Sources</option><option value="passages">Passages</option></select></label>}
         <label className="search">
@@ -608,9 +612,9 @@ function Reader() {
         </div>
         <div ref={setEvidenceNavigation} className="evidence-navigation" hidden={current.collection === "pages"} />
         <div className="page-navigation" hidden={current.collection !== "pages"}>
-          <details className="navigation-group" key={current.catalog ? "catalog" : "pages"} open={current.catalog}><summary>Catalogs</summary><nav className="catalog-navigation" aria-label="Catalog navigation">{catalogTypes.map(type => <a key={type} href={catalogHref({ type }, pinned)} aria-current={current.catalog && current.catalogState.type === type ? "page" : undefined}>{catalogLabels[type]}</a>)}</nav></details>
+          <details className="navigation-group" key={current.catalog ? "catalog" : "pages"} open={current.catalog}><summary>Catalogs</summary><nav className="catalog-navigation" aria-label="Catalog navigation">{catalogTypes.map(type => <a key={type} href={catalogHref({ type }, displayedPinned)} aria-current={current.catalog && current.catalogState.custom === undefined && current.catalogState.type === type ? "page" : undefined}>{catalogLabels[type]}</a>)}{customCatalogs.map(group => <a key={`custom-${group.id}`} href={catalogHref({custom:group.id}, displayedPinned)} aria-current={current.catalog && current.catalogState.custom === group.id ? "page" : undefined}>{group.title}</a>)}</nav></details>
           <details className="navigation-group"><summary>Topics</summary><nav className="topic-navigation" aria-label="Topics">
-            {topicGroups.map(group => <a key={group.id} href={welcomeHref(group.id)} aria-current={welcoming && current.topic === group.id ? "page" : undefined}>
+            {topicGroups.map(group => <a key={group.id} href={welcomeHref(group.id)} aria-current={welcoming && view.topic === group.id ? "page" : undefined}>
               <span>{group.title}</span><span className="topic-count">{group.pages.length}</span>
             </a>)}
           </nav></details>
@@ -637,7 +641,7 @@ function Reader() {
         <div className="sidebar-bottom">
           <div className="connection">
             <span className={connected ? "live-dot" : "offline-dot"} />
-            {pinned
+            {displayedPinned && current.collection === "pages"
               ? "Historical publication"
               : connected
                 ? "Live · updates automatically"
@@ -668,7 +672,7 @@ function Reader() {
             </strong>
           </div>
           <div className="topbar-actions">
-            <label className="publication-control">
+            {current.collection === "pages" && <label className="publication-control">
               <span className="sr-only">Version</span>
               <select
                 aria-label="Version"
@@ -704,7 +708,7 @@ function Reader() {
                   <option value="more">Load older publications…</option>
                 )}
               </select>
-            </label>
+            </label>}
           </div>
         </header>
         {error && (
@@ -714,7 +718,7 @@ function Reader() {
           </div>
         )}
         {busy && snapshot && <div className="refresh-status" role="status">{!sameView ? "Opening page…" : "Checking for updates…"}</div>}
-        {pinned && (
+        {displayedPinned && view.collection === "pages" && (
           <div className="history-banner">
             Viewing a fixed version from {versionDate(snapshot?.publication.created)}.{" "}
             <button onClick={() => navigatePublication("live")}>
@@ -741,14 +745,14 @@ function Reader() {
               epoch={accessEpoch}
             />
             {view.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog key={`${accessEpoch}:${space?.id}:${snapshot?.publication.id}`} space={space?.id} snapshotId={snapshot?.publication.id} pages={pages} state={view.catalogState} publication={displayedPinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
-            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={displayedPinned || "live"} pages={pages} recentPages={recentPages} publication={snapshot?.publication || null} pinned={displayedPinned} topic={view.topic} view={view.view} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onViewChange={indexView => { location.hash = welcomeHref(current.topic, indexView); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
+            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={displayedPinned || "live"} pages={pages} recentPages={recentPages} publication={snapshot?.publication || null} pinned={displayedPinned} topic={view.topic} view={view.view} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onViewChange={indexView => { location.hash = welcomeHref(view.topic, indexView); }} onSearch={query => { location.hash = searchHref(query, displayedPinned); }} />}
             {view.collection === "pages" && !view.catalog && !searching && !welcoming && !showEmptySpace &&
               (page ? (
                 <article>
                   {view.query && view.slug && (
                     <a
                       className="back-to-search"
-                      href={searchHref(view.query, pinned)}
+                      href={searchHref(view.query, displayedPinned)}
                     >
                       ← Back to search results
                     </a>

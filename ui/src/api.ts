@@ -566,6 +566,94 @@ export async function originalURL(source: Source): Promise<string> {
     { token, download: true },
   );
 }
+export const SOURCE_PREVIEW_BYTES = 2 * 1024 * 1024;
+export class SourcePreviewLimitError extends Error {
+  constructor() { super("This original is larger than the 2 MiB reading limit. Download it or read its passages."); }
+}
+/** Read the independently authorized original, never an approximation assembled from passages. */
+export async function sourceText(source: Source, signal?: AbortSignal): Promise<string> {
+  identity(source.id);
+  const generation = sessionGeneration;
+  const token = pb.authStore.token;
+  const controller = new AbortController();
+  const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  const current = () => {
+    combined.throwIfAborted();
+    if (generation !== sessionGeneration || token !== pb.authStore.token || !pb.authStore.isValid)
+      throw new Error("Session changed");
+  };
+  const unsubscribe = pb.authStore.onChange(() => {
+    if (generation !== sessionGeneration || token !== pb.authStore.token || !pb.authStore.isValid) controller.abort();
+  });
+  try {
+    current();
+    const url = await originalURL(source);
+    current();
+    if (new URL(url).origin !== new URL(pb.baseURL).origin) throw new Error("Invalid original location");
+    const response = await fetch(url, { signal: combined, cache: "no-store", credentials: "same-origin", redirect: "error" });
+    current();
+    if (!response.ok) {
+      if ((response.status === 401 || response.status === 403) && token === pb.authStore.token) pb.authStore.clear();
+      throw new Error("This original is unavailable or access was denied.");
+    }
+    if (Number(response.headers.get("content-length")) > SOURCE_PREVIEW_BYTES) {
+      await response.body?.cancel();
+      throw new SourcePreviewLimitError();
+    }
+    if (!response.body) throw new Error("This original has no readable content.");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0, complete = false;
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        current();
+        if (chunk.done) { complete = true; break; }
+        size += chunk.value.byteLength;
+        if (size > SOURCE_PREVIEW_BYTES) throw new SourcePreviewLimitError();
+        chunks.push(chunk.value);
+      }
+    } finally {
+      if (!complete) await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    if (!crypto.subtle || !/^[a-f0-9]{64}$/.test(source.sha256)) throw new Error("The original cannot be verified. Download it instead.");
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    current();
+    const hash = Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+    if (hash !== source.sha256) throw new Error("The original does not match its recorded checksum.");
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+    catch { throw new Error("This original is not valid UTF-8 text. Download it instead."); }
+  } finally { unsubscribe(); }
+}
+
+export async function sourceCount(space: string): Promise<number> {
+  const rows = await query<{ count: number }>(`SELECT count(*) AS count FROM sources WHERE space=${identity(space)}`);
+  if (rows.length !== 1 || !Number.isSafeInteger(rows[0].count) || rows[0].count < 0) throw new Error("Source count is unavailable");
+  return rows[0].count;
+}
+
+export async function watchSources(callback: () => void): Promise<() => void> {
+  const generation = sessionGeneration;
+  await realtimeCleanup;
+  if (generation !== sessionGeneration || !pb.authStore.isValid) return () => {};
+  const notify = () => { if (generation === sessionGeneration && pb.authStore.isValid) callback(); };
+  let subscribed = false;
+  const disconnected = await pb.realtime.subscribe("PB_CONNECT", () => { if (subscribed) notify(); });
+  try {
+    const stopped = await pb.collection("sources").subscribe("*", notify);
+    subscribed = true;
+    notify();
+    return () => { void stopped().catch(() => {}); void disconnected().catch(() => {}); };
+  } catch (error) {
+    void disconnected().catch(() => {});
+    throw error;
+  }
+}
+
 export async function watchPublications(
   callback: () => void,
 ): Promise<() => void> {
@@ -614,5 +702,8 @@ export const api = {
   getPage,
   searchPages,
   originalURL,
+  sourceText,
+  sourceCount,
+  watchSources,
   watchPublications,
 };

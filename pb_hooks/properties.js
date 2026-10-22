@@ -10,6 +10,26 @@ function object(record,field){
  if(typeof value!=='object'||Array.isArray(value))invalid(field+' must be an object');
  return value;
 }
+function navigation(properties){
+ const has=key=>Object.prototype.hasOwnProperty.call(properties,key);
+ for(const key of ['topics','catalogs'])if(has(key)){
+  const value=properties[key];
+  if(!Array.isArray(value)||value.length>100||value.some(v=>typeof v!=='string'||v.length>64||! /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v))||new Set(value).size!==value.length)invalid(key+' must contain up to 100 unique lowercase hyphenated slugs of at most 64 characters');
+ }
+ if(has('navigation_kind')&&!['topic','catalog'].includes(properties.navigation_kind))invalid('navigation_kind must be topic or catalog');
+ if(has('navigation_order')&&(!has('navigation_kind')||!Number.isSafeInteger(properties.navigation_order)||properties.navigation_order<0))invalid('navigation_order requires a definition and a nonnegative safe integer');
+ for(const key of ['catalog_columns','catalog_sort'])if(has(key)&&properties.navigation_kind!=='catalog')invalid(key+' requires navigation_kind catalog');
+ if(has('catalog_columns')){
+  const columns=properties.catalog_columns;
+  const valid=key=>typeof key==='string'&&/^[a-z][a-z0-9_]{0,63}$/.test(key)&&(!reserved.includes(key)||['title','summary','slug','kind'].includes(key));
+  if(!Array.isArray(columns)||columns.length>12||columns.some(key=>!valid(key))||new Set(columns).size!==columns.length)invalid('catalog_columns requires up to 12 unique safe property or display field names');
+ }
+ if(has('catalog_sort')){
+  const sort=properties.catalog_sort;
+  const key=typeof sort==='string'?sort.replace(/^-/, ''):'';
+  if(!key||(key!=='title'&&!(properties.catalog_columns||[]).includes(key)))invalid('catalog_sort must be title or a listed column, optionally prefixed with -');
+ }
+}
 function validate(record){
  const properties=object(record,'properties'),evidence=object(record,'property_evidence');
  if(Object.keys(properties).length>64)invalid('Too many properties');
@@ -22,6 +42,7 @@ function validate(record){
   if(key==='catalog_type'&&!['resource','credential','deployment','person','group','organization','product','model','repository_document','repository_destination','repository_sync'].includes(value))invalid('Invalid catalog_type');
   if(relationships.includes(key)&&(!Array.isArray(value)||value.some(v=>! /^[a-z0-9]{15}$/.test(v))))invalid('Relationship properties require page ID lists');
  }
+ navigation(properties);
  if(Object.prototype.hasOwnProperty.call(properties,'members')&&properties.catalog_type!=='group')invalid('Only group pages can declare members');
  const catalog=properties.catalog_type;
  const required=(key,pattern)=>{if(typeof properties[key]!=='string'||!pattern.test(properties[key]))invalid('Invalid or missing '+key);};
