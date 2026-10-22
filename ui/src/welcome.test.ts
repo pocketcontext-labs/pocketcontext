@@ -35,10 +35,33 @@ test("generic categories use title, slug and kind, with more specific historical
   expect(classifyWelcomePage(page("Unfamiliar subject", "meeting"))).toBe("meetings-notes");
 });
 
-test("onboarding suggestions rank actual guides, omit historic mentions, and invent no links", () => {
-  const pages = [page("Skills guide"), page("Login guide"), page("Device setup"), page("Team manual"), page("Colleague onboarding"), page("Onboarding release"), page("Setup proposal"), page("Onboarding meeting")];
-  expect(onboardingPages(pages).map(item => item.title)).toEqual(["Colleague onboarding", "Team manual", "Device setup", "Login guide", "Skills guide"]);
-  expect(onboardingPages([page("Unfamiliar subject")])).toEqual([]);
+test("onboarding is explicitly designated by positive safe-integer revision metadata", () => {
+  const first = {
+    ...page("Workspace reference"),
+    properties: { onboarding_order: 1 },
+  };
+  const second = {
+    ...page("A short tour"),
+    properties: { onboarding_order: 2 },
+  };
+  const titleOnly = page("Employee onboarding and setup guide");
+  const invalid = [
+    0,
+    -1,
+    1.5,
+    "1",
+    true,
+    null,
+    Number.MAX_SAFE_INTEGER + 1,
+  ].map((order) => ({
+    ...page(`Invalid ${order}`),
+    properties: { onboarding_order: order },
+  }));
+  expect(onboardingPages([second, ...invalid, titleOnly, first])).toEqual([
+    first,
+    second,
+  ]);
+  expect(onboardingPages([titleOnly])).toEqual([]);
   expect(onboardingPages([])).toEqual([]);
 });
 
@@ -51,21 +74,16 @@ test("catalog filtering matches all terms across metadata and sorts without muta
   expect(pages[0].title).toBe("Zulu workflow");
 });
 
-test("general onboarding entry points precede alphabetically earlier application guides", () => {
-  const general = [page("Employee onboarding"), page("Colleague onboarding"), page("Team orientation"), page("Shared getting started")];
-  const application = [page("AAA application onboarding"), page("AAA application manual")];
-  const ordered = onboardingPages([...application, ...general]);
-  expect(ordered.slice(0, general.length).map(item => item.page).sort()).toEqual(general.map(item => item.page).sort());
-  expect(ordered.slice(general.length)).toEqual(application);
-  expect(onboardingPages([...application, ...general].reverse())).toEqual(ordered);
-});
-
-test("dated singular source notes remain in the index but never become onboarding suggestions", () => {
-  const note = page("2024 01 12 employee onboarding note");
-  const kindNote = page("2024 01 13 setup", "note");
-  const guide = page("Employee onboarding");
-  expect(onboardingPages([note, kindNote, guide])).toEqual([guide]);
-  expect(groupWelcomePages([note, kindNote, guide]).find(group => group.id === "meetings-notes")!.pages).toEqual([note, kindNote]);
+test("explicit onboarding order is stable for ties and never inferred from title or topic", () => {
+  const alpha = {
+    ...page("Alpha setup meeting"),
+    properties: { onboarding_order: 5 },
+  };
+  const zulu = { ...page("Zulu guide"), properties: { onboarding_order: 5 } };
+  const selected = [zulu, alpha];
+  expect(onboardingPages(selected)).toEqual([alpha, zulu]);
+  expect(onboardingPages([...selected].reverse())).toEqual([alpha, zulu]);
+  expect(selected).toEqual([zulu, alpha]);
 });
 
 test("groups contain only pages supplied by the publication selection", () => {

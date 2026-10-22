@@ -17,7 +17,7 @@ describe("safe page rendering", () => {
       "#/page/observatory?publication=pub123&heading=night-sky",
     );
     fireEvent.click(screen.getByRole("button", { name: "Citation 2" }));
-    expect(click).toHaveBeenCalledWith(2);
+    expect(click).toHaveBeenCalledWith(2, screen.getByRole("button", { name: "Citation 2" }));
   });
   it("does not render raw HTML, remote images or unsafe links", () => {
     const { container } = render(

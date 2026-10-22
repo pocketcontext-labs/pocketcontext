@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { api, SearchChangedError, type SearchPage } from "./api";
 import { pageHref } from "./Markdown";
+import { highlightSearchText, searchExcerpt } from "./searchText";
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  return highlightSearchText(text, query).map((part, index) =>
+    part.match ? (
+      <mark className="search-highlight" key={index}>
+        {part.text}
+      </mark>
+    ) : (
+      part.text
+    ),
+  );
+}
 export function searchHref(query: string, publication?: string, slug = "") {
   const url = pageHref(slug, publication);
   return `${url}${url.includes("?") ? "&" : "?"}q=${encodeURIComponent(query)}`;
@@ -148,6 +161,7 @@ export default function SearchResults({
             <h2>
               <a
                 data-search-hit={hit.id}
+                aria-label={hit.title}
                 href={searchHref(query, publication, hit.slug)}
                 onClick={() => {
                   savedFocus.current = hit.id;
@@ -155,10 +169,15 @@ export default function SearchResults({
                     document.getElementById("reader")?.scrollTop || 0;
                 }}
               >
-                {hit.title}
+                <HighlightedText text={hit.title} query={query} />
               </a>
             </h2>
-            <p>{hit.excerpt}</p>
+            <p className="search-excerpt">
+              <HighlightedText
+                text={searchExcerpt(hit.excerpt)}
+                query={query}
+              />
+            </p>
           </li>
         ))}
       </ol>

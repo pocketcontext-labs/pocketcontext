@@ -1,8 +1,10 @@
+import { PageActions, versionDate, useMediaQuery, trapFocus } from "./readerControls";
 import { ReconciledRead } from "./reconciledRead";
 import { spaceLink } from "./spaceLinks";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -23,13 +25,6 @@ function safeDecode(value: string) {
     return decodeURIComponent(value);
   } catch {
     return value;
-  }
-}
-function savedTheme() {
-  try {
-    return localStorage.getItem("pocketcontext-theme") || "dark";
-  } catch {
-    return "dark";
   }
 }
 function route() {
@@ -103,9 +98,23 @@ function Reader() {
   const [original, setOriginal] = useState("");
   const [evidenceNavigation, setEvidenceNavigation] = useState<HTMLDivElement | null>(null);
   const [menu, setMenu] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const compactNavigation = useMediaQuery("(max-width: 1100px)");
+  const dockEvidence = useMediaQuery("(min-width: 1280px)");
+  const sidebar = useRef<HTMLElement>(null);
+  const navigationToggle = useRef<HTMLButtonElement>(null);
+  const navigationOpen = compactNavigation ? menu : !navCollapsed;
+  const drawerDestination = useRef(false);
+  useEffect(() => { if (!compactNavigation) setMenu(false); }, [compactNavigation]);
+  useEffect(() => {
+    if (!menu || !compactNavigation) return;
+    const previous = document.activeElement as HTMLElement | null;
+    drawerDestination.current = false;
+    sidebar.current?.querySelector<HTMLButtonElement>(".navigation-close")?.focus();
+    return () => { requestAnimationFrame(() => { if (drawerDestination.current) { if (!reader.current?.contains(document.activeElement)) reader.current?.focus({ preventScroll: true }); } else if (previous?.isConnected && !previous.closest('[inert]')) previous.focus(); else navigationToggle.current?.focus(); }); };
+  }, [menu, compactNavigation]);
   const [evidenceTitle, setEvidenceTitle] = useState("");
   const [connected, setConnected] = useState(false);
-  const [theme, setTheme] = useState(savedTheme);
   const generation = useRef(0);
   const mounted = useRef(false);
   const refreshInFlight = useRef(false);
@@ -117,14 +126,6 @@ function Reader() {
   const reader = useRef<HTMLElement>(null);
   const citationClose = useRef<HTMLButtonElement>(null);
   const lastCitationFocus = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try {
-      localStorage.setItem("pocketcontext-theme", theme);
-    } catch {
-      /* Storage is optional. */
-    }
-  }, [theme]);
   useEffect(() => {
     const handler = () => {
       const next = route();
@@ -145,6 +146,7 @@ function Reader() {
       if (next.collection !== previous.collection || next.record !== previous.record) setEvidenceTitle("");
       setSearch(next.query);
       setEvidence(null);
+      drawerDestination.current = true;
       setMenu(false);
     };
     window.addEventListener("hashchange", handler);
@@ -182,10 +184,12 @@ function Reader() {
           !event.metaKey &&
           !event.altKey)
       ) {
+        if (document.querySelector('[aria-modal="true"]')) return;
         event.preventDefault();
         const welcomeSearch = document.querySelector<HTMLInputElement>('.welcome-page input[type="search"], .catalog-page input[type="search"]');
         if (welcomeSearch) { setMenu(false); welcomeSearch.focus(); return; }
-        setMenu(true);
+        setMenu(window.matchMedia("(max-width: 1100px)").matches);
+        setNavCollapsed(false);
         requestAnimationFrame(() =>
           document
             .querySelector<HTMLInputElement>('.sidebar input[type="search"]')
@@ -402,8 +406,8 @@ function Reader() {
     };
   }, [authenticated, refresh]);
   useEffect(() => {
-    if (!(current.welcome && current.topic)) reader.current?.scrollTo?.(0, 0);
-  }, [current.slug, current.welcome, current.publication, current.collection, current.record, current.topic, current.catalog, current.catalogState.type, current.offset]);
+    if (!(current.welcome && (current.topic || current.view))) reader.current?.scrollTo?.(0, 0);
+  }, [current.slug, current.welcome, current.publication, current.collection, current.record, current.topic, current.view, current.catalog, current.catalogState.type, current.offset]);
   useEffect(() => {
     if (current.heading && snapshot)
       document
@@ -416,6 +420,11 @@ function Reader() {
     let disposed = false;
     const access = authority.current;
     citationClose.current?.focus();
+    const marker = Number(evidence.marker);
+    const clickedClaim = lastCitationFocus.current?.isConnected && reader.current?.contains(lastCitationFocus.current) && lastCitationFocus.current?.getAttribute("data-citation") === String(marker) ? lastCitationFocus.current.closest("p, li, td, blockquote") : null;
+    const claim = clickedClaim || reader.current?.querySelector(`[data-citation="${marker}"]`)?.closest("p, li, td, blockquote");
+    claim?.classList.add("citation-claim-active");
+    if (dockEvidence) claim?.scrollIntoView?.({ block: "nearest" });
     api
       .originalURL(evidence.source)
       .then((url) => {
@@ -426,8 +435,9 @@ function Reader() {
       });
     return () => {
       disposed = true;
+      claim?.classList.remove("citation-claim-active");
     };
-  }, [evidence]);
+  }, [evidence, dockEvidence]);
   const closeEvidence = () => {
     setEvidence(null);
     setOriginal("");
@@ -448,7 +458,7 @@ function Reader() {
         : current.collection !== "pages"
         ? evidenceHref(current.collection, current.record, current.query, id === "live" ? "" : id, current.offset)
         : current.welcome && !current.query
-        ? spaceLink(`#/welcome${id === "live" ? "" : `?publication=${encodeURIComponent(id)}`}`)
+        ? spaceLink(`#/welcome?${new URLSearchParams({ ...(id !== "live" ? { publication: id } : {}), ...(current.topic ? { topic: current.topic } : {}), ...(current.view ? { view: current.view } : {}) })}`)
         : current.query
         ? searchHref(
             current.query,
@@ -483,19 +493,20 @@ function Reader() {
     [snapshot?.pages],
   );
   const openCitation = useCallback(
-    (marker: number) => {
+    (marker: number, trigger?: HTMLElement) => {
       const citation = snapshot?.page?.citations.find(
         (c) => Number(c.marker) === marker,
       );
       if (citation) {
-        lastCitationFocus.current = document.activeElement as HTMLElement;
-        setEvidence(citation);
+        lastCitationFocus.current = trigger || document.activeElement as HTMLElement;
+        setEvidence({ ...citation });
       }
     },
     [snapshot?.page],
   );
+  const recentPages = useMemo(() => (snapshot?.pages || []).filter((item): item is PageSummary & { publishedAt: string } => Boolean(item.publishedAt)).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt) || a.title.localeCompare(b.title)), [snapshot?.pages]);
   const pinned = current.publication || undefined;
-  if (!authenticated) return <Login theme={theme} setTheme={setTheme} />;
+  if (!authenticated) return <Login />;
   // Retain one coherent publication (directory, page, links and citations)
   // until the requested replacement is complete. Space switches clear it.
   const page = snapshot?.page;
@@ -521,9 +532,10 @@ function Reader() {
     (view.welcome || (matchingPublication && !snapshot?.publication.home));
   const showEmptySpace = emptySpace && !current.publication && current.collection === "pages";
   return (
-    <div className="workspace">
+    <div className={`workspace ${evidence && dockEvidence ? "has-docked-evidence" : ""}`}>
       <a
         className="skip-link"
+        inert={(compactNavigation && menu) || Boolean(evidence && !dockEvidence)}
         href="#reader"
         onClick={(e) => {
           e.preventDefault();
@@ -533,9 +545,16 @@ function Reader() {
         Skip to page
       </a>
       <aside
-        className={`sidebar ${menu ? "is-open" : ""}`}
+        ref={sidebar}
+        id="reader-navigation"
+        className={`sidebar ${navigationOpen ? "is-open" : "is-collapsed"}`}
+        role={compactNavigation && menu ? "dialog" : undefined}
+        aria-modal={compactNavigation && menu ? true : undefined}
         aria-label="Page navigation"
+        inert={Boolean(evidence && !dockEvidence) || !navigationOpen}
+        onKeyDown={event => { if (compactNavigation && menu) { if (event.key === "Escape") { event.preventDefault(); setMenu(false); } trapFocus(event); } }}
       >
+        <button className="icon-button navigation-close" aria-label="Close navigation" onClick={() => setMenu(false)}>×</button>
         <a className="brand" href={pageHref("")}>
           <span className="brand-mark">P</span>
           <span>
@@ -546,15 +565,19 @@ function Reader() {
           {!space && <option value="" disabled>Choose a space</option>}
           {spaces.map(item => <option key={item.id} value={item.id}>{item.kind === "personal" ? "Personal space" : item.name}{item.role === "reader" ? " (read only)" : ""}</option>)}
         </select></label> : <div className="workspace-label"><span className="workspace-dot" /> {space?.name || "Company"}</div>}
-        {membershipsLoaded && !spaces.some(item => item.kind === "personal") && <button className="secondary-button" disabled={creatingSpace} onClick={() => {
+        {membershipsLoaded && !spaces.some(item => item.kind === "personal") && <details className="space-options"><summary>Space options</summary><button className="secondary-button" disabled={creatingSpace} onClick={() => {
           const own = ++personalCreation.current, identity = sessionGeneration, destination = location.hash;
           const active = () => own === personalCreation.current && identity === sessionGeneration && pb.authStore.isValid && destination === location.hash;
           setCreatingSpace(true); setError("");
           void api.createPersonalSpace().then(result => { if (active()) location.hash = `#/?space=${encodeURIComponent(result.id)}`; }).catch(e => { if (active()) setError(message(e)); }).finally(() => { if (active()) setCreatingSpace(false); });
-        }}>{creatingSpace ? "Creating personal space…" : "Create personal space"}</button>}
-        <a className={`welcome-nav ${welcoming ? "selected" : ""}`} href={spaceLink(`#/welcome${pinned ? `?publication=${encodeURIComponent(pinned)}` : ""}`)} aria-current={welcoming ? "page" : undefined}>⌂ <span>Welcome</span></a>
-        <label className="publication-control">Collection<select aria-label="Collection" value={current.collection} onChange={e => { location.hash = e.target.value === "pages" ? pageHref("", pinned) : evidenceHref(e.target.value as "sources" | "passages", "", "", current.publication); }}><option value="pages">Pages</option><option value="sources">Sources</option><option value="passages">Passages</option></select></label>
-        <label className="search" hidden={welcoming}>
+        }}>{creatingSpace ? "Creating personal space…" : "Create personal space"}</button></details>}
+        <nav className="primary-navigation" aria-label="Workspace">
+          <a href={welcomeHref("", "")} aria-current={welcoming && !view.view && !view.topic ? "page" : undefined}>⌂ <span>Home</span></a>
+          <a href={welcomeHref("", "alphabetical")} aria-current={welcoming && view.view === "alphabetical" ? "page" : undefined}>▤ <span>Pages</span><small>{pages.length}</small></a>
+          <a href={evidenceHref("sources", "", "", current.publication)} aria-current={current.collection === "sources" ? "page" : undefined}>◈ <span>Sources</span></a>
+        </nav>
+        {current.collection !== "pages" && <label className="publication-control">Evidence<select aria-label="Collection" value={current.collection} onChange={e => { location.hash = evidenceHref(e.target.value as "sources" | "passages", "", "", current.publication); }}><option value="sources">Sources</option><option value="passages">Passages</option></select></label>}
+        <label className="search">
           <span aria-hidden="true">⌕</span>
           <input
             aria-label={current.collection === "pages" ? "Search pages" : `Search ${current.collection}`}
@@ -575,8 +598,9 @@ function Reader() {
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
+                drawerDestination.current = true;
                 setMenu(false);
-                reader.current?.focus();
+                if (!compactNavigation) reader.current?.focus();
               }
             }}
           />
@@ -588,12 +612,12 @@ function Reader() {
         </div>
         <div ref={setEvidenceNavigation} className="evidence-navigation" hidden={current.collection === "pages"} />
         <div className="page-navigation" hidden={current.collection !== "pages"}>
-          <nav className="catalog-navigation" aria-label="Catalog navigation">{catalogTypes.map(type => <a key={type} href={catalogHref({ type }, pinned)} aria-current={current.catalog && current.catalogState.type === type ? "page" : undefined}>{catalogLabels[type]}</a>)}</nav>
-          <nav className="topic-navigation" aria-label="Topics">
+          <details className="navigation-group" key={current.catalog ? "catalog" : "pages"} open={current.catalog}><summary>Catalogs</summary><nav className="catalog-navigation" aria-label="Catalog navigation">{catalogTypes.map(type => <a key={type} href={catalogHref({ type }, pinned)} aria-current={current.catalog && current.catalogState.type === type ? "page" : undefined}>{catalogLabels[type]}</a>)}</nav></details>
+          <details className="navigation-group"><summary>Topics</summary><nav className="topic-navigation" aria-label="Topics">
             {topicGroups.map(group => <a key={group.id} href={welcomeHref(group.id)} aria-current={welcoming && current.topic === group.id ? "page" : undefined}>
               <span>{group.title}</span><span className="topic-count">{group.pages.length}</span>
             </a>)}
-          </nav>
+          </nav></details>
           <details className="all-pages-navigation" key={welcoming ? "welcome" : "reading"} open={!welcoming}>
             <summary>All pages <span>{pages.length}</span></summary>
         <nav className="page-list" aria-label="Pages">
@@ -628,27 +652,30 @@ function Reader() {
           </button>
         </div>
       </aside>
-      <div className="main-area">
+      {compactNavigation && menu && <div className="navigation-backdrop" onClick={() => setMenu(false)} aria-hidden="true" />}
+      <div className="main-area" inert={(compactNavigation && menu) || Boolean(evidence && !dockEvidence)}>
         <header className="topbar">
           <button
             className="icon-button mobile-menu"
-            aria-label="Toggle navigation"
-            aria-expanded={menu}
-            onClick={() => setMenu(!menu)}
+            ref={navigationToggle}
+            aria-label={navigationOpen ? "Close navigation" : "Open navigation"}
+            aria-controls="reader-navigation"
+            aria-expanded={navigationOpen}
+            onClick={() => compactNavigation ? setMenu(!menu) : setNavCollapsed(!navCollapsed)}
           >
             ☰
           </button>
           <div className="breadcrumb">
             {current.collection === "pages" ? "Pages" : current.collection === "sources" ? "Sources" : "Passages"} <span>/</span>{" "}
             <strong>
-              {current.collection !== "pages" ? evidenceTitle || (current.record ? "Record details" : "Browse evidence") : current.catalog ? "Catalog" : searching ? "Search" : welcoming ? "Welcome" : page?.title || "Your knowledge"}
+              {current.collection !== "pages" ? evidenceTitle || (current.record ? "Record details" : "Browse evidence") : current.catalog ? "Catalog" : searching ? "Search" : welcoming ? "Home" : page?.title || "Your knowledge"}
             </strong>
           </div>
           <div className="topbar-actions">
             <label className="publication-control">
-              <span className="sr-only">Publication</span>
+              <span className="sr-only">Version</span>
               <select
-                aria-label="Publication"
+                aria-label="Version"
                 value={pinned || "live"}
                 onChange={(e) => {
                   if (e.target.value === "more") {
@@ -671,10 +698,10 @@ function Reader() {
                   } else navigatePublication(e.target.value);
                 }}
               >
-                <option value="live">Live publication</option>
+                <option value="live">Current version</option>
                 {publications.map((p) => (
                   <option key={p.id} value={p.id}>
-                    Publication {p.sequence}
+                    {versionDate(p.created)} · #{p.sequence}
                   </option>
                 ))}
                 {moreHistory && (
@@ -682,13 +709,6 @@ function Reader() {
                 )}
               </select>
             </label>
-            <button
-              className="icon-button"
-              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            >
-              {theme === "dark" ? "☼" : "☾"}
-            </button>
           </div>
         </header>
         {error && (
@@ -700,9 +720,9 @@ function Reader() {
         {busy && snapshot && <div className="refresh-status" role="status">{!sameView ? "Opening page…" : "Checking for updates…"}</div>}
         {pinned && (
           <div className="history-banner">
-            Viewing publication {snapshot?.publication.sequence}.{" "}
+            Viewing a fixed version from {versionDate(snapshot?.publication.created)}.{" "}
             <button onClick={() => navigatePublication("live")}>
-              Return to live
+              Return to current version
             </button>
           </div>
         )}
@@ -725,7 +745,7 @@ function Reader() {
               epoch={accessEpoch}
             />
             {view.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog key={`${accessEpoch}:${space?.id}:${snapshot?.publication.id}`} space={space?.id} snapshotId={snapshot?.publication.id} pages={pages} state={view.catalogState} publication={displayedPinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
-            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={displayedPinned || "live"} pages={pages} publication={snapshot?.publication || null} pinned={displayedPinned} topic={view.topic} view={view.view} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onViewChange={indexView => { location.hash = welcomeHref(current.topic, indexView); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
+            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={displayedPinned || "live"} pages={pages} recentPages={recentPages} publication={snapshot?.publication || null} pinned={displayedPinned} topic={view.topic} view={view.view} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onViewChange={indexView => { location.hash = welcomeHref(current.topic, indexView); }} onSearch={query => { location.hash = searchHref(query, pinned); }} />}
             {view.collection === "pages" && !view.catalog && !searching && !welcoming && !showEmptySpace &&
               (page ? (
                 <article>
@@ -741,12 +761,11 @@ function Reader() {
                   <div className="page-eyebrow">
                     <span>{page.kind || "PAGE"}</span>
                     <span className="quiet">
-                      Publication {snapshot?.publication.sequence}
+                      {displayedPinned ? "Fixed version" : "Current version"}
                     </span>
                   </div>
                   <h1 className="page-title">{page.title}</h1>
-                  <button onClick={() => void navigator.clipboard.writeText(new URL(pageHref(page.slug), location.href).href).catch(() => setError("Unable to copy link"))}>Copy live link</button>{" "}
-                  <button onClick={() => void navigator.clipboard.writeText(new URL(pageHref(page.slug, snapshot?.publication.id), location.href).href).catch(() => setError("Unable to copy link"))}>Copy historical link</button>
+                  <PageActions key={`${space?.id}:${page.id}:${snapshot?.publication.id}`} slug={page.slug} publication={snapshot!.publication} />
                   {page.summary && (
                     <p className="page-summary">{page.summary}</p>
                   )}
@@ -769,7 +788,7 @@ function Reader() {
                           className="source-row"
                           onClick={(event) => {
                             lastCitationFocus.current = event.currentTarget;
-                            setEvidence(c);
+                            setEvidence({ ...c });
                           }}
                           aria-label={`Citation ${c.marker}: ${c.source.title}`}
                         >
@@ -876,16 +895,16 @@ function Reader() {
         </div>
       </div>
       {evidence && (
-        <div className="evidence-backdrop" onClick={closeEvidence}>
+        <div className={`evidence-backdrop ${dockEvidence ? "is-docked" : ""}`} onClick={dockEvidence ? undefined : closeEvidence}>
           <section
             className="evidence-panel"
-            role="dialog"
-            aria-modal="true"
+            role={dockEvidence ? "region" : "dialog"}
+            aria-modal={dockEvidence ? undefined : true}
             aria-labelledby="evidence-title"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === "Escape") closeEvidence();
-              if (e.key === "Tab") {
+              if (e.key === "Tab" && !dockEvidence) {
                 const focusable =
                   Array.from(e.currentTarget.querySelectorAll<HTMLElement>(
                     "button,a[href]",
@@ -971,13 +990,7 @@ function Reader() {
     </div>
   );
 }
-function Login({
-  theme,
-  setTheme,
-}: {
-  theme: string;
-  setTheme: (value: string) => void;
-}) {
+function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const login = async (action: () => Promise<unknown>) => {
@@ -1003,13 +1016,6 @@ function Login({
   };
   return (
     <main className="login-shell">
-      <button
-        className="icon-button login-theme"
-        aria-label="Switch theme"
-        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-      >
-        {theme === "dark" ? "☼" : "☾"}
-      </button>
       <section className="login-card">
         <div className="brand-mark large">P</div>
         <div className="page-eyebrow">POCKETCONTEXT</div>

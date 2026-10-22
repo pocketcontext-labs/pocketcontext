@@ -807,11 +807,6 @@ select {
   color: var(--quiet);
   font-size: 11px;
 }
-.login-theme {
-  position: fixed;
-  right: 25px;
-  top: 20px;
-}
 .login-card .login-error {
   color: var(--danger);
   font-size: 12px;

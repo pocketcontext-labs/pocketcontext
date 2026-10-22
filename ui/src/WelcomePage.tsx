@@ -17,6 +17,7 @@ import "./welcome.css";
 export default function WelcomePage({
   pages,
   publication,
+  recentPages,
   pinned,
   onSearch,
   onTopicChange,
@@ -26,6 +27,7 @@ export default function WelcomePage({
 }: {
   pages: PageSummary[];
   publication: Publication | null;
+  recentPages?: Array<PageSummary & { publishedAt: string }>;
   pinned?: string;
   onSearch: (query: string) => void;
   onTopicChange: (topic: string) => void;
@@ -44,34 +46,39 @@ export default function WelcomePage({
   const mode = chosenMode ?? defaultWelcomeView(pages);
   useEffect(() => {
     setChosenMode(isWelcomeView(requestedView) ? requestedView : undefined);
+    if (isWelcomeView(requestedView)) {
+      directory.current?.scrollIntoView?.({ block: "start" });
+      directory.current?.focus({ preventScroll: true });
+    }
   }, [requestedView]);
   useEffect(() => {
     if (!requestedTopic) {
       setTopic("all");
       return;
     }
-    setTopic(WELCOME_TOPICS.some((group) => group.id === requestedTopic) ? requestedTopic : "all");
+    setTopic(
+      WELCOME_TOPICS.some((group) => group.id === requestedTopic)
+        ? requestedTopic
+        : "all",
+    );
     directory.current?.scrollIntoView?.({ block: "start" });
     directory.current?.focus({ preventScroll: true });
   }, [requestedTopic]);
-  const primaryGuide = guides[0];
-  const steps: PageSummary[] = [];
-  for (const signal of [
-    /\b(setup|install|installation|skills?)\b/i,
-    /\b(login|sign.in|authentication)\b/i,
-  ]) {
-    const guide = guides.find(
-      (page) =>
-        page !== primaryGuide && !steps.includes(page) &&
-        signal.test(`${page.title} ${page.slug.replaceAll("-", " ")}`),
-    );
-    if (guide) steps.push(guide);
-  }
-  for (const guide of guides) {
-    if (steps.length >= 3) break;
-    if (guide !== primaryGuide && !steps.includes(guide)) steps.push(guide);
-  }
-  const moreGuides = guides.filter((page) => page !== primaryGuide && !steps.includes(page));
+  const recent = useMemo(() => {
+    const selectedPages = new Map(pages.map((page) => [page.page, page]));
+    const seen = new Set<string>();
+    const result: Array<PageSummary & { date: Date }> = [];
+    for (const item of recentPages ?? []) {
+      const selected = selectedPages.get(item.page);
+      if (!selected || selected.id !== item.id || seen.has(item.page)) continue;
+      const date = new Date(item.publishedAt.replace(" ", "T"));
+      if (!Number.isFinite(date.getTime())) continue;
+      seen.add(item.page);
+      result.push({ ...selected, date });
+      if (result.length === 6) break;
+    }
+    return result;
+  }, [pages, recentPages]);
   const selected = groups.find((group) => group.id === topic);
   const filtered = filterWelcomePages(selected?.pages ?? pages, "");
   const results =
@@ -79,7 +86,13 @@ export default function WelcomePage({
       ? groupWelcomePages(filtered)
       : mode === "types"
         ? groupWelcomePagesByType(filtered)
-        : [{ id: "alphabetical", title: "Alphabetical index", pages: filtered }];
+        : [
+            {
+              id: "alphabetical",
+              title: "Alphabetical index",
+              pages: filtered,
+            },
+          ];
   const href = (page: PageSummary) => pageHref(page.slug, pinned);
   const showDirectory = () => {
     directory.current?.scrollIntoView?.({ block: "start" });
@@ -88,23 +101,15 @@ export default function WelcomePage({
 
   return (
     <div className="welcome-page">
-      <section className="welcome-hero" aria-labelledby="welcome-heading">
+      <header className="welcome-intro">
         <div>
-          <div className="welcome-eyebrow">Your PocketContext</div>
-          <h1 id="welcome-heading">
-            Welcome to <em>our shared context.</em>
-          </h1>
-          <p>
-            Get started, find an answer, or pick up where someone left off.
-            <br />
-            Your guide to the people, tools and thinking behind our work.
-          </p>
+          <h1>Home</h1>
+          <p>Find an answer or explore the knowledge in this space.</p>
         </div>
-        <div className="welcome-stat">
-          <strong>{pages.length}</strong>
-          <span>pages to explore</span>
-        </div>
-      </section>
+        <span className="welcome-count">
+          {pages.length} {pages.length === 1 ? "page" : "pages"}
+        </span>
+      </header>
 
       <form
         className="welcome-search"
@@ -131,112 +136,125 @@ export default function WelcomePage({
             }
           }}
         />
-        <button type="submit" disabled={!query.trim()}>Search</button>
+        <button type="submit" disabled={!query.trim()}>
+          Search
+        </button>
       </form>
       <p className="welcome-search-note" id="welcome-search-note">
         Search page titles, summaries and contents in this publication.
       </p>
 
-      <section
-        className="welcome-onboarding"
-        aria-labelledby="welcome-onboarding-heading"
-      >
-        <div className="welcome-onboard-intro">
-          <div className="welcome-eyebrow">Start here</div>
-          <h2 id="welcome-onboarding-heading">New to the workspace?</h2>
-          <p>
-            A short path from getting your workspace ready to finding your first
-            workflow.
-          </p>
-          {guides[0] ? (
-            <a className="welcome-primary" href={href(guides[0])}>
-              Open onboarding <span aria-hidden="true">→</span>
-            </a>
-          ) : (
-            <p>No onboarding guides are published in this view yet.</p>
-          )}
-        </div>
-        {steps.length > 0 && (
-          <div className="welcome-steps">
-            {steps.map((page, index) => (
-              <a className="welcome-step" href={href(page)} key={page.page}>
-                <span className="welcome-step-number" aria-hidden="true">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <span>
-                  <strong>{page.title}</strong>
-                  {page.summary && <small>{page.summary}</small>}
-                </span>
-                <span className="welcome-arrow" aria-hidden="true">
-                  →
-                </span>
-              </a>
-            ))}
-          </div>
-        )}
-        {moreGuides.length > 0 && (
-          <details className="welcome-guides">
-            <summary>All onboarding guides ({guides.length})</summary>
-            <div className="welcome-guide-links">
-              {guides.map((page) => (
-                <a href={href(page)} key={page.page}>
-                  {page.title} <span aria-hidden="true">→</span>
-                </a>
-              ))}
+      {recent.length > 0 && (
+        <section
+          className="welcome-recent"
+          aria-labelledby="welcome-recent-heading"
+        >
+          <div className="welcome-section-heading">
+            <div>
+              <h2 id="welcome-recent-heading">Recently published</h2>
+              <p>
+                {pinned
+                  ? "New and updated pages in this historical view."
+                  : "New and updated pages in this space."}
+              </p>
             </div>
-          </details>
-        )}
-      </section>
-
-      <section aria-labelledby="welcome-topics-heading">
-        <div className="welcome-section-heading">
-          <div>
-            <h2 id="welcome-topics-heading">Explore by topic</h2>
-            <p>Find a starting point, then follow the connections.</p>
           </div>
-          <button
-            onClick={() => {
-              setTopic("all");
-              onTopicChange("all");
-              setQuery("");
-              showDirectory();
-            }}
-          >
-            Browse all pages ↓
-          </button>
-        </div>
-        <div className="welcome-topics">
-          {groups
-            .filter((group) => group.id !== "other" || group.pages.length > 0)
-            .map((group, index) => (
-              <button
-                className="welcome-topic"
-                aria-pressed={topic === group.id}
-                key={group.id}
-                onClick={() => {
-                  setTopic(group.id);
-                  onTopicChange(group.id);
-                  setQuery("");
-                  showDirectory();
-                }}
-              >
-                <span className="welcome-topic-top">
-                  <span aria-hidden="true">
-                    {["↗", "◇", "▦", "⌘", "◎", "✧", "≡", "◷", "+"][index]}
-                  </span>
-                  <small>{group.pages.length} pages</small>
-                </span>
-                <strong>{group.title}</strong>
-                <span className="welcome-topic-description">
-                  {group.description}
-                </span>
-                <span className="welcome-topic-arrow" aria-hidden="true">
-                  →
-                </span>
-              </button>
+          <ul className="welcome-recent-list">
+            {recent.map((page) => (
+              <li key={page.page}>
+                <a href={href(page)}>
+                  <span className="welcome-recent-title">{page.title}</span>
+                  {page.summary && (
+                    <span className="welcome-recent-summary">
+                      {page.summary}
+                    </span>
+                  )}
+                  <time dateTime={page.date.toISOString()}>
+                    {page.date.toLocaleDateString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </time>
+                </a>
+              </li>
             ))}
-        </div>
-      </section>
+          </ul>
+        </section>
+      )}
+
+      {guides.length > 0 && (
+        <details className="welcome-onboarding">
+          <summary>
+            <span>Getting started</span>
+            <small>
+              {guides.length} {guides.length === 1 ? "guide" : "guides"}
+            </small>
+          </summary>
+          <ol className="welcome-guide-links">
+            {guides.map((page) => (
+              <li key={page.page}>
+                <a href={href(page)}>
+                  <strong>{page.title}</strong>
+                  {page.summary && <span>{page.summary}</span>}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+
+      {pages.length > 0 && (
+        <section aria-labelledby="welcome-topics-heading">
+          <div className="welcome-section-heading">
+            <div>
+              <h2 id="welcome-topics-heading">Explore by topic</h2>
+              <p>Find a starting point, then follow the connections.</p>
+            </div>
+            <button
+              onClick={() => {
+                setTopic("all");
+                onTopicChange("all");
+                setQuery("");
+                showDirectory();
+              }}
+            >
+              Browse all pages ↓
+            </button>
+          </div>
+          <div className="welcome-topics">
+            {groups
+              .filter((group) => group.pages.length > 0)
+              .map((group, index) => (
+                <button
+                  className="welcome-topic"
+                  aria-pressed={topic === group.id}
+                  key={group.id}
+                  onClick={() => {
+                    setTopic(group.id);
+                    onTopicChange(group.id);
+                    setQuery("");
+                    showDirectory();
+                  }}
+                >
+                  <span className="welcome-topic-top">
+                    <span aria-hidden="true">
+                      {["↗", "◇", "▦", "⌘", "◎", "✧", "≡", "◷", "+"][index]}
+                    </span>
+                    <small>{group.pages.length} pages</small>
+                  </span>
+                  <strong>{group.title}</strong>
+                  <span className="welcome-topic-description">
+                    {group.description}
+                  </span>
+                  <span className="welcome-topic-arrow" aria-hidden="true">
+                    →
+                  </span>
+                </button>
+              ))}
+          </div>
+        </section>
+      )}
 
       <section
         className="welcome-directory"
@@ -321,7 +339,7 @@ export default function WelcomePage({
         )}
       </section>
       <footer className="welcome-footer">
-        <span>A shared place for what we know.</span>
+        <span>Published knowledge in this space.</span>
         <span>
           {publication
             ? `${pinned ? "Historical" : "Live"} publication ${publication.sequence}`

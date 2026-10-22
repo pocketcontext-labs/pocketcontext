@@ -12,6 +12,7 @@ export type PropertyValue = string | number | boolean | null | string[];
 export type Properties = Record<string, PropertyValue>;
 
 export interface PageSummary {
+  publishedAt?: string;
   /** Immutable revision identity. */
   id: string;
   /** Stable page identity. */

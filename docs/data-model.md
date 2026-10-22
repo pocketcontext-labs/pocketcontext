@@ -68,3 +68,5 @@ Properties belong to immutable revisions, so publication, conflicts and history 
 - `repository_document` requires `document_type` (`readme`, `license`, `copyright`, `notice`, `contributing`, `prompt`, `other`) and `output_mode` (`exact_copy` with a `source_id`, or `markdown`). Documents with `document_type: prompt` appear in the Prompts view; prompts are never executed.
 - `repository_destination` requires one `documents` relationship, `github_repository`, `github_branch` and a safe relative `github_path`; one active destination per repository, branch and path.
 - `repository_sync` is a dated observation with one `destinations` relationship, the synced destination and document revisions, `rendered_sha256`, `checked_at`, `sync_status` and, when known, `github_commit`. PocketContext never pushes to GitHub.
+
+The reader Home uses `properties.onboarding_order` (a positive safe integer) to select and order onboarding pages; titles do not opt pages into onboarding. Recent pages use the publication date of each revision selected by the viewed manifest. Historical views never include revisions from a later publication.

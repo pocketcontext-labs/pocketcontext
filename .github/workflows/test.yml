@@ -54,6 +54,7 @@ jobs:
         run: |
           pnpm --dir ui exec playwright install --with-deps chromium
           node tests/ui_dev_browser.mjs --binary "$EXE"
+          node tests/reader_ui_browser.mjs --binary "$EXE"
       - name: Name check of the repository and binary
         run: $PY tests/name_check.py --binary "$EXE"
       - name: End-to-end test with synthetic notes

@@ -270,7 +270,7 @@ export async function listPages(publicationId: string): Promise<PageSummary[]> {
   const expected = await validatePublication(publicationId);
   if (expected === null) return [];
   return pageLists.read(publicationId, async () => {
-    const pages = await allRows<PageSummary>(`SELECT ${summary} ${published(publicationId)} ORDER BY p.slug`, 200);
+    const pages = await allRows<PageSummary>(`SELECT ${summary}, (SELECT origin.created FROM publications origin WHERE origin.run=r.run AND origin.space=pub.space AND origin.sequence<=pub.sequence ORDER BY origin.sequence LIMIT 1) AS publishedAt ${published(publicationId)} ORDER BY p.slug`, 200);
     if (pages.length !== expected) throw new IncompleteReadError();
     return pages;
   }, pages => pages.length > 0);

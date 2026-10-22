@@ -104,7 +104,7 @@ export const Markdown = memo(function Markdown({
 }: {
   body: string;
   publication?: string;
-  onCitation: (marker: number) => void;
+  onCitation: (marker: number, trigger?: HTMLElement) => void;
   resolveSlug?: (target: string) => string;
 }) {
   const heading = (level: number, children: ReactNode, id?: string) => {
@@ -141,8 +141,9 @@ export const Markdown = memo(function Markdown({
             return (
               <button
                 className="citation"
+                data-citation={href.slice(9)}
                 aria-label={`Citation ${href.slice(9)}`}
-                onClick={() => onCitation(Number(href.slice(9)))}
+                onClick={event => onCitation(Number(href.slice(9)), event.currentTarget)}
               >
                 {children}
               </button>

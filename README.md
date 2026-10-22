@@ -122,7 +122,7 @@ After downloading an original, restarting Vite may require manually refreshing t
 
 Hot reload does not type-check. Run `pnpm --dir ui typecheck`, `pnpm --dir ui test`, and `pnpm --dir ui build` after changes, plus `node --test tests/dev_launcher.test.mjs` after launcher changes. Before shipping, rebuild the embedded reader and executable and run the Go, name and end-to-end checks above.
 
-The browser regression check uses synthetic data and a temporary UI copy. Install its pinned Chromium once with `pnpm --dir ui exec playwright install chromium`, then run `node tests/ui_dev_browser.mjs --binary bin/pocketcontext`. CI runs this check on Linux amd64. Use `--browser /path/to/chromium` for a custom browser executable, or `--playwright /absolute/path/to/playwright/index.mjs` for a separate Playwright installation.
+The browser regression check uses synthetic data and a temporary UI copy. Install its pinned Chromium once with `pnpm --dir ui exec playwright install chromium`, then run `node tests/ui_dev_browser.mjs --binary bin/pocketcontext`. Run `node tests/reader_ui_browser.mjs --binary bin/pocketcontext` for reader navigation, version links, Home, search and evidence checks at desktop, split-window and mobile widths. Add `--screenshots /absolute/path/to/output` to retain screenshots in a chosen folder. CI runs both checks on Linux amd64. Use `--browser /path/to/chromium` for a custom browser executable, or `--playwright /absolute/path/to/playwright/index.mjs` for a separate Playwright installation.
 
 ## Layout
 
@@ -141,4 +141,5 @@ The browser regression check uses synthetic data and a temporary UI copy. Instal
 | `tests/name_check.py` | name check of the repository and the binary |
 | `tests/test_release.py` | release tooling tests |
 | `scripts/dev.mjs`, `tests/dev_launcher.test.mjs` | development launcher and its tests |
+| `tests/reader_ui_browser.mjs` | reader interaction and responsive-layout browser regression |
 | `tests/ui_dev_browser.mjs` | browser regression for hot reload and development routing |

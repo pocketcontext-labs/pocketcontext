@@ -141,24 +141,19 @@ export function defaultWelcomeView(pages: readonly PageSummary[]): WelcomeView {
   return other * 2 > pages.length ? "types" : "topics";
 }
 
-function onboardingRank(page: PageSummary): number {
-  const value = identity(page);
-  if (/\b(onboarding|orientation|getting started|quickstart)\b/.test(value)) {
-    // Give organization-wide entry points precedence over individual application
-    // guides without relying on deployment-specific titles or reserved slugs.
-    return /\b(employee|employees|colleague|colleagues|team|shared|company|organization|workspace|new joiner|new joiners)\b/.test(value) ? -1 : 0;
-  }
-  if (/\b(manual|welcome)\b/.test(value)) return 1;
-  if (/\b(setup|installation|install)\b/.test(value)) return 2;
-  if (/\b(login|sign in|authentication)\b/.test(value)) return 3;
-  if (/\b(skill|skills)\b/.test(value)) return 4;
-  return Infinity;
-}
-
-/** Suggest only existing guides; exclude historical/research/source references. */
+/** Only explicitly designated guides belong in onboarding. The positive safe
+ * integer revision property onboarding_order controls their order. */
 export function onboardingPages(pages: readonly PageSummary[]): PageSummary[] {
-  return pages.filter(page => {
-    const topic = classifyWelcomePage(page);
-    return !["handoffs-history", "meetings-notes", "research-proposals"].includes(topic) && Number.isFinite(onboardingRank(page));
-  }).sort((a, b) => onboardingRank(a) - onboardingRank(b) || comparePages(a, b));
+  return pages
+    .filter((page) => {
+      const order = page.properties?.onboarding_order;
+      return (
+        typeof order === "number" && Number.isSafeInteger(order) && order > 0
+      );
+    })
+    .sort(
+      (a, b) =>
+        Number(a.properties!.onboarding_order) -
+          Number(b.properties!.onboarding_order) || comparePages(a, b),
+    );
 }

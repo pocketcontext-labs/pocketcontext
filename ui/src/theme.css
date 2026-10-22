@@ -1,22 +1,4 @@
-:root,
-[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #191c1e;
-  --sidebar: #15181a;
-  --panel: #202427;
-  --border: #2b3033;
-  --text: #e2e5e3;
-  --prose: #bcc3c2;
-  --muted: #929d9a;
-  --quiet: #96a29e;
-  --accent: #a8c8b9;
-  --accent-soft: #a8c8b910;
-  --accent-border: #a8c8b931;
-  --hover: #ffffff06;
-  --button-text: #17251e;
-  --danger: #e7a39a;
-}
-[data-theme="light"] {
+:root {
   color-scheme: light;
   --bg: #fafaf7;
   --sidebar: #f1f3ee;

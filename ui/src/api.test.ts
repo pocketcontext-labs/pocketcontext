@@ -187,6 +187,10 @@ describe("published knowledge reads", () => {
     expect(sql).toContain("m.type='text'");
     expect(sql).toContain("r.page=p.id");
     expect(sql).toContain("r.archived=0");
+    expect(sql).toContain("origin.run=r.run");
+    expect(sql).toContain("origin.space=pub.space");
+    expect(sql).toContain("origin.sequence<=pub.sequence");
+    expect(sql).toContain("AS publishedAt");
     expect(sql).not.toContain("pub.manifest, pub");
   });
 
