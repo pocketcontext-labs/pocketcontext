@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import * as readerAPI from "./api";
-import EvidenceBrowser from "./EvidenceBrowser";
+import EvidenceBrowser, { sourcePassageHref } from "./EvidenceBrowser";
 
 afterEach(() => {
   cleanup();
@@ -243,4 +243,112 @@ it("aborts an old source preview and never displays its late content after navig
   );
   await act(async () => finish("Stale original content"));
   expect(screen.queryByText("Stale original content")).toBeNull();
+});
+
+it("verifies a deep-linked passage from the selected source and space before highlighting", async () => {
+  const source = sourceFixture("source000000001", "Cited original");
+  const passage = {
+    id: "passage00000001",
+    ordinal: 1,
+    locator: "document; line 3",
+    body: "Repeated words",
+  };
+  const queries = vi
+    .spyOn(readerAPI, "query")
+    .mockImplementation(async (sql) =>
+      sql.includes("p.ordinal") ? [passage] : [source],
+    );
+  vi.spyOn(readerAPI.api, "sourceText").mockResolvedValue(
+    "Repeated words\nDifferent words\nRepeated words",
+  );
+  const { container } = render(
+    <EvidenceBrowser
+      space="companyspace001"
+      collection="sources"
+      id={source.id}
+      term=""
+      publication=""
+      offset={0}
+      navigation={null}
+      passage={passage.id}
+    />,
+  );
+  await waitFor(() =>
+    expect(container.querySelector("mark")).toHaveTextContent("Repeated words"),
+  );
+  const query = queries.mock.calls.find(([sql]) =>
+    sql.includes("p.ordinal"),
+  )?.[0];
+  expect(query).toContain("p.id='passage00000001'");
+  expect(query).toContain("p.space='companyspace001'");
+  expect(query).toContain("r.space='companyspace001'");
+  expect(query).toContain("r.source='source000000001'");
+  expect(readerAPI.api.sourceText).toHaveBeenCalledWith(
+    expect.objectContaining({ id: source.id }),
+    expect.any(AbortSignal),
+  );
+});
+
+it("does not apply a stale cited passage after changing source or expose unavailable passage text", async () => {
+  const first = sourceFixture("source000000001", "First");
+  const second = sourceFixture("source000000002", "Second");
+  let finish!: (rows: unknown[]) => void;
+  const query = vi.spyOn(readerAPI, "query");
+  query.mockImplementation(async (sql) => {
+    if (sql.includes("p.ordinal")) {
+      if (sql.includes(first.id))
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      throw new Error("Forbidden");
+    }
+    return [sql.includes(second.id) ? second : first];
+  });
+  vi.spyOn(readerAPI.api, "sourceText").mockResolvedValue("Available original");
+  const props = {
+    space: "companyspace001",
+    collection: "sources" as const,
+    term: "",
+    publication: "",
+    offset: 0,
+    navigation: null,
+    passage: "passage00000001",
+  };
+  const { container, rerender } = render(
+    <EvidenceBrowser {...props} id={first.id} />,
+  );
+  await screen.findByText("Available original");
+  rerender(<EvidenceBrowser {...props} id={second.id} />);
+  await screen.findByText("This passage is unavailable for this original.");
+  await act(async () =>
+    finish([
+      {
+        id: "passage00000001",
+        ordinal: 1,
+        locator: "document; line 1",
+        body: "Private stale passage",
+      },
+    ]),
+  );
+  expect(container.querySelector("mark")).toBeNull();
+  expect(screen.queryByText("Private stale passage")).toBeNull();
+  expect(screen.getByText("Available original")).toBeVisible();
+});
+
+it("keeps passage identity, publication context and explicit space in source links", () => {
+  const old = location.hash;
+  location.hash = "#/sources?space=personalspace01";
+  try {
+    expect(
+      sourcePassageHref(
+        "source000000001",
+        "passage00000001",
+        "publication0001",
+      ),
+    ).toBe(
+      "#/sources/source000000001?publication=publication0001&passage=passage00000001&space=personalspace01",
+    );
+  } finally {
+    location.hash = old;
+  }
 });

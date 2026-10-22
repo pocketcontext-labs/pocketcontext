@@ -214,6 +214,28 @@
         },
         "members": "visible",
         "where": "archived = 0"
+      },
+      "sources": {
+        "isolation": "private",
+        "sourceContent": true,
+        "collection": "sources",
+        "columns": [
+          "title",
+          "original_name",
+          "source_date",
+          "body"
+        ],
+        "snippetColumn": "body",
+        "weights": [
+          8,
+          4,
+          2,
+          1
+        ],
+        "scope": {
+          "collection": "spaces",
+          "field": "id"
+        }
       }
     }
   }

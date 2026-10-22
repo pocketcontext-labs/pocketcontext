@@ -33,3 +33,16 @@
 .source-cards span, .source-cards small { color: var(--muted); font-size: 13px; }
 .evidence-details dl { display: grid; grid-template-columns: auto minmax(0, 1fr); }
 @media (max-width: 700px) { .source-cards { grid-template-columns: 1fr; } }
+
+.evidence-excerpt { margin: 18px 0; overflow-wrap: anywhere; }
+.evidence-excerpt.markdown { font-size: 15px; line-height: 1.75; }
+.evidence-excerpt.markdown h1 { font-size: 1.45em; }
+.evidence-excerpt.markdown h2 { font-size: 1.25em; }
+.source-highlight { background: #fff1a8; color: #302300; box-shadow: 0 0 0 2px #fff1a8; scroll-margin-block: 100px; }
+.source-range-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 7px; }
+.source-range-toolbar p { margin: 0; font-size: 14px; }
+.source-range-toolbar p span { display: block; margin-top: 4px; color: var(--muted); overflow-wrap: anywhere; }
+.source-range-toolbar [role="group"] { display: flex; gap: 6px; }
+.source-range-toolbar button { min-height: 40px; background: var(--panel); color: var(--text); padding: 8px 12px; }
+.source-range-toolbar button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.source-range-note { font-size: 14px; color: var(--muted); line-height: 1.6; }

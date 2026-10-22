@@ -82,6 +82,11 @@ func validatePrivateIndex(i Index) error {
 	if !IsPrivate(i) {
 		return fmt.Errorf("%w: filtered snapshot search requires isolation \"private\"", ErrIndexInvalid)
 	}
+	if i.SourceContent {
+		if err := validateSourceContent(i); err != nil {
+			return err
+		}
+	}
 	if i.Table != "" || i.Generation != nil {
 		return fmt.Errorf("%w: private index must not set table or generation", ErrIndexInvalid)
 	}
@@ -118,6 +123,7 @@ type privateDefinition struct {
 	index               Index
 	rows, scope         *sqlread.FilteredRead
 	ddl, insert, search string
+	sourceContent       *sourceContentReads
 }
 
 // PrivateEngine searches per-request in-memory indexes built only from rows
@@ -199,6 +205,9 @@ func NewPrivate(source *sqlread.SnapshotSource, cfg Config, limits Limits) (*Pri
 			// Same fixed ranking and snippet query as shared scoped search.
 			search: "SELECT record_id, bm25(" + table + "," + strings.Join(weights, ",") + "), snippet(" + table + fmt.Sprintf(",%d,'','',' … ',32) FROM ", snip) + table + " WHERE " + table + " MATCH ? ORDER BY 2, record_id LIMIT ? OFFSET ?",
 		}
+		if idx.SourceContent {
+			def.search = strings.TrimSuffix(def.search, " LIMIT ? OFFSET ?")
+		}
 		if err := func() error {
 			conn, err := scratch.Conn(context.Background())
 			if err != nil {
@@ -219,6 +228,14 @@ func NewPrivate(source *sqlread.SnapshotSource, cfg Config, limits Limits) (*Pri
 			return nil
 		}(); err != nil {
 			return nil, fmt.Errorf("%w: search index %q: %v", ErrIndexInvalid, alias, err)
+		}
+		if idx.SourceContent {
+			def.sourceContent, err = prepareSourceContent(source)
+			if err != nil {
+				return nil, err
+			}
+			e.indexes[alias] = def
+			continue
 		}
 		def.rows, err = source.PrepareFilteredRead(sqlread.FilteredReadSpec{Table: idx.Collection, Columns: append([]string{"id"}, idx.Columns...), Where: idx.Where})
 		if err != nil {
@@ -288,7 +305,12 @@ func (e *PrivateEngine) SearchAs(ctx context.Context, requester string, req Requ
 		return result, err
 	}
 	defer func() { <-e.requests }()
-	rows, err := e.authorizedRows(ctx, requester, d, req.Scope)
+	var rows []privateRow
+	if d.index.SourceContent {
+		rows, err = e.authorizedSourceRows(ctx, requester, d, req.Scope)
+	} else {
+		rows, err = e.authorizedRows(ctx, requester, d, req.Scope)
+	}
 	if err != nil {
 		return result, err
 	}
@@ -598,12 +620,17 @@ func (e *PrivateEngine) query(ctx context.Context, entry *ftsEntry, d privateDef
 	if entry.conn == nil {
 		return nil, false, fmt.Errorf("%w: private index connection lost", ErrIndexInvalid)
 	}
-	rows, err := entry.conn.QueryContext(ctx, d.search, []driver.NamedValue{{Ordinal: 1, Value: match}, {Ordinal: 2, Value: int64(limit + 1)}, {Ordinal: 3, Value: int64(offset)}})
+	args := []driver.NamedValue{{Ordinal: 1, Value: match}}
+	if !d.index.SourceContent {
+		args = append(args, driver.NamedValue{Ordinal: 2, Value: int64(limit + 1)}, driver.NamedValue{Ordinal: 3, Value: int64(offset)})
+	}
+	rows, err := entry.conn.QueryContext(ctx, d.search, args)
 	if err != nil {
 		return nil, false, classify(err)
 	}
 	defer rows.Close()
 	hits := []Hit{}
+	seenSources := map[string]bool{}
 	dest := make([]driver.Value, 3)
 	for {
 		err := rows.Next(dest)
@@ -613,15 +640,29 @@ func (e *PrivateEngine) query(ctx context.Context, entry *ftsEntry, d privateDef
 		if err != nil {
 			return nil, false, classify(err)
 		}
-		if len(hits) == limit {
-			return hits, true, nil
-		}
 		id, ok := dest[0].(string)
 		score, scored := dest[1].(float64)
 		if !ok || !scored || !utf8.ValidString(id) || math.IsNaN(score) || math.IsInf(score, 0) {
 			return nil, false, ErrIndexInvalid
 		}
 		hit := Hit{ID: id, Score: score}
+		if d.index.SourceContent {
+			source, passage, valid := strings.Cut(id, ":")
+			if !valid {
+				return nil, false, ErrIndexInvalid
+			}
+			if seenSources[source] {
+				continue
+			}
+			seenSources[source] = true
+			if len(seenSources) <= offset {
+				continue
+			}
+			hit.ID, hit.Passage = source, passage
+		}
+		if len(hits) == limit {
+			return hits, true, nil
+		}
 		switch x := dest[2].(type) {
 		case nil:
 		case string:

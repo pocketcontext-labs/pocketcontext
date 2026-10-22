@@ -143,8 +143,8 @@ function validate(app,r){
  if(t==='citations')local(app,'passages',r.getString('passage'),space);
  if(t==='page_links')local(app,'pages',r.getString('target'),space);
 }
-// Root records take their space from the request (default: the company
-// space); children inherit their parent's. Membership is checked before any other detail.
+// Root records take their explicit space or the account's project default;
+// children inherit their parent's. Membership is checked before any other detail.
 function scope(app,r,body,actor){
  const t=r.collection().name;
  let space;
@@ -152,7 +152,7 @@ function scope(app,r,body,actor){
   space=r.original().getString('space');
   if(r.getString('space')!==space)invalid('space is immutable');
  }else if(ROOTS.includes(t)){
-  space=body.space||(actor?spaces().COMPANY_SPACE:'');
+  space=body.space||(actor?spaces().defaultSpace(app,actor).id:'');
   if(!space)invalid('space required');
  }else{
   const [field,table]=PARENTS[t];

@@ -1,6 +1,6 @@
 # PocketContext
 
-A local knowledge base in one binary. Ingest text notes as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces separate shared and personal knowledge; full-text search covers the published pages. The binary contains the server (on PocketBase), the browser reader and the command-line client, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
+A local knowledge base in one binary. Ingest text notes as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces separate shared and personal knowledge; full-text search covers published pages and original source passages. The binary contains the server (on PocketBase), the browser reader and the command-line client, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
 ## A project
 
@@ -42,7 +42,7 @@ Without a folder, the installers use `~/.local/bin` or `%LOCALAPPDATA%\Programs\
 ./pocketcontext stop
 ```
 
-The server listens on `http://127.0.0.1:8096` (change `port` in `pocketcontext.json`). Run `pocketcontext help` for every command.
+The server listens on `http://127.0.0.1:8096` (change `port` in `pocketcontext.json`). New projects create a private Personal space and use it by default in the reader and CLI. Existing projects retain their Company default; explicit space selections always win. Run `pocketcontext help` for every command.
 
 ## Authentication
 
@@ -86,7 +86,9 @@ Ingestion accepts UTF-8 text notes only (`.txt .md .markdown .csv .json .rst .lo
 
 The reader's topics and custom catalogs come from published page properties: `topics` and `catalogs` list group keys. Optional definition pages (`navigation_kind: "topic"` or `"catalog"`, keyed by their slug) supply labels, order and catalog columns. Existing pages with no topic membership appear under the unassigned group; titles never assign membership. Definitions, memberships and catalog settings follow the selected publication, including historical views. See the [navigation contract and examples](docs/data-model.md#topic-and-catalog-navigation).
 
-Sources includes uncited originals in the selected space. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Source text remains untrusted evidence.
+Overview shows recent knowledge, guides and topic shortcuts; All pages is a separate filterable directory. Catalog navigation shows populated built-in catalogs and explicitly defined custom catalogs.
+
+Sources includes uncited originals in the selected space. The search scope selector switches between publication-scoped Pages and space-scoped Sources, whose ranked results cover filenames, metadata and extracted passage text. Evidence excerpts render safe Markdown; View in source opens the verified passage range in its original. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Source text remains untrusted evidence.
 
 ## Build
 
@@ -97,7 +99,7 @@ make ui      # build the reader into ui/dist (embedded by go build)
 make build   # bin/pocketcontext
 make test    # Go unit tests, including the vendored server's
 make names   # name check of the repository and bin/pocketcontext (tests/name_check.py)
-make e2e     # name check, then the end-to-end test with synthetic notes in a temporary folder
+make e2e     # name check, then CLI and source-search end-to-end tests with synthetic notes in a temporary folder
 make windows ZIG=/path/to/zig   # cross-compile bin/windows_amd64/pocketcontext.exe
 ```
 
@@ -126,7 +128,7 @@ After downloading an original, restarting Vite may require manually refreshing t
 
 Hot reload does not type-check. Run `pnpm --dir ui typecheck`, `pnpm --dir ui test`, and `pnpm --dir ui build` after changes, plus `node --test tests/dev_launcher.test.mjs` after launcher changes. Before shipping, rebuild the embedded reader and executable and run the Go, name and end-to-end checks above.
 
-The browser regression check uses synthetic data and a temporary UI copy. Install its pinned Chromium once with `pnpm --dir ui exec playwright install chromium`, then run `node tests/ui_dev_browser.mjs --binary bin/pocketcontext`. Run `node tests/reader_ui_browser.mjs --binary bin/pocketcontext` for reader navigation, version links, Home, search and evidence checks at desktop, split-window and mobile widths. Add `--screenshots /absolute/path/to/output` to retain screenshots in a chosen folder. CI runs both checks on Linux amd64. Use `--browser /path/to/chromium` for a custom browser executable, or `--playwright /absolute/path/to/playwright/index.mjs` for a separate Playwright installation.
+The browser regression check uses synthetic data and a temporary UI copy. Install its pinned Chromium once with `pnpm --dir ui exec playwright install chromium`, then run `node tests/ui_dev_browser.mjs --binary bin/pocketcontext`. Run `node tests/reader_ui_browser.mjs --binary bin/pocketcontext` for reader navigation, version links, Overview, All pages, search and evidence checks at desktop, split-window and mobile widths. Add `--screenshots /absolute/path/to/output` to retain screenshots in a chosen folder. CI runs both checks on Linux amd64. Use `--browser /path/to/chromium` for a custom browser executable, or `--playwright /absolute/path/to/playwright/index.mjs` for a separate Playwright installation.
 
 ## Layout
 

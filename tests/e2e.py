@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import socket
+import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -215,11 +217,56 @@ def main():
             lint_scenario(pc)
             navigation_scenario(pc)
             pc.json('stop')
+            restored_default_scenario(pc)
+            legacy_default_scenario(binary, Path(temp) / 'legacy')
             leftovers = retired_names(pc.root)
             check(not leftovers, f'no file or directory name contains the retired product name: {leftovers}')
         finally:
             subprocess.run([str(binary), '--db', str(pc.db), 'stop'], env=pc.env, capture_output=True, timeout=60)
     print('all end-to-end checks passed')
+
+
+
+def restored_default_scenario(pc):
+    """A copied complete backup uses a new machine cache and no project config."""
+    restored = Project(pc.binary, pc.root / 'restored')
+    shutil.copy2(pc.db, restored.db)
+    shutil.copytree(pc.project / 'storage', restored.project / 'storage')
+    try:
+        result = restored.json('init', '--email', 'tester@example.localhost', '--port', str(restored.port))
+        original = pc.json('whoami')['space']
+        check(not result['accountCreated'] and result['space'] == original,
+              'restored database retains Personal policy and account identity without the old config or cache')
+        check([page['slug'] for page in restored.json('search', 'espresso descaled')['pages']] == ['coffee-policy'],
+              'restored Personal default reads the existing published knowledge')
+    finally:
+        restored.run('stop')
+        pc.run('stop')
+
+
+def legacy_default_scenario(binary, root):
+    """An existing database, even empty, must not be mistaken for a new project."""
+    legacy = Project(binary, root)
+    # An empty pre-upgrade SQLite database is enough to distinguish existing
+    # projects. Application records are created only via the API below.
+    with sqlite3.connect(legacy.db) as db:
+        db.execute('PRAGMA user_version=0')
+    try:
+        result = legacy.json('init', '--email', 'legacy@example.localhost', '--port', str(legacy.port),
+                             '--password-stdin', stdin=PASSWORD + '\n')
+        check(result['space'] == 'companyspace001', 'existing database initialization preserves the Company default')
+        page = legacy.json('create', 'pages', '{"slug":"legacy-record","kind":"concept"}')
+        personal = legacy.json('create-personal-space')['id']
+        check(personal != 'companyspace001' and legacy.json('whoami')['space'] == 'companyspace001',
+              'explicit Personal creation does not change the legacy Company default')
+        legacy.run('stop')
+        check(legacy.json('whoami')['space'] == 'companyspace001'
+              and legacy.json('get', 'pages', page['id'])['space'] == 'companyspace001',
+              'legacy restart preserves Company policy and existing records')
+        company = next(space for space in legacy.json('spaces') if space['id'] == 'companyspace001')
+        check(company['name'] == 'Company' and company['selected'], 'Company is not silently renamed')
+    finally:
+        legacy.run('stop')
 
 
 def navigation_scenario(pc):
@@ -320,6 +367,15 @@ def scenario(pc):
                    '--password-stdin', stdin=PASSWORD + '\n')
     check(init['accountCreated'] and init['url'] == pc.url, 'init creates the account and starts the server')
     check(pc.db.exists(), 'init writes the database to the project folder')
+    me = pc.json('whoami')
+    spaces = pc.json('spaces')
+    selected = [space for space in spaces if space['selected']]
+    check(init['space'] == me['space'] and len(selected) == 1 and selected[0]['kind'] == 'personal'
+          and selected[0]['name'] == 'Personal' and selected[0]['role'] == 'owner',
+          'new init, CLI and space listing select the account personal space')
+    check(pc.json('create-personal-space')['id'] == me['space'], 'automatic personal space creation is idempotent')
+    check(pc.json('whoami', '--space', 'companyspace001')['space'] == 'companyspace001',
+          'explicit Company selection remains available on a new project')
     check('OK:' in pc.run('check').stdout, 'live schema matches the reference schema')
 
     notes = pc.root / 'notes'
@@ -627,7 +683,8 @@ def edits_scenario(pc, notes, passage):
 
 
 def published_sequence(pc):
-    return pc.json('sql', "SELECT max(sequence) FROM publications WHERE space = 'companyspace001'")['rows'][0][0]
+    space = pc.json('whoami')['space']
+    return pc.json('sql', f"SELECT max(sequence) FROM publications WHERE space = '{space}'")['rows'][0][0]
 
 
 def remote_scenario(pc, r):
@@ -657,9 +714,18 @@ def remote_scenario(pc, r):
     me = r.json('whoami')
     check(me['email'] == 'user@example.localhost' and me['id'] == account['id'] and me['url'] == pc.url and 'db' not in me,
           'remote whoami reports the account without a database')
-    check(me['space'] == 'companyspace001', 'remote commands default to the company space')
+    check(me['space'] != 'companyspace001' and me['space'] != pc.json('whoami')['space'],
+          'remote defaults resolve the remote account own Personal space')
     spaces = {s['id']: s for s in r.json('spaces')}
     check(spaces.get('companyspace001', {}).get('role') == 'editor', 'new accounts are company space editors')
+    check(spaces[me['space']]['selected'] and spaces[me['space']]['kind'] == 'personal', 'remote listing selects its own Personal space')
+    own = r.json('create', 'pages', '{"slug":"remote-private","kind":"concept"}')
+    check(own['space'] == me['space'], 'remote omitted root writes use the personal default')
+    check(pc.json('sql', f"SELECT id FROM pages WHERE id='{own['id']}'")['rows'] == [], 'another account cannot read the personal record through SQL')
+    # The rest of this scenario intentionally publishes shared Company knowledge.
+    r.env['POCKETCONTEXT_SPACE'] = 'companyspace001'
+    check(r.json('whoami')['space'] == 'companyspace001' and r.json('whoami', '--space', me['space'])['space'] == me['space'],
+          'explicit --space overrides environment selection, which overrides project default')
 
     # A note only the other computer has, named relative to its working folder.
     (r.work / 'tea.md').write_text('# Tea policy\n\nRooibosquartz tea is restocked every Monday. Thé ✓\n', encoding='utf-8')
@@ -684,7 +750,7 @@ def remote_scenario(pc, r):
     closed = json.loads(r.run('check-run', run['id'], expect=3).stdout)
     check([p['kind'] for p in closed['problems']] == ['run-closed'], 'remote check-run reports a published run as closed')
     check([p['slug'] for p in r.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'remote search finds the remote page')
-    check([p['slug'] for p in pc.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'the server sees the remote page')
+    check([p['slug'] for p in pc.json('search', 'rooibosquartz', '--space', 'companyspace001')['pages']] == ['tea-policy'], 'the local account sees deliberately shared Company knowledge')
 
     for args in (['stop'], ['ensure-running'], ['flush'], ['recover'], ['init', '--email', 'x@example.localhost'],
                  ['password', '--password-stdin'], ['account', '--email', 'x@example.localhost', '--password-stdin']):

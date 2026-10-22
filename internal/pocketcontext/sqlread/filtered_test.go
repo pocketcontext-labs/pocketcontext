@@ -152,3 +152,20 @@ func TestFilteredReadRejectsShadowedJSONEach(t *testing.T) {
 		t.Fatalf("shadowed json_each: %v", err)
 	}
 }
+
+func TestFilteredReadConfiguredSelectionColumn(t *testing.T) {
+	_, path, c, sc := snapshotFixture(t)
+	s := newTestSnapshot(t, path, c, sc)
+	for _, key := range []string{"secret", "id) OR 1=1 --", "missing"} {
+		if _, err := s.PrepareFilteredRead(FilteredReadSpec{Table: "pay", Columns: []string{"id"}, SelectColumn: key}); err == nil {
+			t.Fatalf("accepted selection %q", key)
+		}
+	}
+	r, err := s.PrepareFilteredRead(FilteredReadSpec{Table: "pay", Columns: []string{"id"}, SelectColumn: "id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := readIDs(t, s, r, "alice", []string{"a", "c", "x' OR 1=1 --"}); err != nil || strings.Join(got, ",") != "a" {
+		t.Fatalf("selection escaped authorization: %v %v", got, err)
+	}
+}

@@ -2,8 +2,9 @@ import { spaceLink } from "./spaceLinks";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, pb, query } from "./api";
-import { Markdown } from "./Markdown";
-import type { Source } from "./types";
+import { EvidenceExcerpt } from "./EvidenceExcerpt";
+import { SourceContent } from "./SourceContent";
+import type { Passage, Source } from "./types";
 import "./evidence.css";
 
 export type EvidenceCollection = "sources" | "passages";
@@ -13,14 +14,24 @@ export function evidenceHref(
   term = "",
   publication = "",
   offset = 0,
+  passage = "",
 ) {
   const params = new URLSearchParams();
   if (term) params.set("q", term);
   if (offset) params.set("offset", String(offset));
   if (publication) params.set("publication", publication);
+  if (passage) params.set("passage", passage);
   return spaceLink(
     `#/${collection}/${encodeURIComponent(id)}${params.size ? `?${params}` : ""}`,
   );
+}
+/** Immutable source link retaining the exact cited passage identity. */
+export function sourcePassageHref(
+  sourceId: string,
+  passageId: string,
+  publication = "",
+) {
+  return evidenceHref("sources", sourceId, "", publication, 0, passageId);
 }
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
 type Row = {
@@ -41,6 +52,7 @@ export default function EvidenceBrowser({
   offset,
   navigation,
   onTitleChange,
+  passage = "",
 }: {
   space: string;
   collection: EvidenceCollection;
@@ -50,7 +62,12 @@ export default function EvidenceBrowser({
   offset: number;
   navigation: HTMLElement | null;
   onTitleChange?: (title: string) => void;
+  passage?: string;
 }) {
+  const [cited, setCited] = useState<{
+    key: string;
+    value: Passage | null;
+  } | null>(null);
   const actionEpoch = useRef(0);
   const sourceToken = useRef("");
   useEffect(() => {
@@ -122,7 +139,7 @@ export default function EvidenceBrowser({
               : null;
             if (active) {
               setLoadedKey(viewKey);
-          sourceToken.current = pb.authStore.token;
+              sourceToken.current = pb.authStore.token;
               setRows(found.slice(0, 20));
               setMore(found.length > 20);
               setSelected(record || null);
@@ -183,10 +200,28 @@ export default function EvidenceBrowser({
       controller.abort();
     };
   }, [source, space, collection, id, authEpoch]);
-  const markdown =
-    source &&
-    (source.media_type.split(";")[0].toLowerCase() === "text/markdown" ||
-      /\.(md|markdown)$/i.test(source.original_name));
+  const citedKey = `${space}:${id}:${passage}:${authEpoch}`;
+  useEffect(() => {
+    setCited(null);
+    if (!passage || collection !== "sources") return;
+    if (!/^[a-z0-9]{15}$/.test(passage)) {
+      setCited({ key: citedKey, value: null });
+      return;
+    }
+    let active = true;
+    void query<Passage>(
+      `SELECT p.id,p.ordinal,p.locator,p.body FROM passages p JOIN renditions r ON r.id=p.rendition WHERE p.id=${literal(passage)} AND p.space=${literal(space)} AND r.space=${literal(space)} AND r.source=${literal(id)} LIMIT 1`,
+    )
+      .then((rows) => {
+        if (active) setCited({ key: citedKey, value: rows[0] ?? null });
+      })
+      .catch(() => {
+        if (active) setCited({ key: citedKey, value: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, [space, id, collection, passage, authEpoch]);
   const visibleRows = loadedKey === viewKey ? rows : [];
   const recordLink = (row: Row) => (
     <a
@@ -218,14 +253,16 @@ export default function EvidenceBrowser({
       >
         Copy search link
       </button>
-      {selected && loadedKey === viewKey && !visibleRows.some((row) => row.id === id) && (
-        <nav
-          className="page-list evidence-current"
-          aria-label="Current evidence record"
-        >
-          {recordLink(selected)}
-        </nav>
-      )}
+      {selected &&
+        loadedKey === viewKey &&
+        !visibleRows.some((row) => row.id === id) && (
+          <nav
+            className="page-list evidence-current"
+            aria-label="Current evidence record"
+          >
+            {recordLink(selected)}
+          </nav>
+        )}
       <nav className="page-list evidence-list" aria-label="Evidence records">
         {visibleRows.map(recordLink)}
       </nav>
@@ -293,7 +330,10 @@ export default function EvidenceBrowser({
                 onClick={() =>
                   void navigator.clipboard
                     .writeText(
-                      new URL(evidenceHref(collection, id), location.href).href,
+                      new URL(
+                        evidenceHref(collection, id, "", "", 0, passage),
+                        location.href,
+                      ).href,
                     )
                     .catch(() => setError("Unable to copy link"))
                 }
@@ -330,7 +370,7 @@ export default function EvidenceBrowser({
               )}
             </div>
             {collection === "sources" && source && (
-              <div className="source-content source-reading">
+              <div className="source-reading">
                 {preview?.source !== source.id ||
                 preview.token !== pb.authStore.token ? (
                   <p role="status">Reading original…</p>
@@ -338,25 +378,30 @@ export default function EvidenceBrowser({
                   <p className="source-preview-error" role="status">
                     {preview.error}
                   </p>
-                ) : markdown ? (
-                  <div className="markdown">
-                    <Markdown body={preview.text || ""} mode="source" />
-                  </div>
                 ) : (
-                  <pre className="source-text">{preview.text}</pre>
+                  <SourceContent
+                    key={`${source.id}:${passage}`}
+                    text={preview.text || ""}
+                    source={source}
+                    passage={cited?.key === citedKey ? cited.value : null}
+                    passageRequested={Boolean(passage)}
+                    passageLoading={Boolean(passage) && cited?.key !== citedKey}
+                  />
                 )}
               </div>
             )}
             {selected.body && (
-              <blockquote className="passage">{selected.body}</blockquote>
+              <EvidenceExcerpt
+                body={selected.body}
+                source={source || undefined}
+              />
             )}
             {selected.source_id && (
               <p>
                 <a
-                  href={evidenceHref(
-                    "sources",
+                  href={sourcePassageHref(
                     selected.source_id,
-                    "",
+                    selected.id,
                     publication,
                   )}
                 >

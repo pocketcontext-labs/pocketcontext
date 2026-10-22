@@ -547,7 +547,17 @@ func runData(c *Client, command string, a *args, pretty bool) error {
 		}
 		selected := c.Space
 		if selected == "" {
-			selected = CompanySpace
+			status, data, err := c.send("GET", "/api/spaces/default", nil, nil, "", nil)
+			if err != nil {
+				return err
+			}
+			// Listing is also the recovery path when the default is inaccessible.
+			if status != 404 {
+				if _, err := checked("GET", "/api/spaces/default", status, data); err != nil {
+					return err
+				}
+				selected, _ = dig(data, "id").(string)
+			}
 		}
 		for _, row := range rows {
 			row["selected"] = row["id"] == selected
@@ -898,8 +908,16 @@ func initProject(p *bundle.Project, a *args, pretty bool) error {
 	if _, err := bundle.LocalCall(p, "/api/bundle/flush", map[string]any{}); err != nil {
 		return fail(1, "saving %s: %v", p.DB, err)
 	}
+	c, err := New(p, a.flags["space"])
+	if err != nil {
+		return err
+	}
+	space, err := c.SpaceID()
+	if err != nil {
+		return err
+	}
 	Print(map[string]any{"db": p.DB, "config": p.ConfigPath, "storage": p.StorageDir(), "url": p.URL(), "email": p.Config.Email,
-		"accountCreated": created, "newProject": fresh, "next": "Run `pocketcontext open` to sign in to the reader, and `pocketcontext skill` to install the agent skills."}, pretty)
+		"accountCreated": created, "newProject": fresh, "space": space, "next": "Run `pocketcontext open` to sign in to the reader, and `pocketcontext skill` to install the agent skills."}, pretty)
 	return nil
 }
 

@@ -22,3 +22,4 @@ names: build
 	python3 tests/name_check.py --binary bin/pocketcontext
 e2e: names
 	python3 tests/e2e.py --binary bin/pocketcontext
+	python3 tests/source_search.py --binary bin/pocketcontext

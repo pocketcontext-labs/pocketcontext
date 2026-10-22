@@ -77,6 +77,9 @@ func validateSearchSources(app core.App, cfg searchread.Config, schema []sqlread
 }
 
 func privateSources(index searchread.Index) [][]string {
+	if index.SourceContent {
+		return searchread.SourceContentFields()
+	}
 	sources := [][]string{append([]string{index.Collection}, index.Columns...)}
 	if index.Scope != nil {
 		sources = append(sources, []string{index.Scope.Collection, index.Scope.Field})

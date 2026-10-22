@@ -8,3 +8,4 @@ onRecordDeleteRequest((e) => { throw new ForbiddenError('Spaces and memberships 
 // Admission runs inside account creation.
 onRecordCreateExecute((e) => require(`${__hooks}/spaces.js`).admitRequest(e), 'users');
 routerAdd('POST', '/api/spaces/personal', (e) => require(`${__hooks}/spaces.js`).personalRequest(e), $apis.requireAuth('users'));
+routerAdd('GET', '/api/spaces/default', (e) => require(`${__hooks}/spaces.js`).defaultRequest(e), $apis.requireAuth('users'));

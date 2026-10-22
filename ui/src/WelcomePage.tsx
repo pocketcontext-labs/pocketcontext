@@ -1,18 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { pageHref } from "./Markdown";
 import type { PageSummary, Publication } from "./types";
-import {
-  defaultWelcomeView,
-  filterWelcomePages,
-  groupWelcomePages,
-  groupWelcomePagesByType,
-  isWelcomeView,
-  onboardingPages,
-  WELCOME_VIEWS,
-  type WelcomeView,
-} from "./welcome";
+import { groupWelcomePages, onboardingPages } from "./welcome";
 import "./welcome.css";
-import { isNavigationDefinition } from "./navigation";
 
 export default function WelcomePage({
   pages,
@@ -21,9 +11,7 @@ export default function WelcomePage({
   pinned,
   onSearch,
   onTopicChange,
-  onViewChange,
-  topic: requestedTopic,
-  view: requestedView,
+  onBrowsePages,
 }: {
   pages: PageSummary[];
   publication: Publication | null;
@@ -31,39 +19,11 @@ export default function WelcomePage({
   pinned?: string;
   onSearch: (query: string) => void;
   onTopicChange: (topic: string) => void;
-  onViewChange?: (view: WelcomeView) => void;
-  topic?: string;
-  view?: string;
+  onBrowsePages: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [topic, setTopic] = useState("");
-  const [chosenMode, setChosenMode] = useState<WelcomeView | undefined>(
-    isWelcomeView(requestedView) ? requestedView : undefined,
-  );
-  const directory = useRef<HTMLHeadingElement>(null);
   const groups = useMemo(() => groupWelcomePages(pages), [pages]);
   const guides = useMemo(() => onboardingPages(pages), [pages]);
-  const mode = chosenMode ?? defaultWelcomeView(pages);
-  useEffect(() => {
-    setChosenMode(isWelcomeView(requestedView) ? requestedView : undefined);
-    if (isWelcomeView(requestedView)) {
-      directory.current?.scrollIntoView?.({ block: "start" });
-      directory.current?.focus({ preventScroll: true });
-    }
-  }, [requestedView]);
-  useEffect(() => {
-    if (!requestedTopic) {
-      setTopic("");
-      return;
-    }
-    setTopic(
-      groups.some((group) => group.id === requestedTopic)
-        ? requestedTopic
-        : requestedTopic,
-    );
-    directory.current?.scrollIntoView?.({ block: "start" });
-    directory.current?.focus({ preventScroll: true });
-  }, [requestedTopic, groups]);
   const recent = useMemo(() => {
     const selectedPages = new Map(pages.map((page) => [page.page, page]));
     const seen = new Set<string>();
@@ -79,38 +39,12 @@ export default function WelcomePage({
     }
     return result;
   }, [pages, recentPages]);
-  const selected = groups.find((group) => group.id === topic);
-  const filtered = filterWelcomePages(
-    topic ? (selected?.pages ?? []) : pages,
-    "",
-  );
-  const results =
-    mode === "topics"
-      ? topic
-        ? selected
-          ? [selected]
-          : []
-        : groups
-      : mode === "types"
-        ? groupWelcomePagesByType(filtered)
-        : [
-            {
-              id: "alphabetical",
-              title: "Alphabetical index",
-              pages: filtered,
-            },
-          ];
   const href = (page: PageSummary) => pageHref(page.slug, pinned);
-  const showDirectory = () => {
-    directory.current?.scrollIntoView?.({ block: "start" });
-    directory.current?.focus({ preventScroll: true });
-  };
-
   return (
     <div className="welcome-page">
       <header className="welcome-intro">
         <div>
-          <h1>Home</h1>
+          <h1>Overview</h1>
           <p>Find an answer or explore the knowledge in this space.</p>
         </div>
         <span className="welcome-count">
@@ -211,7 +145,7 @@ export default function WelcomePage({
         </details>
       )}
 
-      {pages.length > 0 && (
+      {groups.length > 0 && (
         <section aria-labelledby="welcome-topics-heading">
           <div className="welcome-section-heading">
             <div>
@@ -220,13 +154,10 @@ export default function WelcomePage({
             </div>
             <button
               onClick={() => {
-                setTopic("");
-                onTopicChange("");
-                setQuery("");
-                showDirectory();
+                onBrowsePages();
               }}
             >
-              Browse all pages ↓
+              Browse all pages →
             </button>
           </div>
           <div className="welcome-topics">
@@ -239,13 +170,11 @@ export default function WelcomePage({
               .map((group, index) => (
                 <button
                   className="welcome-topic"
-                  aria-pressed={topic === group.id}
+
                   key={group.id}
                   onClick={() => {
-                    setTopic(group.id);
                     onTopicChange(group.id);
                     setQuery("");
-                    showDirectory();
                   }}
                 >
                   <span className="welcome-topic-top">
@@ -267,115 +196,6 @@ export default function WelcomePage({
         </section>
       )}
 
-      <section
-        className="welcome-directory"
-        id="welcome-directory"
-        aria-labelledby="welcome-directory-heading"
-      >
-        <div className="welcome-section-heading">
-          <div>
-            <h2 id="welcome-directory-heading" ref={directory} tabIndex={-1}>
-              The complete page index
-            </h2>
-            <p>
-              Every published page in this view. Pages can belong to several
-              topics.
-            </p>
-          </div>
-        </div>
-        <div className="welcome-controls">
-          <div className="welcome-filter-info">
-            <strong>
-              {selected?.title ??
-                (topic
-                  ? "Topic unavailable in this publication"
-                  : "All topics")}
-            </strong>
-            <span role="status">
-              {filtered.length} of {pages.length} pages
-            </span>
-            {topic !== "" && (
-              <button
-                onClick={() => {
-                  setQuery("");
-                  setTopic("");
-                  onTopicChange("");
-                }}
-              >
-                Clear filters
-              </button>
-            )}
-          </div>
-          <div
-            className="welcome-segmented"
-            role="group"
-            aria-label="Index view"
-          >
-            {WELCOME_VIEWS.map((view) => (
-              <button
-                key={view.id}
-                aria-pressed={mode === view.id}
-                onClick={() => {
-                  setChosenMode(view.id);
-                  onViewChange?.(view.id);
-                }}
-              >
-                {view.title}
-              </button>
-            ))}
-          </div>
-        </div>
-        {results
-          .filter(
-            (group) =>
-              group.pages.length > 0 ||
-              Boolean("definition" in group && group.definition),
-          )
-          .map((group) => (
-            <section
-              className="welcome-index-group"
-              aria-labelledby={`welcome-group-${group.id}`}
-              key={group.id}
-            >
-              <div className="welcome-group-heading">
-                <h3 id={`welcome-group-${group.id}`}>{group.title}</h3>
-                <span>{group.pages.length}</span>
-              </div>
-              <ul className="welcome-entries">
-                {group.pages.map((page) => (
-                  <li key={page.page}>
-                    <a href={href(page)} title={page.summary || undefined}>
-                      <span>{page.title}</span>
-                      <span aria-hidden="true">→</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        {filtered.length === 0 && (
-          <p className="welcome-empty">
-            {pages.length
-              ? "No pages in this topic in this publication. Browse all pages to keep exploring."
-              : "No pages have been published in this view yet."}
-          </p>
-        )}
-      </section>
-      {mode === "topics" && !topic && pages.some(isNavigationDefinition) && (
-        <section
-          className="welcome-navigation-definitions"
-          aria-label="Navigation definitions"
-        >
-          <h2>Navigation definitions</h2>
-          <ul>
-            {pages.filter(isNavigationDefinition).map((page) => (
-              <li key={page.page}>
-                <a href={href(page)}>{page.title}</a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
       <footer className="welcome-footer">
         <span>Published knowledge in this space.</span>
         <span>

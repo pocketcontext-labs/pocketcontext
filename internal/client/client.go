@@ -20,7 +20,7 @@ import (
 	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
 )
 
-// CompanySpace is the default space for knowledge and writes.
+// CompanySpace is the explicit shared space and the legacy project default.
 const CompanySpace = "companyspace001"
 
 var idPattern = regexp.MustCompile(`^[a-z0-9]{15}$`)
@@ -250,26 +250,31 @@ func (c *Client) Rows(sql string) ([]map[string]any, error) {
 	return rows, nil
 }
 
-// SpaceID returns the selected space, verified through SQL membership.
+// SpaceID resolves the server-authorized project default or verifies an explicit
+// selection through filtered SQL. A missing default never silently falls back.
 func (c *Client) SpaceID() (string, error) {
 	if c.spaceOK {
 		return c.Space, nil
 	}
-	var sql string
-	if c.Space != "" {
-		sql = fmt.Sprintf("SELECT id FROM spaces WHERE id = %s LIMIT 1", literal(c.Space))
-	} else {
-		sql = fmt.Sprintf("SELECT id FROM spaces WHERE id = '%s' AND kind = 'group' LIMIT 1", CompanySpace)
+	if c.Space == "" {
+		data, err := c.Must("GET", "/api/spaces/default", nil)
+		if err != nil {
+			return "", err
+		}
+		id, _ := dig(data, "id").(string)
+		if !idPattern.MatchString(id) {
+			return "", fail(1, "unexpected default space response")
+		}
+		c.Space, c.spaceOK = id, true
+		return id, nil
 	}
+	sql := fmt.Sprintf("SELECT id FROM spaces WHERE id = %s LIMIT 1", literal(c.Space))
 	rows, err := c.Rows(sql)
 	if err != nil {
 		return "", err
 	}
 	if len(rows) != 1 {
-		if c.Space != "" {
-			return "", fail(2, "space not found or not accessible to this account; run `pocketcontext spaces`")
-		}
-		return "", fail(1, "company space not accessible to this account; select --space or run `pocketcontext spaces`")
+		return "", fail(2, "space not found or not accessible to this account; run `pocketcontext spaces`")
 	}
 	c.Space, c.spaceOK = rows[0]["id"].(string), true
 	return c.Space, nil

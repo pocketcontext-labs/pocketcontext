@@ -41,7 +41,7 @@ func validateSearchConfig(c Config) error {
 			return fmt.Errorf("search maxIndexBytes and cacheBytes require filtered snapshots")
 		}
 		for alias, index := range c.Search.Indexes {
-			if index.Isolation != "" || index.Members != "" || index.Where != "" {
+			if index.Isolation != "" || index.Members != "" || index.Where != "" || index.SourceContent {
 				return fmt.Errorf("search index %q: private search indexes require filtered snapshots", alias)
 			}
 		}
@@ -63,6 +63,14 @@ func validateSearchConfig(c Config) error {
 		return true
 	}
 	for alias, index := range c.Search.Indexes {
+		if index.SourceContent {
+			for _, fields := range searchread.SourceContentFields() {
+				if !configured(fields[0], fields[1:]...) {
+					return fmt.Errorf("search index %q evidence projection requires configured fields", alias)
+				}
+			}
+			continue
+		}
 		if _, ok := c.Tables[index.Collection]; !ok || !configured(index.Collection, index.Columns...) {
 			return fmt.Errorf("search index %q source must be a snapshot output table with configured id and indexed columns", alias)
 		}

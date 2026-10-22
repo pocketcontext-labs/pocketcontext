@@ -47,6 +47,31 @@ function activeUser(app, account) {
   return user;
 }
 
+function defaultPolicy(app) {
+  return app.findRecordById('project_policy', 'projectpolicy01').getString('default_space');
+}
+
+// Read-only resolution: never creates a space or repairs revoked membership.
+function defaultSpace(app, account) {
+  activeUser(app, account);
+  const policy = defaultPolicy(app);
+  let id = COMPANY_SPACE;
+  if (policy === 'personal') {
+    const rows = app.findRecordsByFilter('spaces', "kind = 'personal' && created_by = {:account}", '', 1, 0, {account});
+    if (!rows.length) missing();
+    id = rows[0].id;
+  } else if (policy !== 'company') {
+    throw new InternalServerError('Invalid project space policy.');
+  }
+  const space = requireMember(app, id, account, false);
+  return {id: space.id, kind: space.getString('kind'), name: space.getString('name'), policy};
+}
+
+function defaultRequest(e) {
+  e.response.header().set('Cache-Control', 'no-store');
+  return e.json(200, defaultSpace(e.app, e.auth.id));
+}
+
 // Idempotent and transactional. Returns the account's personal space ID, creating
 // the space and its single owner membership when absent. Disabled accounts throw.
 function ensurePersonalSpace(app, accountId) {
@@ -226,6 +251,7 @@ function admitRequest(e) {
     try {
       e.next();
       admitCompany(tx, e.record.id);
+      if (!e.record.getBool('disabled') && defaultPolicy(tx) === 'personal') ensurePersonalSpace(tx, e.record.id);
     } finally { e.app = original; }
   });
 }
@@ -234,4 +260,4 @@ function personalRequest(e) {
   return e.json(200, {id: ensurePersonalSpace(e.app, e.auth.id)});
 }
 
-module.exports = {COMPANY_SPACE, admitCompany, admitRequest, personalRequest, ensurePersonalSpace, requireMember, requireSpace, membership, missing, createGroupSpace, setMembership, createRequest, updateRequest};
+module.exports = {COMPANY_SPACE, defaultSpace, defaultRequest, admitCompany, admitRequest, personalRequest, ensurePersonalSpace, requireMember, requireSpace, membership, missing, createGroupSpace, setMembership, createRequest, updateRequest};

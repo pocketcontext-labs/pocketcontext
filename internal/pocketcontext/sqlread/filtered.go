@@ -22,6 +22,8 @@ type FilteredReadSpec struct {
 	Table   string
 	Columns []string
 	Where   string
+	// SelectColumn optionally selects rows by a configured relation instead of id.
+	SelectColumn string
 }
 
 // FilteredRead is a validated FilteredReadSpec. Create it with
@@ -67,7 +69,14 @@ func (s *SnapshotSource) PrepareFilteredRead(spec FilteredReadSpec) (*FilteredRe
 		}
 		query += " AND (\n" + spec.Where + "\n)"
 	}
-	selected := query + " AND " + quote(spec.Table) + `."id" IN (SELECT value FROM json_each(:ids))`
+	selectColumn := spec.SelectColumn
+	if selectColumn == "" {
+		selectColumn = "id"
+	}
+	if !allowed[selectColumn] {
+		return nil, fmt.Errorf("filtered read selection column is not configured")
+	}
+	selected := query + " AND " + quote(spec.Table) + "." + quote(selectColumn) + ` IN (SELECT value FROM json_each(:ids))`
 	for _, q := range []string{query, selected} {
 		if err := singleStatement(q); err != nil {
 			return nil, fmt.Errorf("invalid filtered read for %q: %w", spec.Table, err)
@@ -125,7 +134,8 @@ func (e filteredSourceError) Error() string { return e.err.Error() }
 func (e filteredSourceError) Unwrap() error { return e.err }
 
 // Read calls fn for each row of r visible to the requester. A nil ids slice
-// reads every visible row; otherwise only visible rows whose id is listed.
+// reads every visible row; otherwise only visible rows whose configured
+// selection column (id by default) is listed.
 // Values are SQLite storage values: nil, int64, float64, string or []byte.
 // Rows and encoded bytes count against the snapshot maxRows/maxBytes limits
 // across the whole transaction.

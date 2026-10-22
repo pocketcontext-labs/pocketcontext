@@ -1,5 +1,10 @@
 import { MemoryCache } from "./memoryCache";
-import PocketBase, { BaseAuthStore, LocalAuthStore, type SendOptions, type RecordAuthResponse } from "pocketbase";
+import PocketBase, {
+  BaseAuthStore,
+  LocalAuthStore,
+  type SendOptions,
+  type RecordAuthResponse,
+} from "pocketbase";
 import type {
   Citation,
   PageDetail,
@@ -29,7 +34,9 @@ function browserAuthStore(): BaseAuthStore {
     window.localStorage.setItem(probe, "1");
     window.localStorage.removeItem(probe);
     return new LocalAuthStore(sessionKey);
-  } catch { return new BaseAuthStore(); }
+  } catch {
+    return new BaseAuthStore();
+  }
 }
 const authStore = browserAuthStore();
 // The SDK handles named keys, but localStorage.clear() emits a null key.
@@ -42,11 +49,18 @@ if (typeof window !== "undefined" && authStore instanceof LocalAuthStore) {
   });
 }
 // Discard legacy per-tab credentials; never resurrect them after shared logout.
-try { window.sessionStorage.removeItem(sessionKey); } catch { /* Optional storage. */ }
-if (authStore.record?.collectionName !== "users" || !authStore.isValid) authStore.clear();
+try {
+  window.sessionStorage.removeItem(sessionKey);
+} catch {
+  /* Optional storage. */
+}
+if (authStore.record?.collectionName !== "users" || !authStore.isValid)
+  authStore.clear();
 export let sessionGeneration = 0;
 function identityKey() {
-  return authStore.token ? `${authStore.record?.collectionName}:${authStore.record?.id}` : "";
+  return authStore.token
+    ? `${authStore.record?.collectionName}:${authStore.record?.id}`
+    : "";
 }
 let activeIdentity = identityKey();
 let realtimeCleanup: Promise<void> = Promise.resolve();
@@ -54,13 +68,18 @@ authStore.onChange(() => {
   const next = identityKey();
   if (next === activeIdentity) {
     // A sibling tab already renewed this identity; do not renew it again on focus.
-    if (next) { refreshedAt = Date.now(); refreshedToken = authStore.token; }
+    if (next) {
+      refreshedAt = Date.now();
+      refreshedToken = authStore.token;
+    }
     return;
   }
   activeIdentity = next;
   sessionGeneration++;
   clearReaderCache();
-  realtimeCleanup = realtimeCleanup.then(() => pb.realtime.unsubscribe()).catch(() => {});
+  realtimeCleanup = realtimeCleanup
+    .then(() => pb.realtime.unsubscribe())
+    .catch(() => {});
 });
 export const pb = new PocketBase(
   typeof window === "undefined" ? "http://localhost" : window.location.origin,
@@ -70,17 +89,26 @@ export const pb = new PocketBase(
 pb.autoCancellation(false);
 // Reject fully parsed responses from a previous identity before callers see them.
 const send = pb.send.bind(pb);
-pb.send = async <T = unknown>(path: string, options: SendOptions = {}): Promise<T> => {
+pb.send = async <T = unknown>(
+  path: string,
+  options: SendOptions = {},
+): Promise<T> => {
   const generation = sessionGeneration;
   const token = authStore.token;
   const identity = identityKey();
   try {
     const result = await send<T>(path, options);
-    if (generation !== sessionGeneration || identity !== identityKey()) throw new Error("Session changed");
+    if (generation !== sessionGeneration || identity !== identityKey())
+      throw new Error("Session changed");
     return result;
   } catch (error) {
     const status = (error as { status?: number }).status;
-    if (generation === sessionGeneration && token && token === authStore.token && (status === 401 || status === 403))
+    if (
+      generation === sessionGeneration &&
+      token &&
+      token === authStore.token &&
+      (status === 401 || status === 403)
+    )
       authStore.clear();
     throw error;
   }
@@ -130,9 +158,13 @@ export async function query<T>(sql: string): Promise<T[]> {
     return result.rows.map(
       (row) =>
         Object.fromEntries(
-          result.columns.map((column, index) => [column,
-            ["properties", "property_evidence"].includes(column) && typeof row[index] === "string"
-              ? JSON.parse(row[index] as string) : row[index]]),
+          result.columns.map((column, index) => [
+            column,
+            ["properties", "property_evidence"].includes(column) &&
+            typeof row[index] === "string"
+              ? JSON.parse(row[index] as string)
+              : row[index],
+          ]),
         ) as T,
     );
   } catch (error) {
@@ -168,18 +200,27 @@ async function allRows<T>(sql: string, initialSize = 100): Promise<T[]> {
   }
 }
 
-const summary = "r.id, r.page, p.slug, p.kind, r.title, r.summary, r.properties";
+const summary =
+  "r.id, r.page, p.slug, p.kind, r.title, r.summary, r.properties";
 function published(publicationId: string): string {
   // Expand only the selected immutable manifest, rather than testing every page
   // identity against it. Never download the manifest or select a revision by age.
   return `FROM publications pub JOIN json_each(pub.manifest) m JOIN pages p ON p.id=m.key JOIN page_revisions r ON r.page=p.id AND r.id=m.value WHERE pub.id=${identity(publicationId)} AND m.type='text' AND r.archived=0`;
 }
 
-async function validatePublication(publicationId: string): Promise<number | null> {
+async function validatePublication(
+  publicationId: string,
+): Promise<number | null> {
   identity(publicationId);
-  return validatedPublications.read(publicationId, () => readPublicationValidation(publicationId), count => count !== null);
+  return validatedPublications.read(
+    publicationId,
+    () => readPublicationValidation(publicationId),
+    (count) => count !== null,
+  );
 }
-async function readPublicationValidation(publicationId: string): Promise<number | null> {
+async function readPublicationValidation(
+  publicationId: string,
+): Promise<number | null> {
   // Validate before inner joins can discard broken entries. Publications and
   // their revisions are immutable, so subsequent paged reads share this check.
   const rows = await query<{
@@ -207,14 +248,18 @@ async function readPublicationValidation(publicationId: string): Promise<number 
     check.manifest_type !== "object" ||
     check.invalid !== 0 ||
     check.total !== check.unique_keys ||
-    !Number.isSafeInteger(check.published_count) || check.published_count < 0 || check.published_count > check.total
+    !Number.isSafeInteger(check.published_count) ||
+    check.published_count < 0 ||
+    check.published_count > check.total
   )
     throw new Error("This publication is incomplete or invalid");
   return check.published_count;
 }
 
 export class IncompleteReadError extends Error {
-  constructor() { super("This publication could not be read completely. Please retry."); }
+  constructor() {
+    super("This publication could not be read completely. Please retry.");
+  }
 }
 
 export interface Space {
@@ -231,17 +276,53 @@ export async function listSpaces(): Promise<Space[]> {
   const rows = await query<Space>(
     `SELECT s.id, s.kind, s.name, m.role FROM spaces s JOIN space_members m ON m.space=s.id WHERE m.account=${identity(account)} AND m.active=1 ORDER BY CASE s.id WHEN 'companyspace001' THEN 0 ELSE 1 END, s.name, s.id LIMIT 200`,
   );
-  return rows.filter((row) => /^[a-z0-9]{15}$/.test(row.id) && (row.kind === "personal" || row.kind === "group"));
+  return rows.filter(
+    (row) =>
+      /^[a-z0-9]{15}$/.test(row.id) &&
+      (row.kind === "personal" || row.kind === "group"),
+  );
 }
-/** Explicit requests must be memberships; legacy links default to the company. */
-export function selectSpace(spaces: Space[], requested?: string): Space | null {
-  return spaces.find((space) => space.id === (requested ?? companySpace)) ?? null;
+/** Explicit requests must be memberships. Call defaultSpace for an implicit selection. */
+export function selectSpace(spaces: Space[], requested: string): Space | null {
+  return spaces.find((space) => space.id === requested) ?? null;
+}
+export async function defaultSpace(): Promise<{
+  id: string;
+  kind: "personal" | "group";
+  name: string;
+  policy: "personal" | "company";
+}> {
+  const generation = sessionGeneration;
+  const result = await pb.send<{
+    id: string;
+    kind: "personal" | "group";
+    name: string;
+    policy: "personal" | "company";
+  }>("/api/spaces/default", { method: "GET" });
+  if (generation !== sessionGeneration || !pb.authStore.isValid)
+    throw new Error("Session changed");
+  identity(result.id);
+  if (
+    !["personal", "group"].includes(result.kind) ||
+    !["personal", "company"].includes(result.policy)
+  )
+    throw new Error("Default space is unavailable");
+  return result;
 }
 export async function createPersonalSpace(): Promise<{ id: string }> {
   return pb.send("/api/spaces/personal", { method: "POST" });
 }
-export async function evidenceSpace(collection: "sources" | "passages", id: string): Promise<string | null> {
-  return (await query<{ space: string }>(`SELECT space FROM ${collection} WHERE id=${identity(id)} LIMIT 1`))[0]?.space ?? null;
+export async function evidenceSpace(
+  collection: "sources" | "passages",
+  id: string,
+): Promise<string | null> {
+  return (
+    (
+      await query<{ space: string }>(
+        `SELECT space FROM ${collection} WHERE id=${identity(id)} LIMIT 1`,
+      )
+    )[0]?.space ?? null
+  );
 }
 export async function listPublications(
   space: string,
@@ -253,27 +334,39 @@ export async function listPublications(
     `SELECT id, space, sequence, run, home, created FROM publications WHERE space=${identity(space)} ORDER BY sequence DESC LIMIT ${limit} OFFSET ${offset}`,
   );
 }
-export async function latestPublication(space = companySpace): Promise<Publication | null> {
+export async function latestPublication(
+  space = companySpace,
+): Promise<Publication | null> {
   return (await listPublications(space, 0, 1))[0] ?? null;
 }
 export async function getPublication(id: string): Promise<Publication | null> {
   identity(id);
-  return publicationCache.read(id, async () => (
-    (
-      await query<Publication>(
-        `SELECT id, space, sequence, run, home, created FROM publications WHERE id=${identity(id)} LIMIT 1`,
-      )
-    )[0] ?? null
-  ), publication => publication !== null);
+  return publicationCache.read(
+    id,
+    async () =>
+      (
+        await query<Publication>(
+          `SELECT id, space, sequence, run, home, created FROM publications WHERE id=${identity(id)} LIMIT 1`,
+        )
+      )[0] ?? null,
+    (publication) => publication !== null,
+  );
 }
 export async function listPages(publicationId: string): Promise<PageSummary[]> {
   const expected = await validatePublication(publicationId);
   if (expected === null) return [];
-  return pageLists.read(publicationId, async () => {
-    const pages = await allRows<PageSummary>(`SELECT ${summary}, (SELECT origin.created FROM publications origin WHERE origin.run=r.run AND origin.space=pub.space AND origin.sequence<=pub.sequence ORDER BY origin.sequence LIMIT 1) AS publishedAt ${published(publicationId)} ORDER BY p.slug`, 200);
-    if (pages.length !== expected) throw new IncompleteReadError();
-    return pages;
-  }, pages => pages.length > 0);
+  return pageLists.read(
+    publicationId,
+    async () => {
+      const pages = await allRows<PageSummary>(
+        `SELECT ${summary}, (SELECT origin.created FROM publications origin WHERE origin.run=r.run AND origin.space=pub.space AND origin.sequence<=pub.sequence ORDER BY origin.sequence LIMIT 1) AS publishedAt ${published(publicationId)} ORDER BY p.slug`,
+        200,
+      );
+      if (pages.length !== expected) throw new IncompleteReadError();
+      return pages;
+    },
+    (pages) => pages.length > 0,
+  );
 }
 export interface SearchPage {
   generation: string;
@@ -288,7 +381,8 @@ export class SearchChangedError extends Error {
 export type SearchFailure = "not-found" | "too-large" | "unavailable";
 const searchFailureMessages: Record<SearchFailure, string> = {
   "not-found": "This publication is not available in your spaces.",
-  "too-large": "This space is too large to search right now. Browse the page list instead.",
+  "too-large":
+    "This space is too large to search right now. Browse the page list instead.",
   unavailable: "Search is temporarily unavailable. Please retry shortly.",
 };
 export class SearchUnavailableError extends Error {
@@ -426,11 +520,25 @@ export async function getPage(
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
     throw new Error("Invalid page slug");
   if ((await validatePublication(publicationId)) === null) return null;
-  return pageDetails.read(`${publicationId}:${slug}`, () => readPage(publicationId, slug), page => page !== null);
+  return pageDetails.read(
+    `${publicationId}:${slug}`,
+    () => readPage(publicationId, slug),
+    (page) => page !== null,
+  );
 }
-async function readPage(publicationId: string, slug: string): Promise<PageDetail | null> {
+async function readPage(
+  publicationId: string,
+  slug: string,
+): Promise<PageDetail | null> {
   const page = (
-    await query<PageSummary & { body: string; citation_count: number; backlink_count: number; link_count: number }>(
+    await query<
+      PageSummary & {
+        body: string;
+        citation_count: number;
+        backlink_count: number;
+        link_count: number;
+      }
+    >(
       // The selected revision and all expected relationship counts come from
       // one authorized SQL snapshot. Separate paged reads must match it before
       // a complete detail can enter the immutable cache.
@@ -458,8 +566,12 @@ async function readPage(publicationId: string, slug: string): Promise<PageDetail
   ]);
   const { citation_count, backlink_count, link_count, ...detail } = page;
   const counts = [citation_count, backlink_count, link_count];
-  if (counts.some(count => !Number.isSafeInteger(count) || count < 0) ||
-      citation_count !== rows.length || backlink_count !== backlinks.length || link_count !== links.length)
+  if (
+    counts.some((count) => !Number.isSafeInteger(count) || count < 0) ||
+    citation_count !== rows.length ||
+    backlink_count !== backlinks.length ||
+    link_count !== links.length
+  )
     throw new IncompleteReadError();
   const citations: Citation[] = rows
     .map((row) => ({
@@ -489,7 +601,8 @@ async function readPage(publicationId: string, slug: string): Promise<PageDetail
 let pendingSignIn: { cancel: (message?: string) => void } | null = null;
 async function signIn(email: string, password: string): Promise<void> {
   pendingSignIn?.cancel();
-  const generation = sessionGeneration, token = authStore.token;
+  const generation = sessionGeneration,
+    token = authStore.token;
   const client = new PocketBase(pb.baseURL, new BaseAuthStore());
   let ended = false;
   let rejectAttempt: (error: Error) => void = () => {};
@@ -506,10 +619,20 @@ async function signIn(email: string, password: string): Promise<void> {
   try {
     const result = await new Promise<RecordAuthResponse>((resolve, reject) => {
       rejectAttempt = reject;
-      client.collection("users").authWithPassword(email, password).then(resolve, reject);
+      client
+        .collection("users")
+        .authWithPassword(email, password)
+        .then(resolve, reject);
     });
-    if (ended || pendingSignIn !== attempt || generation !== sessionGeneration || token !== authStore.token) throw new Error("Session changed");
-    if (result.record.collectionName !== "users") throw new Error("Invalid workspace identity");
+    if (
+      ended ||
+      pendingSignIn !== attempt ||
+      generation !== sessionGeneration ||
+      token !== authStore.token
+    )
+      throw new Error("Session changed");
+    if (result.record.collectionName !== "users")
+      throw new Error("Invalid workspace identity");
     authStore.save(result.token, result.record);
   } finally {
     ended = true;
@@ -517,15 +640,23 @@ async function signIn(email: string, password: string): Promise<void> {
   }
 }
 /** Cancel a pending sign-in and fence late responses. */
-export function cancelLogin(): void { pendingSignIn?.cancel(); }
-export async function loginPassword(email: string, password: string): Promise<void> { await signIn(email, password); }
+export function cancelLogin(): void {
+  pendingSignIn?.cancel();
+}
+export async function loginPassword(
+  email: string,
+  password: string,
+): Promise<void> {
+  await signIn(email, password);
+}
 let refreshedAt = 0;
 let refreshedToken = "";
 export async function refreshSession(): Promise<void> {
   const initiatingToken = pb.authStore.token;
   if (!initiatingToken) throw new Error("Please sign in to continue");
   const generation = sessionGeneration;
-  if (initiatingToken === refreshedToken && Date.now() - refreshedAt < 300000) return;
+  if (initiatingToken === refreshedToken && Date.now() - refreshedAt < 300000)
+    return;
   try {
     // Save explicitly: the SDK authRefresh helper saves even after a user signs out.
     const result = await pb.send<RecordAuthResponse>(
@@ -535,7 +666,11 @@ export async function refreshSession(): Promise<void> {
         headers: { Authorization: initiatingToken },
       },
     );
-    if (pb.authStore.token !== initiatingToken || generation !== sessionGeneration) return;
+    if (
+      pb.authStore.token !== initiatingToken ||
+      generation !== sessionGeneration
+    )
+      return;
     if (result.record.collectionName !== "users")
       throw new Error("Invalid workspace identity");
     refreshedAt = Date.now();
@@ -568,47 +703,80 @@ export async function originalURL(source: Source): Promise<string> {
 }
 export const SOURCE_PREVIEW_BYTES = 2 * 1024 * 1024;
 export class SourcePreviewLimitError extends Error {
-  constructor() { super("This original is larger than the 2 MiB reading limit. Download it or read its passages."); }
+  constructor() {
+    super(
+      "This original is larger than the 2 MiB reading limit. Download it or read its passages.",
+    );
+  }
 }
 /** Read the independently authorized original, never an approximation assembled from passages. */
-export async function sourceText(source: Source, signal?: AbortSignal): Promise<string> {
+export async function sourceText(
+  source: Source,
+  signal?: AbortSignal,
+): Promise<string> {
   identity(source.id);
   const generation = sessionGeneration;
   const token = pb.authStore.token;
   const controller = new AbortController();
-  const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  const combined = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal;
   const current = () => {
     combined.throwIfAborted();
-    if (generation !== sessionGeneration || token !== pb.authStore.token || !pb.authStore.isValid)
+    if (
+      generation !== sessionGeneration ||
+      token !== pb.authStore.token ||
+      !pb.authStore.isValid
+    )
       throw new Error("Session changed");
   };
   const unsubscribe = pb.authStore.onChange(() => {
-    if (generation !== sessionGeneration || token !== pb.authStore.token || !pb.authStore.isValid) controller.abort();
+    if (
+      generation !== sessionGeneration ||
+      token !== pb.authStore.token ||
+      !pb.authStore.isValid
+    )
+      controller.abort();
   });
   try {
     current();
     const url = await originalURL(source);
     current();
-    if (new URL(url).origin !== new URL(pb.baseURL).origin) throw new Error("Invalid original location");
-    const response = await fetch(url, { signal: combined, cache: "no-store", credentials: "same-origin", redirect: "error" });
+    if (new URL(url).origin !== new URL(pb.baseURL).origin)
+      throw new Error("Invalid original location");
+    const response = await fetch(url, {
+      signal: combined,
+      cache: "no-store",
+      credentials: "same-origin",
+      redirect: "error",
+    });
     current();
     if (!response.ok) {
-      if ((response.status === 401 || response.status === 403) && token === pb.authStore.token) pb.authStore.clear();
+      if (
+        (response.status === 401 || response.status === 403) &&
+        token === pb.authStore.token
+      )
+        pb.authStore.clear();
       throw new Error("This original is unavailable or access was denied.");
     }
     if (Number(response.headers.get("content-length")) > SOURCE_PREVIEW_BYTES) {
       await response.body?.cancel();
       throw new SourcePreviewLimitError();
     }
-    if (!response.body) throw new Error("This original has no readable content.");
+    if (!response.body)
+      throw new Error("This original has no readable content.");
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
-    let size = 0, complete = false;
+    let size = 0,
+      complete = false;
     try {
       for (;;) {
         const chunk = await reader.read();
         current();
-        if (chunk.done) { complete = true; break; }
+        if (chunk.done) {
+          complete = true;
+          break;
+        }
         size += chunk.value.byteLength;
         if (size > SOURCE_PREVIEW_BYTES) throw new SourcePreviewLimitError();
         chunks.push(chunk.value);
@@ -619,35 +787,64 @@ export async function sourceText(source: Source, signal?: AbortSignal): Promise<
     }
     const bytes = new Uint8Array(size);
     let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    if (!crypto.subtle || !/^[a-f0-9]{64}$/.test(source.sha256)) throw new Error("The original cannot be verified. Download it instead.");
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    if (!crypto.subtle || !/^[a-f0-9]{64}$/.test(source.sha256))
+      throw new Error("The original cannot be verified. Download it instead.");
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
     current();
-    const hash = Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
-    if (hash !== source.sha256) throw new Error("The original does not match its recorded checksum.");
-    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
-    catch { throw new Error("This original is not valid UTF-8 text. Download it instead."); }
-  } finally { unsubscribe(); }
+    const hash = Array.from(digest, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    if (hash !== source.sha256)
+      throw new Error("The original does not match its recorded checksum.");
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error(
+        "This original is not valid UTF-8 text. Download it instead.",
+      );
+    }
+  } finally {
+    unsubscribe();
+  }
 }
 
 export async function sourceCount(space: string): Promise<number> {
-  const rows = await query<{ count: number }>(`SELECT count(*) AS count FROM sources WHERE space=${identity(space)}`);
-  if (rows.length !== 1 || !Number.isSafeInteger(rows[0].count) || rows[0].count < 0) throw new Error("Source count is unavailable");
+  const rows = await query<{ count: number }>(
+    `SELECT count(*) AS count FROM sources WHERE space=${identity(space)}`,
+  );
+  if (
+    rows.length !== 1 ||
+    !Number.isSafeInteger(rows[0].count) ||
+    rows[0].count < 0
+  )
+    throw new Error("Source count is unavailable");
   return rows[0].count;
 }
 
 export async function watchSources(callback: () => void): Promise<() => void> {
   const generation = sessionGeneration;
   await realtimeCleanup;
-  if (generation !== sessionGeneration || !pb.authStore.isValid) return () => {};
-  const notify = () => { if (generation === sessionGeneration && pb.authStore.isValid) callback(); };
+  if (generation !== sessionGeneration || !pb.authStore.isValid)
+    return () => {};
+  const notify = () => {
+    if (generation === sessionGeneration && pb.authStore.isValid) callback();
+  };
   let subscribed = false;
-  const disconnected = await pb.realtime.subscribe("PB_CONNECT", () => { if (subscribed) notify(); });
+  const disconnected = await pb.realtime.subscribe("PB_CONNECT", () => {
+    if (subscribed) notify();
+  });
   try {
     const stopped = await pb.collection("sources").subscribe("*", notify);
     subscribed = true;
     notify();
-    return () => { void stopped().catch(() => {}); void disconnected().catch(() => {}); };
+    return () => {
+      void stopped().catch(() => {});
+      void disconnected().catch(() => {});
+    };
   } catch (error) {
     void disconnected().catch(() => {});
     throw error;
@@ -659,14 +856,19 @@ export async function watchPublications(
 ): Promise<() => void> {
   const generation = sessionGeneration;
   await realtimeCleanup;
-  if (generation !== sessionGeneration || !pb.authStore.isValid) return () => {};
-  const notify = () => { if (generation === sessionGeneration) callback(); };
+  if (generation !== sessionGeneration || !pb.authStore.isValid)
+    return () => {};
+  const notify = () => {
+    if (generation === sessionGeneration) callback();
+  };
   let subscribed = false;
   const unsubscribeConnected = await pb.realtime.subscribe(
     "PB_CONNECT",
     // Initial connection is reconciled after subscription below; avoid a third
     // full page read before the collection subscription is active.
-    () => { if (subscribed) notify(); },
+    () => {
+      if (subscribed) notify();
+    },
   );
   try {
     const unsubscribePublications = await pb
@@ -689,6 +891,7 @@ export async function watchPublications(
 export const api = {
   clearReaderCache,
   listSpaces,
+  defaultSpace,
   createPersonalSpace,
   evidenceSpace,
   cancelLogin,

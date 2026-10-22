@@ -1,7 +1,16 @@
 import Brand from "./Brand";
+import SourceSearch from "./SourceSearch";
+import { EvidenceExcerpt } from "./EvidenceExcerpt";
+import PagesDirectory, { pagesHref } from "./PagesDirectory";
+import { availableCatalogTypes } from "./catalogNavigation";
 import { useSourceCount } from "./useSourceCount";
 import { navigationGroups } from "./navigation";
-import { PageActions, versionDate, useMediaQuery, trapFocus } from "./readerControls";
+import {
+  PageActions,
+  versionDate,
+  useMediaQuery,
+  trapFocus,
+} from "./readerControls";
 import { ReconciledRead } from "./reconciledRead";
 import { spaceLink } from "./spaceLinks";
 import {
@@ -12,11 +21,26 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import Catalog, { catalogHref, catalogTypes, catalogLabels, type CatalogState, type CatalogType } from "./Catalog";
+import Catalog, {
+  catalogHref,
+  catalogLabels,
+  type CatalogState,
+  type CatalogType,
+} from "./Catalog";
 import PropertiesPanel from "./Properties";
 import "./catalog.css";
-import EvidenceBrowser, { evidenceHref } from "./EvidenceBrowser";
-import { api, pb, companySpace, selectSpace, sessionGeneration, type Space } from "./api";
+import EvidenceBrowser, {
+  evidenceHref,
+  sourcePassageHref,
+} from "./EvidenceBrowser";
+import {
+  api,
+  pb,
+  companySpace,
+  selectSpace,
+  sessionGeneration,
+  type Space,
+} from "./api";
 import SearchResults, { searchHref } from "./SearchResults";
 import { homePageSlug } from "./home";
 import WelcomePage from "./WelcomePage";
@@ -34,24 +58,74 @@ function route() {
   const [path, query = ""] = location.hash.replace(/^#\/?/, "").split("?");
   const params = new URLSearchParams(query);
   return {
-    slug: path.startsWith("catalog/") || path === "welcome" || /^(sources|passages)\//.test(path) ? "" : safeDecode(path.replace(/^page\//, "")),
+    slug:
+      path.startsWith("catalog/") ||
+      path === "welcome" ||
+      path === "pages" ||
+      /^(sources|passages)\//.test(path)
+        ? ""
+        : safeDecode(path.replace(/^page\//, "")),
     welcome: path === "welcome",
+    directory:
+      path === "pages" ||
+      (path === "welcome" && (params.has("view") || params.has("topic"))),
+    filter: params.get("filter") || "",
+    sort: params.get("sort") || "title",
+    passage: params.get("passage") || "",
     catalog: path.startsWith("catalog/"),
-    catalogState: { type: (path.split("/")[1] === "custom" ? "resource" : (path.split("/").length === 2 ? path.split("/")[1] : "") || "unavailable") as CatalogType, custom: path.split("/")[1] === "custom" ? safeDecode(path.split("/").slice(2).join("/")) : undefined, query: params.get("q") || "", targetAgent: params.get("targetAgent") || "", requiredSkill: params.get("requiredSkill") || "", repository: params.get("repository") || "", documentType: params.get("documentType") || "", syncStatus: params.get("syncStatus") || "", group: params.get("group") || "", member: params.get("member") || "", provider: params.get("provider") || "", deployment: params.get("deployment") || "", lifecycle: params.get("lifecycle") || "", missingOwner: params.get("missingOwner") === "true", sort: params.get("sort") || (path.startsWith("catalog/custom/") ? "" : "title"), offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)) } as CatalogState,
+    catalogState: {
+      type: (path.split("/")[1] === "custom"
+        ? "resource"
+        : (path.split("/").length === 2 ? path.split("/")[1] : "") ||
+          "unavailable") as CatalogType,
+      custom:
+        path.split("/")[1] === "custom"
+          ? safeDecode(path.split("/").slice(2).join("/"))
+          : undefined,
+      query: params.get("q") || "",
+      targetAgent: params.get("targetAgent") || "",
+      requiredSkill: params.get("requiredSkill") || "",
+      repository: params.get("repository") || "",
+      documentType: params.get("documentType") || "",
+      syncStatus: params.get("syncStatus") || "",
+      group: params.get("group") || "",
+      member: params.get("member") || "",
+      provider: params.get("provider") || "",
+      deployment: params.get("deployment") || "",
+      lifecycle: params.get("lifecycle") || "",
+      missingOwner: params.get("missingOwner") === "true",
+      sort:
+        params.get("sort") ||
+        (path.startsWith("catalog/custom/") ? "" : "title"),
+      offset: Math.min(
+        100000,
+        Math.max(0, parseInt(params.get("offset") || "0", 10) || 0),
+      ),
+    } as CatalogState,
     topic: params.get("topic") || "",
     view: params.get("view") || "",
-    collection: path.startsWith("sources/") ? "sources" as const : path.startsWith("passages/") ? "passages" as const : "pages" as const,
-    record: /^(sources|passages)\//.test(path) ? safeDecode(path.split("/")[1] || "") : "",
+    collection: path.startsWith("sources/")
+      ? ("sources" as const)
+      : path.startsWith("passages/")
+        ? ("passages" as const)
+        : ("pages" as const),
+    record: /^(sources|passages)\//.test(path)
+      ? safeDecode(path.split("/")[1] || "")
+      : "",
     publication: params.get("publication") || "",
     space: params.has("space") ? params.get("space")! : undefined,
-    offset: Math.min(100000, Math.max(0, parseInt(params.get("offset") || "0", 10) || 0)),
+    offset: Math.min(
+      100000,
+      Math.max(0, parseInt(params.get("offset") || "0", 10) || 0),
+    ),
     heading: params.get("heading") || "",
     query: params.get("q") || "",
   };
 }
 function historySpace(space: string) {
   const [path, query = ""] = location.hash.split("?");
-  const params = new URLSearchParams(query); params.set("space", space);
+  const params = new URLSearchParams(query);
+  params.set("space", space);
   history.replaceState(null, "", `${path}?${params}`);
 }
 function message(error: unknown) {
@@ -61,7 +135,10 @@ function message(error: unknown) {
 }
 export default function App() {
   const [session, setSession] = useState(sessionGeneration);
-  useEffect(() => pb.authStore.onChange(() => setSession(sessionGeneration)), []);
+  useEffect(
+    () => pb.authStore.onChange(() => setSession(sessionGeneration)),
+    [],
+  );
   // Remount every private view when the identity changes, including child caches.
   return <Reader key={session} />;
 }
@@ -100,7 +177,8 @@ function Reader() {
   >([]);
   const [evidence, setEvidence] = useState<Citation | null>(null);
   const [original, setOriginal] = useState("");
-  const [evidenceNavigation, setEvidenceNavigation] = useState<HTMLDivElement | null>(null);
+  const [evidenceNavigation, setEvidenceNavigation] =
+    useState<HTMLDivElement | null>(null);
   const [menu, setMenu] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
   const compactNavigation = useMediaQuery("(max-width: 1100px)");
@@ -109,13 +187,26 @@ function Reader() {
   const navigationToggle = useRef<HTMLButtonElement>(null);
   const navigationOpen = compactNavigation ? menu : !navCollapsed;
   const drawerDestination = useRef(false);
-  useEffect(() => { if (!compactNavigation) setMenu(false); }, [compactNavigation]);
+  useEffect(() => {
+    if (!compactNavigation) setMenu(false);
+  }, [compactNavigation]);
   useEffect(() => {
     if (!menu || !compactNavigation) return;
     const previous = document.activeElement as HTMLElement | null;
     drawerDestination.current = false;
-    sidebar.current?.querySelector<HTMLButtonElement>(".navigation-close")?.focus();
-    return () => { requestAnimationFrame(() => { if (drawerDestination.current) { if (!reader.current?.contains(document.activeElement)) reader.current?.focus({ preventScroll: true }); } else if (previous?.isConnected && !previous.closest('[inert]')) previous.focus(); else navigationToggle.current?.focus(); }); };
+    sidebar.current
+      ?.querySelector<HTMLButtonElement>(".navigation-close")
+      ?.focus();
+    return () => {
+      requestAnimationFrame(() => {
+        if (drawerDestination.current) {
+          if (!reader.current?.contains(document.activeElement))
+            reader.current?.focus({ preventScroll: true });
+        } else if (previous?.isConnected && !previous.closest("[inert]"))
+          previous.focus();
+        else navigationToggle.current?.focus();
+      });
+    };
   }, [menu, compactNavigation]);
   const [evidenceTitle, setEvidenceTitle] = useState("");
   const [connected, setConnected] = useState(false);
@@ -123,8 +214,19 @@ function Reader() {
   const mounted = useRef(false);
   const refreshInFlight = useRef(false);
   const refreshQueued = useRef(false);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  useEffect(() => () => { generation.current++; personalCreation.current++; }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(
+    () => () => {
+      generation.current++;
+      personalCreation.current++;
+    },
+    [],
+  );
   const historyOffset = useRef(0);
   const [moreHistory, setMoreHistory] = useState(false);
   const reader = useRef<HTMLElement>(null);
@@ -134,20 +236,35 @@ function Reader() {
     const handler = () => {
       const next = route();
       const previous = routeSelection.current;
-      personalCreation.current++; setCreatingSpace(false);
+      personalCreation.current++;
+      setCreatingSpace(false);
       if (
-        next.slug !== previous.slug || next.welcome !== previous.welcome || next.catalog !== previous.catalog ||
-        next.publication !== previous.publication || next.space !== previous.space || next.collection !== previous.collection || next.record !== previous.record
+        next.slug !== previous.slug ||
+        next.welcome !== previous.welcome ||
+        next.directory !== previous.directory ||
+        next.catalog !== previous.catalog ||
+        next.publication !== previous.publication ||
+        next.space !== previous.space ||
+        next.collection !== previous.collection ||
+        next.record !== previous.record
       ) {
         generation.current++;
       }
       if ((next.space || companySpace) !== (previous.space || companySpace)) {
-        setSnapshot(null); setPublications([]); setSpace(null); setEmptySpace(false);
-        setOriginal(""); lastPublication.current = undefined;
+        setSnapshot(null);
+        setPublications([]);
+        setSpace(null);
+        setEmptySpace(false);
+        setOriginal("");
+        lastPublication.current = undefined;
       }
       routeSelection.current = next;
       setCurrent(next);
-      if (next.collection !== previous.collection || next.record !== previous.record) setEvidenceTitle("");
+      if (
+        next.collection !== previous.collection ||
+        next.record !== previous.record
+      )
+        setEvidenceTitle("");
       setSearch(next.query);
       setEvidence(null);
       drawerDestination.current = true;
@@ -165,7 +282,10 @@ function Reader() {
           generation.current++;
           setSnapshot(null);
           setPublications([]);
-          setSpaces([]); setMembershipsLoaded(false); setSpace(null); selectedSpace.current = "";
+          setSpaces([]);
+          setMembershipsLoaded(false);
+          setSpace(null);
+          selectedSpace.current = "";
           setEvidence(null);
           setOriginal("");
           lastPublication.current = undefined;
@@ -190,8 +310,14 @@ function Reader() {
       ) {
         if (document.querySelector('[aria-modal="true"]')) return;
         event.preventDefault();
-        const welcomeSearch = document.querySelector<HTMLInputElement>('.welcome-page input[type="search"], .catalog-page input[type="search"]');
-        if (welcomeSearch) { setMenu(false); welcomeSearch.focus(); return; }
+        const welcomeSearch = document.querySelector<HTMLInputElement>(
+          '.welcome-page input[type="search"], .catalog-page input[type="search"]',
+        );
+        if (welcomeSearch) {
+          setMenu(false);
+          welcomeSearch.focus();
+          return;
+        }
         setMenu(window.matchMedia("(max-width: 1100px)").matches);
         setNavCollapsed(false);
         requestAnimationFrame(() =>
@@ -209,15 +335,26 @@ function Reader() {
     if (!mounted.current) throw new Error("Reader closed");
     // Navigation shares a recent authorization check; focus, reconnect, realtime
     // and the interval always recheck, including same-identity revocations.
-    if (!refresh && !membershipReads.current.active && membershipsCache.current && Date.now() - membershipsCheckedAt.current < 60000)
+    if (
+      !refresh &&
+      !membershipReads.current.active &&
+      membershipsCache.current &&
+      Date.now() - membershipsCheckedAt.current < 60000
+    )
       return membershipsCache.current;
     return membershipReads.current.read(async () => {
-      if (!mounted.current || identity !== sessionGeneration) throw new Error("Session changed");
+      if (!mounted.current || identity !== sessionGeneration)
+        throw new Error("Session changed");
       await api.refreshSession();
-      if (!mounted.current || identity !== sessionGeneration) throw new Error("Session changed");
+      if (!mounted.current || identity !== sessionGeneration)
+        throw new Error("Session changed");
       const memberships = await api.listSpaces();
-      if (!mounted.current || identity !== sessionGeneration) throw new Error("Session changed");
-      const removed = membershipsCache.current?.filter(old => !memberships.some(item => item.id === old.id)) || [];
+      if (!mounted.current || identity !== sessionGeneration)
+        throw new Error("Session changed");
+      const removed =
+        membershipsCache.current?.filter(
+          (old) => !memberships.some((item) => item.id === old.id),
+        ) || [];
       if (removed.length) {
         authority.current++;
         api.clearReaderCache();
@@ -225,64 +362,113 @@ function Reader() {
         historyRequests.current.clear();
         // Remount search/evidence children as well: their loaded data is private.
         setAccessEpoch(authority.current);
-        if (removed.some(item => item.id === selectedSpace.current)) {
-          setSnapshot(null); setPublications([]); setSpace(null); setEmptySpace(false);
-          setEvidence(null); setOriginal(""); lastPublication.current = undefined;
+        if (removed.some((item) => item.id === selectedSpace.current)) {
+          setSnapshot(null);
+          setPublications([]);
+          setSpace(null);
+          setEmptySpace(false);
+          setEvidence(null);
+          setOriginal("");
+          lastPublication.current = undefined;
           setBusy(false);
-          setError("This space is unavailable. Choose another space to continue.");
+          setError(
+            "This space is unavailable. Choose another space to continue.",
+          );
         }
       }
       membershipsCache.current = memberships;
       membershipsCheckedAt.current = Date.now();
-      setSpaces(memberships); setMembershipsLoaded(true);
+      setSpaces(memberships);
+      setMembershipsLoaded(true);
       return memberships;
     }, refresh);
   };
-  const readHistory = (spaceId: string, refresh: boolean): Promise<Publication[]> => {
+  const readHistory = (
+    spaceId: string,
+    refresh: boolean,
+  ): Promise<Publication[]> => {
     const pending = historyRequests.current.get(spaceId);
-    if (pending) return refresh ? pending.then(() => readHistory(spaceId, true)) : pending;
+    if (pending)
+      return refresh ? pending.then(() => readHistory(spaceId, true)) : pending;
     const previous = histories.current.get(spaceId);
     if (previous && !refresh) return Promise.resolve(previous);
     const access = authority.current;
     const request = (async () => {
-      const latest = previous ? await api.latestPublication(spaceId) : undefined;
-      const rows = previous && latest?.id === previous[0]?.id ? previous : await api.listPublications(spaceId);
-      if (access !== authority.current) throw new Error("Reader access changed");
+      const latest = previous
+        ? await api.latestPublication(spaceId)
+        : undefined;
+      const rows =
+        previous && latest?.id === previous[0]?.id
+          ? previous
+          : await api.listPublications(spaceId);
+      if (access !== authority.current)
+        throw new Error("Reader access changed");
       histories.current.delete(spaceId);
       histories.current.set(spaceId, rows);
-      if (histories.current.size > 8) histories.current.delete(histories.current.keys().next().value!);
+      if (histories.current.size > 8)
+        histories.current.delete(histories.current.keys().next().value!);
       return rows;
-    })().finally(() => { if (historyRequests.current.get(spaceId) === request) historyRequests.current.delete(spaceId); });
+    })().finally(() => {
+      if (historyRequests.current.get(spaceId) === request)
+        historyRequests.current.delete(spaceId);
+    });
     historyRequests.current.set(spaceId, request);
     return request;
   };
   const load = useCallback(async (refresh = false) => {
-    if (!pb.authStore.isValid) { pb.authStore.clear(); return; }
+    if (!pb.authStore.isValid) {
+      pb.authStore.clear();
+      return;
+    }
     const own = ++generation.current;
     const identity = sessionGeneration;
     const current = routeSelection.current;
     let access = authority.current;
-    const active = () => mounted.current && identity === sessionGeneration && own === generation.current && access === authority.current;
+    const active = () =>
+      mounted.current &&
+      identity === sessionGeneration &&
+      own === generation.current &&
+      access === authority.current;
     setBusy(true);
     setError("");
     try {
-      const unknownSpace = current.space !== undefined && !membershipsCache.current?.some(item => item.id === current.space);
+      const unknownSpace =
+        current.space !== undefined &&
+        !membershipsCache.current?.some((item) => item.id === current.space);
       const memberships = await readMemberships(refresh || unknownSpace);
       access = authority.current;
       if (!active()) return;
       // A pinned publication or evidence link resolves its authorized space.
       const [resolvedPublication, recordSpace] = await Promise.all([
-        current.publication ? api.getPublication(current.publication) : Promise.resolve(null),
-        current.record && current.collection !== "pages" ? api.evidenceSpace(current.collection, current.record) : Promise.resolve(null),
+        current.publication
+          ? api.getPublication(current.publication)
+          : Promise.resolve(null),
+        current.record && current.collection !== "pages"
+          ? api.evidenceSpace(current.collection, current.record)
+          : Promise.resolve(null),
       ]);
       let pinned = resolvedPublication;
-      const chosen = selectSpace(memberships, recordSpace || pinned?.space || current.space);
+      const requestedSpace =
+        recordSpace ||
+        pinned?.space ||
+        (current.space !== undefined
+          ? current.space
+          : (await api.defaultSpace()).id);
+      const chosen = selectSpace(memberships, requestedSpace);
       if (!active()) return;
       if (!chosen || (current.publication && !pinned)) {
-        setSnapshot(null); setEvidence(null); setOriginal(""); setSpace(null); lastPublication.current = undefined;
-        throw new Error(!chosen ? "This space is unavailable. Choose another space to continue." : "This publication is unavailable. Choose Live to return to the latest pages.");
+        setSnapshot(null);
+        setEvidence(null);
+        setOriginal("");
+        setSpace(null);
+        lastPublication.current = undefined;
+        throw new Error(
+          !chosen
+            ? "This space is unavailable. Choose another space to continue."
+            : "This publication is unavailable. Choose Live to return to the latest pages.",
+        );
       }
-      if ((recordSpace || pinned?.space) && current.space !== chosen.id && (current.space || chosen.id !== companySpace)) {
+      if (current.space !== chosen.id) {
         historySpace(chosen.id);
       }
       const changedSpace = chosen.id !== selectedSpace.current;
@@ -298,7 +484,9 @@ function Reader() {
         selectedSpace.current = chosen.id;
       }
       if (pinned && pinned.space !== chosen.id) pinned = null;
-      const history = [...await readHistory(chosen.id, refresh || changedSpace)];
+      const history = [
+        ...(await readHistory(chosen.id, refresh || changedSpace)),
+      ];
       if (active()) {
         historyOffset.current = history.length;
         setMoreHistory(history.length === 50);
@@ -327,11 +515,24 @@ function Reader() {
       // their validation and serves immutable cache hits without network work.
       const [pages, explicitPage] = await Promise.all([
         api.listPages(publication.id),
-        current.slug ? api.getPage(publication.id, current.slug) : Promise.resolve(null),
+        current.slug
+          ? api.getPage(publication.id, current.slug)
+          : Promise.resolve(null),
       ]);
       if (!active()) return;
-      const slug = current.welcome || current.catalog || current.collection !== "pages" || current.query ? undefined : current.slug || homePageSlug(publication, pages);
-      const page = current.slug ? explicitPage : slug ? await api.getPage(publication.id, slug) : null;
+      const slug =
+        current.welcome ||
+        current.directory ||
+        current.catalog ||
+        current.collection !== "pages" ||
+        current.query
+          ? undefined
+          : current.slug || homePageSlug(publication, pages);
+      const page = current.slug
+        ? explicitPage
+        : slug
+          ? await api.getPage(publication.id, slug)
+          : null;
       if (active()) {
         setPublications(history);
         setEmptySpace(false);
@@ -356,8 +557,11 @@ function Reader() {
       refreshQueued.current = true;
       // Authorization checks must never wait behind a slow page download.
       // A confirmed loss immediately clears private views and fences that load.
-      try { await readMemberships(true); }
-      catch (error) { if (mounted.current) setError(message(error)); }
+      try {
+        await readMemberships(true);
+      } catch (error) {
+        if (mounted.current) setError(message(error));
+      }
       return;
     }
     refreshInFlight.current = true;
@@ -365,12 +569,29 @@ function Reader() {
       do {
         refreshQueued.current = false;
         await load(true);
-      } while (refreshQueued.current && mounted.current && pb.authStore.isValid);
-    } finally { refreshInFlight.current = false; }
+      } while (
+        refreshQueued.current &&
+        mounted.current &&
+        pb.authStore.isValid
+      );
+    } finally {
+      refreshInFlight.current = false;
+    }
   }, [load]);
   useEffect(() => {
     if (authenticated) void load();
-  }, [authenticated, load, current.slug, current.welcome, current.catalog, current.publication, current.space, current.collection, current.record]);
+  }, [
+    authenticated,
+    load,
+    current.slug,
+    current.welcome,
+    current.directory,
+    current.catalog,
+    current.publication,
+    current.space,
+    current.collection,
+    current.record,
+  ]);
   useEffect(() => {
     if (!authenticated) return;
     let disposed = false;
@@ -388,7 +609,9 @@ function Reader() {
           setConnected(navigator.onLine);
         }
       })
-      .catch(() => { if (!disposed) setConnected(false); });
+      .catch(() => {
+        if (!disposed) setConnected(false);
+      });
     const focus = () => void refresh();
     const offline = () => setConnected(false);
     const online = () => {
@@ -410,8 +633,22 @@ function Reader() {
     };
   }, [authenticated, refresh]);
   useEffect(() => {
-    if (!(current.welcome && (current.topic || current.view))) reader.current?.scrollTo?.(0, 0);
-  }, [current.slug, current.welcome, current.publication, current.collection, current.record, current.topic, current.view, current.catalog, current.catalogState.type, current.catalogState.custom, current.offset]);
+    if (!(current.welcome && (current.topic || current.view)))
+      reader.current?.scrollTo?.(0, 0);
+  }, [
+    current.slug,
+    current.welcome,
+    current.directory,
+    current.publication,
+    current.collection,
+    current.record,
+    current.topic,
+    current.view,
+    current.catalog,
+    current.catalogState.type,
+    current.catalogState.custom,
+    current.offset,
+  ]);
   useEffect(() => {
     if (current.heading && snapshot)
       document
@@ -425,8 +662,18 @@ function Reader() {
     const access = authority.current;
     citationClose.current?.focus();
     const marker = Number(evidence.marker);
-    const clickedClaim = lastCitationFocus.current?.isConnected && reader.current?.contains(lastCitationFocus.current) && lastCitationFocus.current?.getAttribute("data-citation") === String(marker) ? lastCitationFocus.current.closest("p, li, td, blockquote") : null;
-    const claim = clickedClaim || reader.current?.querySelector(`[data-citation="${marker}"]`)?.closest("p, li, td, blockquote");
+    const clickedClaim =
+      lastCitationFocus.current?.isConnected &&
+      reader.current?.contains(lastCitationFocus.current) &&
+      lastCitationFocus.current?.getAttribute("data-citation") ===
+        String(marker)
+        ? lastCitationFocus.current.closest("p, li, td, blockquote")
+        : null;
+    const claim =
+      clickedClaim ||
+      reader.current
+        ?.querySelector(`[data-citation="${marker}"]`)
+        ?.closest("p, li, td, blockquote");
     claim?.classList.add("citation-claim-active");
     if (dockEvidence) claim?.scrollIntoView?.({ block: "nearest" });
     api
@@ -460,19 +707,26 @@ function Reader() {
       current.catalog
         ? catalogHref(current.catalogState, id === "live" ? undefined : id)
         : current.collection !== "pages"
-        ? evidenceHref(current.collection, current.record, current.query, id === "live" ? "" : id, current.offset)
-        : current.welcome && !current.query
-        ? spaceLink(`#/welcome?${new URLSearchParams({ ...(id !== "live" ? { publication: id } : {}), ...(current.topic ? { topic: current.topic } : {}), ...(current.view ? { view: current.view } : {}) })}`)
-        : current.query
-        ? searchHref(
-            current.query,
-            id === "live" ? undefined : id,
-            current.slug,
-          )
-        : pageHref(
-            current.slug || "",
-            id === "live" ? undefined : id,
-          )
+          ? evidenceHref(
+              current.collection,
+              current.record,
+              current.query,
+              id === "live" ? "" : id,
+              current.offset,
+            )
+          : current.directory
+            ? pagesHref(current, id === "live" ? undefined : id)
+            : current.welcome && !current.query
+              ? spaceLink(
+                  `#/welcome?${new URLSearchParams({ ...(id !== "live" ? { publication: id } : {}), ...(current.topic ? { topic: current.topic } : {}), ...(current.view ? { view: current.view } : {}) })}`,
+                )
+              : current.query
+                ? searchHref(
+                    current.query,
+                    id === "live" ? undefined : id,
+                    current.slug,
+                  )
+                : pageHref(current.slug || "", id === "live" ? undefined : id)
     ).slice(1);
   };
   useEffect(() => {
@@ -502,13 +756,26 @@ function Reader() {
         (c) => Number(c.marker) === marker,
       );
       if (citation) {
-        lastCitationFocus.current = trigger || document.activeElement as HTMLElement;
+        lastCitationFocus.current =
+          trigger || (document.activeElement as HTMLElement);
         setEvidence({ ...citation });
       }
     },
     [snapshot?.page],
   );
-  const recentPages = useMemo(() => (snapshot?.pages || []).filter((item): item is PageSummary & { publishedAt: string } => Boolean(item.publishedAt)).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt) || a.title.localeCompare(b.title)), [snapshot?.pages]);
+  const recentPages = useMemo(
+    () =>
+      (snapshot?.pages || [])
+        .filter((item): item is PageSummary & { publishedAt: string } =>
+          Boolean(item.publishedAt),
+        )
+        .sort(
+          (a, b) =>
+            b.publishedAt.localeCompare(a.publishedAt) ||
+            a.title.localeCompare(b.title),
+        ),
+    [snapshot?.pages],
+  );
   const pinned = current.publication || undefined;
   if (!authenticated) return <Login />;
   // Retain one coherent publication (directory, page, links and citations)
@@ -517,30 +784,59 @@ function Reader() {
   const matchingPublication = Boolean(snapshot);
   const pages = snapshot?.pages || [];
   const selection = snapshot?.selection;
-  const sameView = !selection || (selection.slug === current.slug && selection.welcome === current.welcome && selection.catalog === current.catalog && selection.collection === current.collection && selection.record === current.record && selection.publication === current.publication);
+  const sameView =
+    !selection ||
+    (selection.slug === current.slug &&
+      selection.welcome === current.welcome &&
+      selection.directory === current.directory &&
+      selection.catalog === current.catalog &&
+      selection.collection === current.collection &&
+      selection.record === current.record &&
+      selection.publication === current.publication);
   // Evidence views own expiring file tokens and navigation-scoped actions.
   // Preserve their immediate unmount/reset behavior when leaving a record.
-  const view = selection && !sameView && selection.collection === "pages" && current.collection === "pages" ? selection : current;
-  const displayedPinned = view.publication ? snapshot?.publication.id || view.publication : undefined;
-  const searching = !view.catalog && view.collection === "pages" && Boolean(view.query.trim() && !view.slug);
-  const topicGroups = groupWelcomePages(pages).filter(group => group.pages.length || group.definition);
+  const view =
+    selection &&
+    !sameView &&
+    selection.collection === "pages" &&
+    current.collection === "pages"
+      ? selection
+      : current;
+  const displayedPinned = view.publication
+    ? snapshot?.publication.id || view.publication
+    : undefined;
+  const searching =
+    !view.catalog &&
+    !view.directory &&
+    view.collection === "pages" &&
+    Boolean(view.query.trim() && !view.slug);
+  const topicGroups = groupWelcomePages(pages).filter(
+    (group) => group.pages.length || group.definition,
+  );
   const customCatalogs = navigationGroups(pages, "catalog");
-  const welcomeHref = (topic: string, indexView = view.view) => {
-    const params = new URLSearchParams();
-    if (topic) params.set("topic", topic);
-    if (indexView) params.set("view", indexView);
-    if (displayedPinned) params.set("publication", displayedPinned);
-    const query = params.toString();
-    return spaceLink(query ? `#/welcome?${query}` : "#/welcome");
-  };
-  const welcoming = !emptySpace && !view.catalog && view.collection === "pages" && !searching && !view.slug &&
+  const builtInCatalogs = availableCatalogTypes(pages);
+  const welcoming =
+    !emptySpace &&
+    !view.catalog &&
+    !view.directory &&
+    view.collection === "pages" &&
+    !searching &&
+    !view.slug &&
     (view.welcome || (matchingPublication && !snapshot?.publication.home));
-  const showEmptySpace = emptySpace && !current.publication && current.collection === "pages";
+  const showEmptySpace =
+    emptySpace &&
+    !current.publication &&
+    current.collection === "pages" &&
+    !current.directory;
   return (
-    <div className={`workspace ${evidence && dockEvidence ? "has-docked-evidence" : ""}`}>
+    <div
+      className={`workspace ${evidence && dockEvidence ? "has-docked-evidence" : ""}`}
+    >
       <a
         className="skip-link"
-        inert={(compactNavigation && menu) || Boolean(evidence && !dockEvidence)}
+        inert={
+          (compactNavigation && menu) || Boolean(evidence && !dockEvidence)
+        }
         href="#reader"
         onClick={(e) => {
           e.preventDefault();
@@ -557,40 +853,188 @@ function Reader() {
         aria-modal={compactNavigation && menu ? true : undefined}
         aria-label="Page navigation"
         inert={Boolean(evidence && !dockEvidence) || !navigationOpen}
-        onKeyDown={event => { if (compactNavigation && menu) { if (event.key === "Escape") { event.preventDefault(); setMenu(false); } trapFocus(event); } }}
+        onKeyDown={(event) => {
+          if (compactNavigation && menu) {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setMenu(false);
+            }
+            trapFocus(event);
+          }
+        }}
       >
-        <button className="icon-button navigation-close" aria-label="Close navigation" onClick={() => setMenu(false)}>×</button>
+        <button
+          className="icon-button navigation-close"
+          aria-label="Close navigation"
+          onClick={() => setMenu(false)}
+        >
+          ×
+        </button>
         <Brand href={pageHref("")} />
-        {spaces.length > 0 && (spaces.length > 1 || !space) ? <label className="publication-control">Space<select aria-label="Space" value={space?.id || ""} onChange={e => { location.hash = `#/?space=${encodeURIComponent(e.target.value)}`; }}>
-          {!space && <option value="" disabled>Choose a space</option>}
-          {spaces.map(item => <option key={item.id} value={item.id}>{item.kind === "personal" ? "Personal space" : item.name}{item.role === "reader" ? " (read only)" : ""}</option>)}
-        </select></label> : <div className="workspace-label"><span className="workspace-dot" /> {space?.name || "Company"}</div>}
-        {membershipsLoaded && !spaces.some(item => item.kind === "personal") && <details className="space-options"><summary>Space options</summary><button className="secondary-button" disabled={creatingSpace} onClick={() => {
-          const own = ++personalCreation.current, identity = sessionGeneration, destination = location.hash;
-          const active = () => own === personalCreation.current && identity === sessionGeneration && pb.authStore.isValid && destination === location.hash;
-          setCreatingSpace(true); setError("");
-          void api.createPersonalSpace().then(result => { if (active()) location.hash = `#/?space=${encodeURIComponent(result.id)}`; }).catch(e => { if (active()) setError(message(e)); }).finally(() => { if (active()) setCreatingSpace(false); });
-        }}>{creatingSpace ? "Creating personal space…" : "Create personal space"}</button></details>}
+        {spaces.length > 0 && (spaces.length > 1 || !space) ? (
+          <label className="publication-control">
+            Space
+            <select
+              aria-label="Space"
+              value={space?.id || ""}
+              onChange={(e) => {
+                location.hash = `#/?space=${encodeURIComponent(e.target.value)}`;
+              }}
+            >
+              {!space && (
+                <option value="" disabled>
+                  Choose a space
+                </option>
+              )}
+              {spaces.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                  {item.role === "reader" ? " (read only)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className="workspace-label">
+            <span className="workspace-dot" /> {space?.name || "Company"}
+          </div>
+        )}
+        {membershipsLoaded &&
+          !spaces.some((item) => item.kind === "personal") && (
+            <details className="space-options">
+              <summary>Space options</summary>
+              <button
+                className="secondary-button"
+                disabled={creatingSpace}
+                onClick={() => {
+                  const own = ++personalCreation.current,
+                    identity = sessionGeneration,
+                    destination = location.hash;
+                  const active = () =>
+                    own === personalCreation.current &&
+                    identity === sessionGeneration &&
+                    pb.authStore.isValid &&
+                    destination === location.hash;
+                  setCreatingSpace(true);
+                  setError("");
+                  void api
+                    .createPersonalSpace()
+                    .then((result) => {
+                      if (active())
+                        location.hash = `#/?space=${encodeURIComponent(result.id)}`;
+                    })
+                    .catch((e) => {
+                      if (active()) setError(message(e));
+                    })
+                    .finally(() => {
+                      if (active()) setCreatingSpace(false);
+                    });
+                }}
+              >
+                {creatingSpace
+                  ? "Creating personal space…"
+                  : "Create personal space"}
+              </button>
+            </details>
+          )}
         <nav className="primary-navigation" aria-label="Workspace">
-          <a href={welcomeHref("", "")} aria-current={welcoming && !view.view && !view.topic ? "page" : undefined}>⌂ <span>Home</span></a>
-          <a href={welcomeHref("", "alphabetical")} aria-current={welcoming && view.view === "alphabetical" ? "page" : undefined}>▤ <span>Pages</span><small>{pages.length}</small></a>
-          <a href={evidenceHref("sources", "", "", current.publication)} aria-current={current.collection === "sources" ? "page" : undefined}>◈ <span>Sources</span>{sourceCount !== null && <small>{sourceCount}</small>}</a>
+          <a
+            href={pageHref("", displayedPinned)}
+            aria-current={
+              view.collection === "pages" &&
+              !view.slug &&
+              !view.catalog &&
+              !view.directory &&
+              !searching
+                ? "page"
+                : undefined
+            }
+          >
+            ⌂ <span>Overview</span>
+          </a>
+          <a
+            href={pagesHref({}, displayedPinned)}
+            aria-current={view.directory ? "page" : undefined}
+          >
+            ▤ <span>All pages</span>
+            <small>{pages.length}</small>
+          </a>
+          <a
+            href={evidenceHref("sources", "", "", current.publication)}
+            aria-current={current.collection === "sources" ? "page" : undefined}
+          >
+            ◈ <span>Sources</span>
+            {sourceCount !== null && <small>{sourceCount}</small>}
+          </a>
         </nav>
-        {current.collection !== "pages" && <label className="publication-control">Evidence<select aria-label="Collection" value={current.collection} onChange={e => { location.hash = evidenceHref(e.target.value as "sources" | "passages", "", "", current.publication); }}><option value="sources">Sources</option><option value="passages">Passages</option></select></label>}
+        {current.collection !== "pages" && (
+          <label className="publication-control">
+            Evidence
+            <select
+              aria-label="Collection"
+              value={current.collection}
+              onChange={(e) => {
+                location.hash = evidenceHref(
+                  e.target.value as "sources" | "passages",
+                  "",
+                  "",
+                  current.publication,
+                );
+              }}
+            >
+              <option value="sources">Sources</option>
+              <option value="passages">Passages</option>
+            </select>
+          </label>
+        )}
+        <label className="search-scope">
+          Search in
+          <select
+            aria-label="Search scope"
+            value={current.collection === "pages" ? "pages" : "sources"}
+            onChange={(event) => {
+              location.hash =
+                event.target.value === "sources"
+                  ? evidenceHref("sources", "", search)
+                  : search.trim()
+                    ? searchHref(search, displayedPinned)
+                    : pagesHref({}, displayedPinned);
+            }}
+          >
+            <option value="pages">Pages</option>
+            <option value="sources">Sources</option>
+          </select>
+        </label>
         <label className="search">
           <span aria-hidden="true">⌕</span>
           <input
-            aria-label={current.collection === "pages" ? "Search pages" : `Search ${current.collection}`}
+            aria-label={
+              current.collection === "pages"
+                ? "Search pages"
+                : `Search ${current.collection}`
+            }
             type="search"
-            placeholder={current.collection === "pages" ? "Search published pages…" : `Search ${current.collection}…`}
+            placeholder={
+              current.collection === "pages"
+                ? "Search published pages…"
+                : `Search ${current.collection}…`
+            }
             value={search}
             maxLength={500}
             onChange={(e) => {
               const value = e.target.value;
               setSearch(value);
-              const href = current.collection !== "pages" ? evidenceHref(current.collection, current.record, value, current.publication) : value.trim()
-                ? searchHref(value, current.publication || undefined)
-                : pageHref("", current.publication || undefined);
+              const href =
+                current.collection !== "pages"
+                  ? evidenceHref(
+                      current.collection,
+                      "",
+                      value,
+                      current.publication,
+                    )
+                  : value.trim()
+                    ? searchHref(value, current.publication || undefined)
+                    : pageHref("", current.publication || undefined);
               history.replaceState(null, "", href);
               const next = route();
               routeSelection.current = next;
@@ -610,33 +1054,79 @@ function Reader() {
           {current.collection.toUpperCase()}
           {current.collection === "pages" && <span>{pages.length}</span>}
         </div>
-        <div ref={setEvidenceNavigation} className="evidence-navigation" hidden={current.collection === "pages"} />
-        <div className="page-navigation" hidden={current.collection !== "pages"}>
-          <details className="navigation-group" key={current.catalog ? "catalog" : "pages"} open={current.catalog}><summary>Catalogs</summary><nav className="catalog-navigation" aria-label="Catalog navigation">{catalogTypes.map(type => <a key={type} href={catalogHref({ type }, displayedPinned)} aria-current={current.catalog && current.catalogState.custom === undefined && current.catalogState.type === type ? "page" : undefined}>{catalogLabels[type]}</a>)}{customCatalogs.map(group => <a key={`custom-${group.id}`} href={catalogHref({custom:group.id}, displayedPinned)} aria-current={current.catalog && current.catalogState.custom === group.id ? "page" : undefined}>{group.title}</a>)}</nav></details>
-          <details className="navigation-group"><summary>Topics</summary><nav className="topic-navigation" aria-label="Topics">
-            {topicGroups.map(group => <a key={group.id} href={welcomeHref(group.id)} aria-current={welcoming && view.topic === group.id ? "page" : undefined}>
-              <span>{group.title}</span><span className="topic-count">{group.pages.length}</span>
-            </a>)}
-          </nav></details>
-          <details className="all-pages-navigation" key={welcoming ? "welcome" : "reading"} open={!welcoming}>
-            <summary>All pages <span>{pages.length}</span></summary>
-        <nav className="page-list" aria-label="Pages">
-          {(current.collection === "pages" ? pages : []).map((p) => (
-            <a
-              key={p.id}
-              href={pageHref(p.slug, displayedPinned)}
-              className={!welcoming && p.slug === page?.slug ? "selected" : ""}
-              aria-current={!welcoming && p.slug === page?.slug ? "page" : undefined}
+        <div
+          ref={setEvidenceNavigation}
+          className="evidence-navigation"
+          hidden={current.collection === "pages"}
+        />
+        <div
+          className="page-navigation"
+          hidden={current.collection !== "pages"}
+        >
+          {(builtInCatalogs.length > 0 || customCatalogs.length > 0) && (
+            <details
+              className="navigation-group"
+              key={current.catalog ? "catalog" : "pages"}
+              open={current.catalog}
             >
-              <span className="page-icon" aria-hidden="true">
-                ▤
-              </span>
-              <span>{p.title}</span>
-              {p.page === snapshot?.publication.home && <span className="home-badge">Home</span>}
-            </a>
-          ))}
-        </nav>
-          </details>
+              <summary>Catalogs</summary>
+              <nav
+                className="catalog-navigation"
+                aria-label="Catalog navigation"
+              >
+                {builtInCatalogs.map((type) => (
+                  <a
+                    key={type}
+                    href={catalogHref({ type }, displayedPinned)}
+                    aria-current={
+                      current.catalog &&
+                      current.catalogState.custom === undefined &&
+                      current.catalogState.type === type
+                        ? "page"
+                        : undefined
+                    }
+                  >
+                    {catalogLabels[type]}
+                  </a>
+                ))}
+                {customCatalogs.map((group) => (
+                  <a
+                    key={`custom-${group.id}`}
+                    href={catalogHref({ custom: group.id }, displayedPinned)}
+                    aria-current={
+                      current.catalog &&
+                      current.catalogState.custom === group.id
+                        ? "page"
+                        : undefined
+                    }
+                  >
+                    {group.title}
+                  </a>
+                ))}
+              </nav>
+            </details>
+          )}
+          {topicGroups.length > 0 && (
+            <details className="navigation-group">
+              <summary>Topics</summary>
+              <nav className="topic-navigation" aria-label="Topics">
+                {topicGroups.map((group) => (
+                  <a
+                    key={group.id}
+                    href={pagesHref({ topic: group.id }, displayedPinned)}
+                    aria-current={
+                      view.directory && view.topic === group.id
+                        ? "page"
+                        : undefined
+                    }
+                  >
+                    <span>{group.title}</span>
+                    <span className="topic-count">{group.pages.length}</span>
+                  </a>
+                ))}
+              </nav>
+            </details>
+          )}
         </div>
         <div className="sidebar-bottom">
           <div className="connection">
@@ -652,8 +1142,19 @@ function Reader() {
           </button>
         </div>
       </aside>
-      {compactNavigation && menu && <div className="navigation-backdrop" onClick={() => setMenu(false)} aria-hidden="true" />}
-      <div className="main-area" inert={(compactNavigation && menu) || Boolean(evidence && !dockEvidence)}>
+      {compactNavigation && menu && (
+        <div
+          className="navigation-backdrop"
+          onClick={() => setMenu(false)}
+          aria-hidden="true"
+        />
+      )}
+      <div
+        className="main-area"
+        inert={
+          (compactNavigation && menu) || Boolean(evidence && !dockEvidence)
+        }
+      >
         <header className="topbar">
           <button
             className="icon-button mobile-menu"
@@ -661,54 +1162,91 @@ function Reader() {
             aria-label={navigationOpen ? "Close navigation" : "Open navigation"}
             aria-controls="reader-navigation"
             aria-expanded={navigationOpen}
-            onClick={() => compactNavigation ? setMenu(!menu) : setNavCollapsed(!navCollapsed)}
+            onClick={() =>
+              compactNavigation
+                ? setMenu(!menu)
+                : setNavCollapsed(!navCollapsed)
+            }
           >
             ☰
           </button>
           <div className="breadcrumb">
-            {current.collection === "pages" ? "Pages" : current.collection === "sources" ? "Sources" : "Passages"} <span>/</span>{" "}
+            {current.collection === "pages"
+              ? "Pages"
+              : current.collection === "sources"
+                ? "Sources"
+                : "Passages"}{" "}
+            <span>/</span>{" "}
             <strong>
-              {current.collection !== "pages" ? evidenceTitle || (current.record ? "Record details" : "Browse evidence") : current.catalog ? "Catalog" : searching ? "Search" : welcoming ? "Home" : page?.title || "Your knowledge"}
+              {current.collection !== "pages"
+                ? evidenceTitle ||
+                  (current.record ? "Record details" : "Browse evidence")
+                : current.catalog
+                  ? "Catalog"
+                  : searching
+                    ? "Search"
+                    : view.directory
+                      ? "All pages"
+                      : welcoming
+                        ? "Overview"
+                        : page?.title || "Your knowledge"}
             </strong>
           </div>
           <div className="topbar-actions">
-            {current.collection === "pages" && <label className="publication-control">
-              <span className="sr-only">Version</span>
-              <select
-                aria-label="Version"
-                value={pinned || "live"}
-                onChange={(e) => {
-                  if (e.target.value === "more") {
-                    const own = generation.current, access = authority.current;
-                    void api
-                      .listPublications(space?.id || "", historyOffset.current, 50)
-                      .then((rows) => {
-                        if (own !== generation.current || access !== authority.current) return;
-                        historyOffset.current += rows.length;
-                        setMoreHistory(rows.length === 50);
-                        setPublications((previous) =>
-                          [
-                            ...new Map(
-                              [...previous, ...rows].map((p) => [p.id, p]),
-                            ).values(),
-                          ].sort((a, b) => b.sequence - a.sequence),
-                        );
-                      })
-                      .catch((e) => { if (own === generation.current && access === authority.current) setError(message(e)); });
-                  } else navigatePublication(e.target.value);
-                }}
-              >
-                <option value="live">Current version</option>
-                {publications.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {versionDate(p.created)} · #{p.sequence}
-                  </option>
-                ))}
-                {moreHistory && (
-                  <option value="more">Load older publications…</option>
-                )}
-              </select>
-            </label>}
+            {current.collection === "pages" && (
+              <label className="publication-control">
+                <span className="sr-only">Version</span>
+                <select
+                  aria-label="Version"
+                  value={pinned || "live"}
+                  onChange={(e) => {
+                    if (e.target.value === "more") {
+                      const own = generation.current,
+                        access = authority.current;
+                      void api
+                        .listPublications(
+                          space?.id || "",
+                          historyOffset.current,
+                          50,
+                        )
+                        .then((rows) => {
+                          if (
+                            own !== generation.current ||
+                            access !== authority.current
+                          )
+                            return;
+                          historyOffset.current += rows.length;
+                          setMoreHistory(rows.length === 50);
+                          setPublications((previous) =>
+                            [
+                              ...new Map(
+                                [...previous, ...rows].map((p) => [p.id, p]),
+                              ).values(),
+                            ].sort((a, b) => b.sequence - a.sequence),
+                          );
+                        })
+                        .catch((e) => {
+                          if (
+                            own === generation.current &&
+                            access === authority.current
+                          )
+                            setError(message(e));
+                        });
+                    } else navigatePublication(e.target.value);
+                  }}
+                >
+                  <option value="live">Current version</option>
+                  {publications.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {versionDate(p.created)} · #{p.sequence}
+                    </option>
+                  ))}
+                  {moreHistory && (
+                    <option value="more">Load older publications…</option>
+                  )}
+                </select>
+              </label>
+            )}
           </div>
         </header>
         {error && (
@@ -717,36 +1255,136 @@ function Reader() {
             <button onClick={() => void refresh()}>Retry</button>
           </div>
         )}
-        {busy && snapshot && <div className="refresh-status" role="status">{!sameView ? "Opening page…" : "Checking for updates…"}</div>}
+        {busy && snapshot && (
+          <div className="refresh-status" role="status">
+            {!sameView ? "Opening page…" : "Checking for updates…"}
+          </div>
+        )}
         {displayedPinned && view.collection === "pages" && (
           <div className="history-banner">
-            Viewing a fixed version from {versionDate(snapshot?.publication.created)}.{" "}
+            Viewing a fixed version from{" "}
+            {versionDate(snapshot?.publication.created)}.{" "}
             <button onClick={() => navigatePublication("live")}>
               Return to current version
             </button>
           </div>
         )}
-        <div className={`reading-layout ${welcoming ? "welcome-layout" : view.catalog ? "catalog-layout" : ""}`}>
+        <div
+          className={`reading-layout ${welcoming || view.directory ? "welcome-layout" : view.catalog ? "catalog-layout" : ""}`}
+        >
           <main
             id="reader"
             ref={reader}
-            className={`reader ${welcoming ? "welcome-reader" : view.catalog ? "catalog-reader" : ""}`}
+            className={`reader ${welcoming || view.directory ? "welcome-reader" : view.catalog ? "catalog-reader" : ""}`}
             tabIndex={-1}
             aria-busy={busy}
           >
-            {showEmptySpace && <section className="empty-state"><h1>This space has no published pages</h1><p>Pages appear here when your agent publishes knowledge in this space.</p></section>}
-            {view.collection !== "pages" && space && <EvidenceBrowser key={`evidence-${accessEpoch}-${space.id}`} space={space.id} collection={view.collection} id={view.record} term={view.query} publication={view.publication} offset={view.offset} navigation={evidenceNavigation} onTitleChange={setEvidenceTitle} />}
-            <SearchResults key={`search-${accessEpoch}-${space?.id || "none"}`}
+            {showEmptySpace && (
+              <section className="empty-state">
+                <h1>This space has no published pages</h1>
+                <p>
+                  Pages appear here when your agent publishes knowledge in this
+                  space.
+                </p>
+              </section>
+            )}
+            {view.collection !== "pages" &&
+              space &&
+              !(
+                view.collection === "sources" &&
+                !view.record &&
+                view.query.trim()
+              ) && (
+                <EvidenceBrowser
+                  key={`evidence-${accessEpoch}-${space.id}`}
+                  space={space.id}
+                  collection={view.collection}
+                  id={view.record}
+                  passage={view.passage}
+                  term={view.query}
+                  publication={view.publication}
+                  offset={view.offset}
+                  navigation={evidenceNavigation}
+                  onTitleChange={setEvidenceTitle}
+                />
+              )}
+            {space && (
+              <SourceSearch
+                key={`source-search-${accessEpoch}-${space.id}`}
+                space={space.id}
+                query={view.query}
+                visible={
+                  view.collection === "sources" &&
+                  !view.record &&
+                  Boolean(view.query.trim())
+                }
+                epoch={accessEpoch}
+              />
+            )}
+            <SearchResults
+              key={`search-${accessEpoch}-${space?.id || "none"}`}
               publication={snapshot?.publication.id || lastPublication.current}
-              query={view.query}
-              visible={
-                searching && matchingPublication
-              }
+              query={view.collection === "pages" && !view.catalog ? view.query : ""}
+              visible={searching && matchingPublication}
               epoch={accessEpoch}
             />
-            {view.catalog && !showEmptySpace && matchingPublication && (!busy || snapshot) && <Catalog key={`${accessEpoch}:${space?.id}:${snapshot?.publication.id}`} space={space?.id} snapshotId={snapshot?.publication.id} pages={pages} state={view.catalogState} publication={displayedPinned} onNavigate={href => { history.replaceState(null, "", href); const next = route(); routeSelection.current = next; setCurrent(next); setSearch(next.query); }} />}
-            {welcoming && matchingPublication && (!busy || snapshot) && <WelcomePage key={displayedPinned || "live"} pages={pages} recentPages={recentPages} publication={snapshot?.publication || null} pinned={displayedPinned} topic={view.topic} view={view.view} onTopicChange={topic => { location.hash = welcomeHref(topic); }} onViewChange={indexView => { location.hash = welcomeHref(view.topic, indexView); }} onSearch={query => { location.hash = searchHref(query, displayedPinned); }} />}
-            {view.collection === "pages" && !view.catalog && !searching && !welcoming && !showEmptySpace &&
+            {view.catalog &&
+              !showEmptySpace &&
+              matchingPublication &&
+              (!busy || snapshot) && (
+                <Catalog
+                  key={`${accessEpoch}:${space?.id}:${snapshot?.publication.id}`}
+                  space={space?.id}
+                  snapshotId={snapshot?.publication.id}
+                  pages={pages}
+                  state={view.catalogState}
+                  publication={displayedPinned}
+                  onNavigate={(href) => {
+                    history.replaceState(null, "", href);
+                    const next = route();
+                    routeSelection.current = next;
+                    setCurrent(next);
+                    setSearch(next.query);
+                  }}
+                />
+              )}
+            {view.directory && space && (
+              <PagesDirectory
+                pages={pages}
+                publication={displayedPinned}
+                state={view}
+                onNavigate={(href) => {
+                  history.replaceState(null, "", href);
+                  const next = route();
+                  routeSelection.current = next;
+                  setCurrent(next);
+                }}
+              />
+            )}
+            {welcoming && matchingPublication && (!busy || snapshot) && (
+              <WelcomePage
+                key={displayedPinned || "live"}
+                pages={pages}
+                recentPages={recentPages}
+                publication={snapshot?.publication || null}
+                pinned={displayedPinned}
+                onTopicChange={(topic) => {
+                  location.hash = pagesHref({ topic }, displayedPinned);
+                }}
+                onBrowsePages={() => {
+                  location.hash = pagesHref({}, displayedPinned);
+                }}
+                onSearch={(query) => {
+                  location.hash = searchHref(query, displayedPinned);
+                }}
+              />
+            )}
+            {view.collection === "pages" &&
+              !view.catalog &&
+              !view.directory &&
+              !searching &&
+              !welcoming &&
+              !showEmptySpace &&
               (page ? (
                 <article>
                   {view.query && view.slug && (
@@ -765,11 +1403,21 @@ function Reader() {
                     </span>
                   </div>
                   <h1 className="page-title">{page.title}</h1>
-                  <PageActions key={`${space?.id}:${page.id}:${snapshot?.publication.id}`} slug={page.slug} publication={snapshot!.publication} />
+                  <PageActions
+                    key={`${space?.id}:${page.id}:${snapshot?.publication.id}`}
+                    slug={page.slug}
+                    publication={snapshot!.publication}
+                  />
                   {page.summary && (
                     <p className="page-summary">{page.summary}</p>
                   )}
-                  <PropertiesPanel key={page.id} page={page} pages={pages} publication={displayedPinned} onCitation={openCitation} />
+                  <PropertiesPanel
+                    key={page.id}
+                    page={page}
+                    pages={pages}
+                    publication={displayedPinned}
+                    onCitation={openCitation}
+                  />
                   <div className="page-rule" />
                   <div className="markdown">
                     <Markdown
@@ -830,7 +1478,13 @@ function Reader() {
           <aside
             className="context-panel"
             aria-label="Page context"
-            hidden={view.catalog || welcoming || searching || view.collection !== "pages"}
+            hidden={
+              view.catalog ||
+              view.directory ||
+              welcoming ||
+              searching ||
+              view.collection !== "pages"
+            }
           >
             <div className="context-title">ON THIS PAGE</div>
             {outline.length ? (
@@ -895,7 +1549,10 @@ function Reader() {
         </div>
       </div>
       {evidence && (
-        <div className={`evidence-backdrop ${dockEvidence ? "is-docked" : ""}`} onClick={dockEvidence ? undefined : closeEvidence}>
+        <div
+          className={`evidence-backdrop ${dockEvidence ? "is-docked" : ""}`}
+          onClick={dockEvidence ? undefined : closeEvidence}
+        >
           <section
             className="evidence-panel"
             role={dockEvidence ? "region" : "dialog"}
@@ -905,10 +1562,11 @@ function Reader() {
             onKeyDown={(e) => {
               if (e.key === "Escape") closeEvidence();
               if (e.key === "Tab" && !dockEvidence) {
-                const focusable =
-                  Array.from(e.currentTarget.querySelectorAll<HTMLElement>(
+                const focusable = Array.from(
+                  e.currentTarget.querySelectorAll<HTMLElement>(
                     "button,a[href]",
-                  )).filter(node => node.getClientRects().length > 0);
+                  ),
+                ).filter((node) => node.getClientRects().length > 0);
                 const first = focusable[0],
                   last = focusable[focusable.length - 1];
                 if (e.shiftKey && document.activeElement === first) {
@@ -939,8 +1597,24 @@ function Reader() {
               {evidence.passage.locator ||
                 `Passage ${evidence.passage.ordinal}`}
             </p>
-            <blockquote className="passage">{evidence.passage.body}</blockquote>
-            <p><a href={evidenceHref("passages", evidence.passage.id)}>Open passage</a> · <a href={evidenceHref("sources", evidence.source.id)}>Open source</a></p>
+            <EvidenceExcerpt
+              body={evidence.passage.body}
+              source={evidence.source}
+            />
+            <p>
+              <a href={evidenceHref("passages", evidence.passage.id)}>
+                Open passage
+              </a>{" "}
+              ·{" "}
+              <a
+                href={sourcePassageHref(
+                  evidence.source.id,
+                  evidence.passage.id,
+                )}
+              >
+                View in source
+              </a>
+            </p>
             {evidence.note && <p>{evidence.note}</p>}
             <dl>
               <dt>Original</dt>
@@ -966,7 +1640,16 @@ function Reader() {
                   void api
                     .originalURL(evidence.source)
                     .then((url) => {
-                      if (!mounted.current || initiatingAccess !== authority.current || !pb.authStore.isValid || pb.authStore.token !== initiatingToken || location.hash !== initiatingRoute) { popup?.close(); return; }
+                      if (
+                        !mounted.current ||
+                        initiatingAccess !== authority.current ||
+                        !pb.authStore.isValid ||
+                        pb.authStore.token !== initiatingToken ||
+                        location.hash !== initiatingRoute
+                      ) {
+                        popup?.close();
+                        return;
+                      }
                       if (popup) popup.location.replace(url);
                       else window.location.assign(url);
                     })
@@ -1030,12 +1713,7 @@ function Login() {
         <form className="login-form" onSubmit={password}>
           <label>
             Email
-            <input
-              required
-              name="email"
-              type="email"
-              autoComplete="username"
-            />
+            <input required name="email" type="email" autoComplete="username" />
           </label>
           <label>
             Password
@@ -1051,7 +1729,8 @@ function Login() {
           </button>
         </form>
         <p className="login-hint">
-          Or run <code>pocketcontext open</code> to sign in with a single-use link.
+          Or run <code>pocketcontext open</code> to sign in with a single-use
+          link.
         </p>
         {error && (
           <p role="alert" className="login-error">

@@ -80,6 +80,8 @@ try {
   }
   await symlink(path.join(root, 'ui/node_modules'), path.join(ui, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   await cli(['init', '--email', 'reader@example.localhost', '--name', 'Reader Test', '--port', String(port), '--password-stdin'], 'synthetic reader password\n');
+  const defaultSpace = (await cli(['spaces'])).find(space => space.selected);
+  assert.equal(defaultSpace.kind, 'personal', 'fresh init defaults CLI to Personal');
   await cli(['stop']);
   start(process.execPath, [path.join(root, 'ui/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(vitePort)], {
     cwd: ui, env: { ...process.env, POCKETCONTEXT_DEV_PORT: String(port) },
@@ -146,8 +148,9 @@ try {
   await screenshot('login-desktop-light');
   const signIn = await cli(['open', '--no-browser']);
   await page.goto(signIn.signInLink);
-  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
   await assertLight('signed-in reader');
+  assert.equal(await page.getByRole('combobox', {name: 'Space', exact: true}).locator('option:checked').innerText(), 'Personal');
   ok('login and reader remain light with a legacy dark preference and dark operating system');
   async function screenshot(name) {
     if (name.startsWith('home-') || name.startsWith('reader-')) {
@@ -202,9 +205,14 @@ try {
   await recent.getByRole('link', { name: /Observatory edition two/ }).waitFor();
   await recent.getByRole('link', { name: /Newly published model/ }).waitFor();
   assert((await recent.getByRole('link').count()) <= 6);
+  await route('#/pages', 'All pages');
+  assert.equal(await page.getByRole('complementary', {name: 'Page context'}).count(), 0, 'directory hides page context');
+  await noOverflow('desktop All pages');
+  await screenshot('pages-desktop-light');
+  await route('#/welcome', 'Overview');
   await noOverflow('desktop Home');
   await screenshot('home-desktop-light');
-  await route(`#/welcome?publication=${publications[0]}`, 'Home');
+  await route(`#/welcome?publication=${publications[0]}`, 'Overview');
   assert.equal(await page.getByText('Newly published model', { exact: true }).count(), 0, 'historical Home excludes pages first published later');
   await recent.getByRole('link', { name: /Agent research/ }).waitFor();
   for (const href of await recent.getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href')))) {
@@ -252,16 +260,22 @@ try {
   await evidence.waitFor();
   await evidence.getByRole('link', { name: /Open original/ }).waitFor();
   assert.notEqual(await evidence.getAttribute('aria-modal'), 'true', 'wide reader docks evidence without a modal');
-  await evidence.getByText('Observatory evidence', { exact: true }).waitFor();
+  await evidence.getByRole('heading', { name: 'Observatory evidence', exact: true }).first().waitFor();
+  assert.equal(await evidence.locator('blockquote.passage').count(), 0, 'evidence uses formatted source Markdown');
   assert(await page.locator('.citation-claim-active').count(), 'cited claim remains identifiable beside evidence');
   await noOverflow('docked evidence');
   await screenshot('evidence-desktop-light');
   const repeatedCitation = page.getByRole('button', { name: 'Citation 1', exact: true }).nth(1);
   await repeatedCitation.click();
   await until(() => repeatedCitation.evaluate(element => element.closest('p')?.classList.contains('citation-claim-active')), 'changing a repeated citation while evidence stays open highlights the clicked claim');
-  await evidence.getByRole('button', { name: /Close/ }).click();
-  await evidence.waitFor({ state: 'hidden' });
-  ok('desktop evidence stays beside the readable claim');
+  await evidence.getByRole('link', { name: 'View in source', exact: true }).click();
+  await page.locator('.source-content [data-source-highlight]').first().waitFor();
+  assert((await page.url()).includes(`passage=${passage}`), 'source link retains the cited passage');
+  await page.getByRole('button', { name: 'Exact source', exact: true }).click();
+  assert((await page.locator('.source-content mark').innerText()).includes('starlight'), 'exact source highlights the verified passage');
+  await screenshot('source-highlight-desktop-light');
+  await route('#/page/observatory', 'Observatory edition two');
+  ok('desktop evidence renders Markdown and links to the verified passage in its source');
 
   for (const [label, width, height] of [['split', 960, 900], ['mobile', 390, 844]]) {
     await page.setViewportSize({ width, height });
@@ -285,7 +299,7 @@ try {
     await evidence.waitFor({ state: 'hidden' });
     await until(() => citation.evaluate(element => element === document.activeElement), `${label}: evidence dismissal returns citation focus`);
     await noOverflow(`${label} reader`);
-    await route('#/welcome', 'Home');
+    await route('#/welcome', 'Overview');
     await noOverflow(`${label} Home`);
     await screenshot(`home-${label}-light`);
   }
@@ -297,7 +311,7 @@ try {
   await screenshot('reader-mobile-light');
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await route('#/welcome', 'Home');
+  await route('#/welcome', 'Overview');
   await page.getByRole('searchbox', { name: 'Search published pages' }).fill('observatory');
   await page.getByRole('searchbox', { name: 'Search published pages' }).press('Enter');
   await page.getByRole('heading', { name: 'Search results', exact: true }).waitFor();
@@ -321,8 +335,8 @@ try {
   await page.getByRole('heading', { name: 'Search results', exact: true }).waitFor();
   await until(() => page.locator('#reader').evaluate(element => element === document.activeElement), 'drawer search Enter focuses the results reader after closing');
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Workspace', exact: true }).getByRole('link', { name: /Pages/ }).click();
-  const directoryHeading = page.getByRole('heading', { name: 'The complete page index', exact: true });
+  await page.getByRole('navigation', { name: 'Workspace', exact: true }).getByRole('link', { name: /All pages/ }).click();
+  const directoryHeading = page.getByRole('heading', { name: 'All pages', exact: true });
   await directoryHeading.waitFor();
   await until(() => directoryHeading.evaluate(element => element === document.activeElement), 'Pages navigation focuses the complete directory');
   await until(() => directoryHeading.evaluate(element => {
@@ -344,15 +358,15 @@ try {
 
   // Navigation is derived from the selected immutable revision properties.
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await route('#/welcome', 'Home');
-  await page.getByRole('heading', { name: 'Engineering research', exact: true }).waitFor();
-  assert.equal(await page.getByRole('heading', { name: 'Agent research', exact: true }).count(), 0);
-  await route(`#/welcome?publication=${publications[0]}`, 'Home');
-  await page.getByRole('heading', { name: 'Agent research', exact: true }).waitFor();
-  assert.equal(await page.getByRole('heading', { name: 'Engineering research', exact: true }).count(), 0);
+  await route('#/welcome', 'Overview');
+  await page.getByRole('button', { name: /Engineering research/ }).waitFor();
+  assert.equal(await page.getByRole('button', { name: /Agent research/ }).count(), 0);
+  await route(`#/welcome?publication=${publications[0]}`, 'Overview');
+  await page.getByRole('button', { name: /Agent research/ }).waitFor();
+  assert.equal(await page.getByRole('button', { name: /Engineering research/ }).count(), 0);
   // Start with only the historical manifest cached.
   await page.reload();
-  await page.getByRole('heading', { name: 'Agent research', exact: true }).waitFor();
+  await page.getByRole('button', { name: /Agent research/ }).waitFor();
   // Retained definition labels must keep their publication while the next load waits.
   let releasePublication;
   const publicationGate = new Promise(resolve => { releasePublication = resolve; });
@@ -370,7 +384,7 @@ try {
     releasePublication();
     await page.unrouteAll({ behavior: 'wait' });
   }
-  await page.getByRole('heading', { name: 'Engineering research', exact: true }).waitFor();
+  await page.getByRole('button', { name: /Engineering research/ }).waitFor();
   await route('#/catalog/custom/developer-tools', 'Developer tools');
   await page.getByRole('columnheader', { name: 'License', exact: true }).waitFor();
   const customCatalog = page.locator('.catalog-page');
@@ -399,20 +413,43 @@ try {
   await noOverflow('mobile Markdown source');
   await screenshot('source-mobile-light');
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator('.sidebar').getByRole('combobox', { name: 'Search scope', exact: true }).selectOption('sources');
+  const sourceSearch = page.locator('.sidebar').getByRole('searchbox');
+  const sourceSearchIndexes = [];
+  const observeSourceSearch = request => {
+    if (request.url().endsWith('/api/context/search')) sourceSearchIndexes.push(request.postDataJSON()?.index);
+  };
+  page.on('request', observeSourceSearch);
+  await sourceSearch.fill('starlight');
+  await sourceSearch.press('Enter');
+  await page.getByRole('heading', { name: 'Source search results', exact: true }).waitFor();
+  await page.locator('.source-search').getByRole('link', { name: 'Observatory evidence', exact: true }).click();
+  await page.locator('.source-content [data-source-highlight]').first().waitFor();
+  page.off('request', observeSourceSearch);
+  assert(sourceSearchIndexes.includes('sources'));
+  assert(sourceSearchIndexes.every(index => index === 'sources'), 'Sources search does not request page search');
+  await screenshot('source-search-passage-desktop-light');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await noOverflow('mobile highlighted source');
+  await screenshot('source-highlight-mobile-light');
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const extraNote = path.join(temporary, 'uncited.txt');
   await writeFile(extraNote, 'Another synthetic original, not cited by any publication.');
   await cli(['ingest', extraNote, '--title', 'Uncited original']);
   await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'source ingestion refreshes count without publication');
   const unchangedPublication = (await cli(['sql', 'SELECT id FROM publications ORDER BY sequence DESC LIMIT 1'])).rows[0][0];
   assert.equal(unchangedPublication, publications[1]);
-  const personal = await cli(['create-personal-space']);
-  await cli(['ingest', extraNote, '--space', personal.id, '--title', 'Personal original']);
-  await page.goto(`${origin}/#/sources/?space=${personal.id}`);
-  await page.reload();
-  await until(async () => /Sources\s*1$/.test(await sourcesNav.innerText()), 'source count isolates personal-space inventory');
-  assert.equal(await page.locator('#reader').getByText('Observatory evidence', { exact: true }).count(), 0);
+  await page.goto(`${origin}/#/pages?space=companyspace001`);
+  await page.getByRole('heading', { name: 'All pages', exact: true }).waitFor();
+  await page.getByText('No pages have been published in this space yet.').waitFor();
+  assert.equal(await page.locator('.catalog-navigation').count(), 0, 'empty space has no catalog links');
+  await cli(['ingest', extraNote, '--space', 'companyspace001', '--title', 'Company original']);
   await page.goto(`${origin}/#/sources/?space=companyspace001`);
-  await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'returning to company restores company count');
+  await page.reload();
+  await until(async () => /Sources\s*1$/.test(await sourcesNav.innerText()), 'source count isolates company-space inventory');
+  assert.equal(await page.locator('#reader').getByText('Observatory evidence', { exact: true }).count(), 0);
+  await page.goto(`${origin}/#/sources/?space=${defaultSpace.id}`);
+  await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'returning to Personal restores its count');
   ok('protected Markdown originals render safely and source counts refresh independently per space');
 
   assert.equal(errors.length, 0, 'reader has no browser runtime errors');

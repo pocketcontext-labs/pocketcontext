@@ -1,0 +1,72 @@
+.directory-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(120px, 1fr));
+  gap: 14px;
+  margin: 24px 0;
+}
+.directory-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  min-width: 0;
+}
+.directory-controls input,
+.directory-controls select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  min-height: 42px;
+}
+.directory-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.directory-entries li {
+  border-bottom: 1px solid var(--border);
+}
+.directory-entries a {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 8px;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.directory-entries a:hover {
+  background: var(--accent-soft);
+}
+.directory-entries span {
+  color: var(--prose);
+  font-size: 14px;
+}
+.directory-entries small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.pages-directory h2 {
+  font-size: 18px;
+  margin-block: 24px 6px;
+}
+.search-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 8px;
+  font-size: 12px;
+}
+.search-scope select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px;
+}
+@media (max-width: 800px) {
+  .directory-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 450px) {
+  .directory-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

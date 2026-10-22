@@ -77,9 +77,11 @@ type Index struct {
 	// Isolation "private" selects per-requester search over a filtered
 	// snapshot source. Members and Where apply only to private indexes. All
 	// three are omitted for shared indexes, keeping their generation tokens.
-	Isolation string `json:"isolation,omitempty"`
-	Members   string `json:"members,omitempty"`
-	Where     string `json:"where,omitempty"`
+	// SourceContent selects the fixed space-scoped source/rendition/passage projection.
+	SourceContent bool   `json:"sourceContent,omitempty"`
+	Isolation     string `json:"isolation,omitempty"`
+	Members       string `json:"members,omitempty"`
+	Where         string `json:"where,omitempty"`
 }
 type Limits struct {
 	Timeout           time.Duration
@@ -87,6 +89,7 @@ type Limits struct {
 }
 type Hit struct {
 	ID      string  `json:"id"`
+	Passage string  `json:"passage,omitempty"`
 	Score   float64 `json:"score"`
 	Excerpt string  `json:"excerpt"`
 }
@@ -119,6 +122,9 @@ func quote(s string) string { return `"` + s + `"` }
 // CanonicalDDL returns the only accepted index shape. Applications execute this
 // DDL through trusted migrations, then maintain index rows transactionally.
 func CanonicalDDL(i Index) (string, error) {
+	if i.SourceContent {
+		return "", ErrIndexInvalid
+	}
 	if (i.Scope == nil) != (i.Generation == nil) {
 		return "", ErrIndexInvalid
 	}

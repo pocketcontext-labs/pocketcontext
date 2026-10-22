@@ -58,4 +58,6 @@ jobs:
       - name: Name check of the repository and binary
         run: $PY tests/name_check.py --binary "$EXE"
       - name: End-to-end test with synthetic notes
-        run: $PY tests/e2e.py --binary "$EXE"
+        run: |
+          $PY tests/e2e.py --binary "$EXE"
+          $PY tests/source_search.py --binary "$EXE"

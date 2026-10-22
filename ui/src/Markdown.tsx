@@ -3,6 +3,8 @@ import { memo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { visit } from "unist-util-visit";
+import { sourceHighlight } from "./sourceHighlight";
+import type { SourceRange } from "./sourceRanges";
 
 export function headingId(text: string) {
   return text
@@ -103,12 +105,14 @@ export const Markdown = memo(function Markdown({
   onCitation,
   resolveSlug,
   mode = "page",
+  highlight,
 }: {
   body: string;
   publication?: string;
   onCitation?: (marker: number, trigger?: HTMLElement) => void;
   resolveSlug?: (target: string) => string;
   mode?: "page" | "source";
+  highlight?: SourceRange;
 }) {
   const heading = (level: number, children: ReactNode, id?: string) => {
     return level === 1 ? (
@@ -127,7 +131,7 @@ export const Markdown = memo(function Markdown({
   };
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, [pageSyntax, { source: mode === "source" }]]}
+      remarkPlugins={[remarkGfm, [pageSyntax, { source: mode === "source" }], [sourceHighlight, { text: body, range: mode === "source" ? highlight : undefined }]]}
       skipHtml
       urlTransform={(url) =>
         (mode === "source" ? /^(https?:|mailto:|#)/i : /^(page:|citation:|https?:|mailto:|#)/i).test(url) ? url : ""
