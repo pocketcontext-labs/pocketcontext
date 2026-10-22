@@ -1,8 +1,8 @@
 # PocketContext
 
-A local knowledge base in one binary. Ingest text notes as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces separate shared and personal knowledge; full-text search covers published pages and original source passages. The binary contains the server (on PocketBase), the browser reader and the command-line client, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
+A local knowledge base in one binary. Ingest text notes as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces separate shared and personal knowledge; full-text search covers published pages and original source passages. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
-See [what changed in 0.8.0](docs/releases/0.8.0.md), including reader navigation, source browsing, space management and UI hot reload.
+See [what changed in 0.9.0](docs/releases/0.9.0.md): a built-in private tunnel to use one server from another computer. Earlier: [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
 ## A project
 
@@ -60,23 +60,26 @@ If the synced `pocketcontext.db` changes while this computer has unsaved changes
 
 The server can run on one always-on computer (the agent computer) while a person uses the same binary on their own computer as a client only. Sign-in uses one-time codes, so no password passes through whoever operates the agent computer.
 
-On the agent computer, create the person's own account (so the audit history separates them from the agent) and issue a code:
+On the agent computer, create the person's own account (so the audit history separates them from the agent), open the tunnel and issue a code:
 
 ```sh
 ./pocketcontext account --email you@example.localhost --name "Your Name"   # no password is set or asked for
+./pocketcontext tunnel serve                                               # foreground; prints {"address", "port", ...}
 ./pocketcontext login-code --email you@example.localhost                   # prints {"email","code","expires"}
 ```
 
 On the person's computer, forward the same port and sign in with the code on standard input:
 
 ```sh
-tailcat forward <agent-address> 8096:8096        # or ssh -L 8096:127.0.0.1:8096 <agent>
+printf '%s\n' "$ADDRESS" | pocketcontext tunnel forward --address-stdin   # foreground; or ssh -L 8096:127.0.0.1:8096 <agent>
 printf '%s\n' "$CODE" | pocketcontext login --url http://127.0.0.1:8096 --code-stdin
 pocketcontext search "budget" --url http://127.0.0.1:8096
 pocketcontext skill --url http://127.0.0.1:8096
 ```
 
 For the browser reader, run `./pocketcontext open --email you@example.localhost --no-browser` on the agent computer and open the printed `signInLink` on the person's computer; the forward of the same port makes it work there.
+
+The tunnel is built in: [tailcat](https://github.com/tailscale/tailcat) 0.7.0 (WireGuard over Tailscale's data plane, without a Tailscale account, control plane or administrator rights), bootstrapped through tailcat's public relays, which are best-effort and rate-limited, and direct between the computers when the network allows. `tunnel serve` admits only the project's port and proxies it to the server on `127.0.0.1`; there is no other port, no forwarding through the agent computer and no UDP. Its address embeds the server's public key, a pre-shared key and the relay, so anyone with it can reach the port (the server still requires sign-in): share it privately. The identity is kept in the private cache (`tunnel.json`), never in the project folder, so the address stays the same across restarts of `tunnel serve`; `--new-address` replaces it and invalidates the old one, which is also the remedy when its relay is retired. `tunnel forward` follows the remote-mode rules: it listens only on the loopback port of `--url` (or `POCKETCONTEXT_URL`, default `http://127.0.0.1:8096`), fails when that port is busy instead of choosing another, and never reads a database or local key. Both run in the foreground until interrupted; keep them under the agent's own process supervision when they must persist. An existing `tailcat forward ADDRESS 8096:8096` from the standalone tailcat CLI works with the same address.
 
 Codes and links are single use and kept only in the server's memory, so a server restart invalidates them. A `login-code` code is valid for 10 minutes (`--ttl 30`-`600` seconds); an `open` link for 2 minutes. `account` without `--password-stdin` never prompts: a new account gets a random password nobody knows, an existing account keeps its password. Password sign-in remains available: set one with `account --email E --password-stdin` and use `login --url URL --email E`.
 
@@ -96,7 +99,7 @@ Sources includes uncited originals in the selected space. Its directory loads 50
 
 ## Build
 
-Requires Go (see `go.mod`) with CGO and a C compiler, Node.js 24 and pnpm 10.33.2.
+Requires Go (see `go.mod`) with CGO and a C compiler, Node.js 24 and pnpm 10.33.2. `build-tags.txt` lists the Go build tags every build and test uses: SQLite features and the `ts_omit_` tags of the tailcat release in `go.mod`, which leave out tailscale.com features the tunnel does not use (a test checks them against tailcat's own list).
 
 ```sh
 make ui      # build the reader into ui/dist (embedded by go build)
@@ -143,6 +146,7 @@ The browser regression check uses synthetic data and a temporary UI copy. Instal
 | `cmd/pocketcontext` | entry point |
 | `internal/bundle` | project resolution, working copy and write-back, lease, local routes, server lifecycle |
 | `internal/client` | CLI commands, text ingestion, search, lint, skill installation |
+| `internal/tunnel` | `tunnel serve` and `tunnel forward` on tailcat: identity, port filter, loopback proxy |
 | `internal/pocketcontext` | vendored server (SQL reads, snapshots, search); see `VENDORED.md` |
 | `pb_hooks`, `pb_migrations` | schema and server-side rules |
 | `server.json` | SQL allowlist, snapshot filters and search index configuration |

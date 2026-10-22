@@ -8,7 +8,7 @@ description: Ingest text notes into the user's PocketContext, synthesize and pub
 Binary: `{{BINARY}}`
 Server: `{{URL}}`
 
-The PocketContext server runs on the agent computer. This computer reaches it through a tailcat or SSH forward of the same port and runs the binary only as a client. Always run the binary by its absolute path with `--url`. In the references, `pocketcontext` means:
+The PocketContext server runs on the agent computer. This computer reaches it through a forward of the same port (`pocketcontext tunnel forward`, or SSH) and runs the binary only as a client. Always run the binary by its absolute path with `--url`. In the references, `pocketcontext` means:
 
 ```sh
 "{{BINARY}}" --url "{{URL}}"
@@ -24,7 +24,7 @@ Do not use another `pocketcontext` from PATH.
 
 It reports whether the server is reachable and whether this computer is signed in. Every other command checks the server first.
 
-- Not reachable: do not continue; report it to the user. The server runs on the agent computer; ask the user to check that it runs there and that the port forward is active. Never start a server and never create a database on this computer.
+- Not reachable: do not continue; report it to the user. The server runs on the agent computer; ask the user to check that it runs there and that the port forward is active (`tunnel serve` on the agent computer and `tunnel forward` here, both in the foreground). Never restart a forward on a different local port and never print or store the tunnel address. Never start a server and never create a database on this computer.
 - Not signed in, or a session expired: do not continue and do not ask the user for a password. Sign-in uses a one-time code: the operator (or the agent controlling the agent computer) runs `pocketcontext login-code --email EMAIL` on the agent computer, and the code is passed on standard input to `printf '%s\n' "$CODE" | "{{BINARY}}" login --url "{{URL}}" --code-stdin`. Never put a code on a command line, and never print, log or store it beyond passing it to `login`. A used or expired code needs a new one. The user may instead sign in with their own password by running `login --url "{{URL}}" --email EMAIL` themselves; never ask for the password, print it or store it.
 - A different PocketContext: do not continue; report it to the user; only the user signs in again.
 
