@@ -97,11 +97,15 @@
   font-size: 12px;
   line-height: 20px;
 }
-.citation-claim-active {
+.citation-claim-active,
+.page-search-match {
   background: var(--accent-soft);
   outline: 2px solid var(--accent-border);
   outline-offset: 5px;
   border-radius: 3px;
+}
+.page-search-match {
+  scroll-margin-block: 100px;
 }
 .icon-button {
   min-width: 40px;

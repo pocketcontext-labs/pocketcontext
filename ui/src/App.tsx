@@ -44,6 +44,7 @@ import {
   type Space,
 } from "./api";
 import SearchResults, { searchHref } from "./SearchResults";
+import { highlightSearchText } from "./searchText";
 import { homePageSlug } from "./home";
 import WelcomePage from "./WelcomePage";
 import { groupWelcomePages } from "./welcome";
@@ -658,6 +659,63 @@ function Reader() {
         .getElementById(current.heading)
         ?.scrollIntoView?.({ behavior: "smooth" });
   }, [current.heading, snapshot]);
+  useEffect(() => {
+    if (
+      !current.slug ||
+      !current.query.trim() ||
+      current.heading ||
+      snapshot?.selection.slug !== current.slug ||
+      snapshot.selection.publication !== current.publication
+    )
+      return;
+    // Read rendered text so aliases and Markdown formatting match what the
+    // reader sees. Query text is literal; it never becomes markup or a selector.
+    const matchCount = (element: HTMLElement) =>
+      new Set(
+        highlightSearchText(element.textContent || "", current.query)
+          .filter((part) => part.match)
+          .map((part) => part.text.toLocaleLowerCase()),
+      ).size;
+    const blocks = Array.from(
+      reader.current?.querySelectorAll<HTMLElement>(
+        "article .markdown p, article .markdown li, article .markdown td, article .markdown th, article .markdown pre",
+      ) || [],
+    ).filter(matchCount);
+    // Prefer the paragraph covering the most query terms, not an earlier
+    // partial match or a list item containing several unrelated paragraphs.
+    const target =
+      blocks
+        .filter(
+          (block) =>
+            !blocks.some((other) => other !== block && block.contains(other)),
+        )
+        .sort((a, b) => matchCount(b) - matchCount(a))[0] ||
+      Array.from(
+        reader.current?.querySelectorAll<HTMLElement>(
+          "article .page-title, article .page-summary, article .markdown :is(h1,h2,h3,h4,h5,h6)",
+        ) || [],
+      ).find(matchCount);
+    if (!target) return;
+    const previousTabIndex = target.getAttribute("tabindex");
+    target.classList.add("page-search-match");
+    target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "center" });
+    return () => {
+      target.classList.remove("page-search-match");
+      if (previousTabIndex === null) target.removeAttribute("tabindex");
+      else target.setAttribute("tabindex", previousTabIndex);
+    };
+  }, [
+    current.slug,
+    current.query,
+    current.heading,
+    current.publication,
+    current.space,
+    snapshot?.selection.slug,
+    snapshot?.selection.publication,
+    snapshot?.page?.id,
+  ]);
   useEffect(() => {
     if (!evidence) return;
     setOriginal("");

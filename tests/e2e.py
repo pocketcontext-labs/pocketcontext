@@ -241,6 +241,9 @@ def restored_default_scenario(pc):
               'restored database retains Personal policy and account identity without the old config or cache')
         check([page['slug'] for page in restored.json('search', 'espresso descaled')['pages']] == ['coffee-policy'],
               'restored Personal default reads the existing published knowledge')
+        spaces = restored.json('spaces')
+        check(len(spaces) == 1 and spaces[0]['id'] == original and spaces[0]['role'] == 'owner',
+              'restore does not recreate Company or change Personal ownership')
     finally:
         restored.run('stop')
         pc.run('stop')
@@ -269,6 +272,14 @@ def legacy_default_scenario(binary, root):
               'legacy restart preserves Company policy and existing records')
         company = next(space for space in legacy.json('spaces') if space['id'] == 'companyspace001')
         check(company['name'] == 'Company' and company['selected'], 'Company is not silently renamed')
+        remote = Remote(binary, root / 'remote', legacy.url)
+        legacy.json('account', '--email', 'colleague@example.localhost', '--password-stdin', stdin=PASSWORD + '\n')
+        remote.json('login', '--email', 'colleague@example.localhost', '--password-stdin', stdin=PASSWORD + '\n')
+        memberships = remote.json('spaces')
+        check(len(memberships) == 1 and memberships[0]['id'] == 'companyspace001'
+              and memberships[0]['role'] == 'editor', 'legacy accounts retain Company admission')
+        check(remote.json('get', 'pages', page['id'])['id'] == page['id'],
+              'legacy accounts retain access to shared Company records')
     finally:
         legacy.run('stop')
 
@@ -374,12 +385,16 @@ def scenario(pc):
     me = pc.json('whoami')
     spaces = pc.json('spaces')
     selected = [space for space in spaces if space['selected']]
-    check(init['space'] == me['space'] and len(selected) == 1 and selected[0]['kind'] == 'personal'
+    check(init['space'] == me['space'] and len(spaces) == 1 and len(selected) == 1 and selected[0]['kind'] == 'personal'
           and selected[0]['name'] == 'Personal' and selected[0]['role'] == 'owner',
           'new init, CLI and space listing select the account personal space')
     check(pc.json('create-personal-space')['id'] == me['space'], 'automatic personal space creation is idempotent')
-    check(pc.json('whoami', '--space', 'companyspace001')['space'] == 'companyspace001',
-          'explicit Company selection remains available on a new project')
+    check(pc.json('sql', 'SELECT id, kind, created_by FROM spaces')['rows'] == [[me['space'], 'personal', me['id']]],
+          'fresh project exposes only the account-owned Personal space')
+    check(pc.run('whoami', '--space', 'companyspace001', expect=2).returncode == 2,
+          'fresh project cannot select a nonexistent Company space')
+    pc.json('stop')
+    check(pc.json('spaces') == spaces, 'restart preserves the sole Personal space and owner membership')
     check('OK:' in pc.run('check').stdout, 'live schema matches the reference schema')
 
     notes = pc.root / 'notes'
@@ -721,14 +736,16 @@ def remote_scenario(pc, r):
     check(me['space'] != 'companyspace001' and me['space'] != pc.json('whoami')['space'],
           'remote defaults resolve the remote account own Personal space')
     spaces = {s['id']: s for s in r.json('spaces')}
-    check(spaces.get('companyspace001', {}).get('role') == 'editor', 'new accounts are company space editors')
+    check(list(spaces) == [me['space']] and spaces[me['space']]['role'] == 'owner',
+          'new remote accounts see only their own Personal space with owner membership')
     check(spaces[me['space']]['selected'] and spaces[me['space']]['kind'] == 'personal', 'remote listing selects its own Personal space')
     own = r.json('create', 'pages', '{"slug":"remote-private","kind":"concept"}')
     check(own['space'] == me['space'], 'remote omitted root writes use the personal default')
     check(pc.json('sql', f"SELECT id FROM pages WHERE id='{own['id']}'")['rows'] == [], 'another account cannot read the personal record through SQL')
-    # The rest of this scenario intentionally publishes shared Company knowledge.
-    r.env['POCKETCONTEXT_SPACE'] = 'companyspace001'
-    check(r.json('whoami')['space'] == 'companyspace001' and r.json('whoami', '--space', me['space'])['space'] == me['space'],
+    # Additional spaces are explicitly created and owned, never implicit Company spaces.
+    workspace = r.json('create', 'spaces', '{"kind":"group","name":"Remote research"}')['id']
+    r.env['POCKETCONTEXT_SPACE'] = workspace
+    check(r.json('whoami')['space'] == workspace and r.json('whoami', '--space', me['space'])['space'] == me['space'],
           'explicit --space overrides environment selection, which overrides project default')
 
     # A note only the other computer has, named relative to its working folder.
@@ -754,7 +771,8 @@ def remote_scenario(pc, r):
     closed = json.loads(r.run('check-run', run['id'], expect=3).stdout)
     check([p['kind'] for p in closed['problems']] == ['run-closed'], 'remote check-run reports a published run as closed')
     check([p['slug'] for p in r.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'remote search finds the remote page')
-    check([p['slug'] for p in pc.json('search', 'rooibosquartz', '--space', 'companyspace001')['pages']] == ['tea-policy'], 'the local account sees deliberately shared Company knowledge')
+    check(pc.json('sql', f"SELECT id FROM pages WHERE id='{page['id']}'")['rows'] == [],
+          'the local account cannot read the remote account private group knowledge')
 
     for args in (['stop'], ['ensure-running'], ['flush'], ['recover'], ['init', '--email', 'x@example.localhost'],
                  ['password', '--password-stdin'], ['account', '--email', 'x@example.localhost', '--password-stdin']):
@@ -802,6 +820,7 @@ def remote_scenario(pc, r):
     leftovers = [p for p in r.root.rglob('*') if p.name in ('pocketcontext.db', 'pocketcontext.json', 'local.key') or p.suffix in ('.db', '.lease')]
     check(not leftovers, f'remote mode creates no database, project or key: {leftovers}')
     check(sorted(p.name for p in r.work.iterdir()) == ['tea.md'], 'remote mode writes nothing to the working folder')
+    r.env.pop('POCKETCONTEXT_SPACE', None)
 
 
 def tunnel_scenario(pc, r):
@@ -851,8 +870,10 @@ def codes_scenario(pc, r):
     check(login == {'url': pc.url, 'email': 'coder@example.localhost', 'instance': instance}, 'remote login redeems a code')
     me = r.json('whoami')
     check(me['email'] == 'coder@example.localhost' and me['id'] == coder['id'], 'the code signs in its own account')
-    rows = r.json('query', "SELECT slug FROM pages WHERE slug = 'tea-policy'")['rows']
-    check(rows == [['tea-policy']], 'a code session reads with SQL')
+    rows = r.json('query', 'SELECT id, name FROM spaces')['rows']
+    check(rows == [[me['space'], 'Personal']], 'a code session reads only its own Personal space with SQL')
+    check(r.json('query', "SELECT slug FROM pages WHERE slug = 'tea-policy'")['rows'] == [],
+          'a new code-authenticated account cannot read another account private knowledge')
     r.json('logout')
     reused = r.run('login', '--code-stdin', stdin=issued['code'] + '\n', expect=1)
     check('used or expired' in reused.stderr, 'a redeemed code cannot be reused')

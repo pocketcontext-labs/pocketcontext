@@ -4,17 +4,17 @@ Spaces are the access boundary. Every domain record carries a required `space`; 
 
 ## Project default
 
-A new project creates and selects each account's own Personal space automatically. Existing databases keep Company (`companyspace001`) as their default, including databases restored or opened on another computer. No existing knowledge moves, and Company keeps its name and membership rules.
+A new project creates only the initial account's Personal space with that account as its sole owner; later accounts receive their own Personal spaces. Company is not created for new projects. Existing databases retain their saved default, including databases restored or opened on another computer. Legacy projects with a Company (`companyspace001`) default keep it. No existing knowledge moves, and existing Company spaces keep their name and membership rules.
 
 The default policy belongs to the database, not a computer or an account ID. Bundle startup marks a database as new only when no working database exists after synchronized-file recovery and before PocketBase bootstrap. The migration writes a private `project_policy` record once: `personal` for a new database, `company` otherwise. The record travels with complete backups and synchronized snapshots; it is not exposed in ordinary REST or SQL. No ordinary policy-changing endpoint exists.
 
-Authenticated `GET /api/spaces/default` returns `{id, kind, name, policy}` for the signed-in account. For a Personal-first project it resolves the personal space owned by that account; for an existing project it resolves Company. It checks active account and membership, never creates a space, never reactivates a membership, and never falls back to another space when access is missing. An inaccessible default returns not found.
+Authenticated `GET /api/spaces/default` returns `{id, kind, name, policy}` for the signed-in account. For a Personal-first project it resolves the personal space owned by that account; for a legacy Company-default project it resolves Company. It checks active account and membership, never creates a space, never reactivates a membership, and never falls back to another space when access is missing. An inaccessible default returns not found.
 
 ## Membership
 
 Active `owner` and `editor` memberships permit writes; active `reader` memberships permit reads. SQL snapshots, REST, realtime and protected originals check membership independently. A record in another space and a missing record produce the same not-found response.
 
-Every account created on the server (`init`, `account`) still receives Company editor membership in the same transaction. On new Personal-first projects, account creation also creates that account's Personal space and sole owner membership atomically. An inactive membership is a revocation and is never reactivated by sign-in. Authenticated accounts can create named group spaces, atomically becoming their sole owner. These spaces are private until an operator explicitly adds members. Membership changes remain superuser-only; the hooks validate trusted writes with revision checks and audit entries.
+Account creation (`init`, `account`) on new projects creates only that account's Personal space and sole owner membership atomically. Where Company already exists, new accounts retain the existing Company editor admission behavior. Existing spaces and memberships are not removed on upgrade. An inactive membership is a revocation and is never reactivated by sign-in. Authenticated accounts can create named group spaces, atomically becoming their sole owner. These spaces are private until an operator explicitly adds members. Membership changes remain superuser-only; the hooks validate trusted writes with revision checks and audit entries.
 
 ## Personal spaces
 
@@ -24,7 +24,7 @@ A Personal space has one fixed owner and is visible only to that owner. On exist
 
 Without a space in the URL, the reader resolves the signed-in account's project default. An explicit unavailable space is an error, never a silent switch. Navigation preserves the selected `space` in links.
 
-`--space ID` overrides `POCKETCONTEXT_SPACE`; without either, the client resolves the same authenticated project default. `pocketcontext whoami` reports the selected space, and `pocketcontext spaces` lists visible memberships with a `selected` flag. If the default is inaccessible, `spaces` still lists available memberships without selecting a replacement. Use `--space companyspace001` explicitly for shared Company work on a new project.
+`--space ID` overrides `POCKETCONTEXT_SPACE`; without either, the client resolves the same authenticated project default. `pocketcontext whoami` reports the selected space, and `pocketcontext spaces` lists visible memberships with a `selected` flag. If the default is inaccessible, `spaces` still lists available memberships without selecting a replacement. Use `--space companyspace001` only on projects where Company already exists; create additional spaces explicitly on new projects.
 
 Raw SQL spans every space the account can read, so filter by `space`. Child records inherit their parent's space. Ordinary root record creates without a space use the same project default; superuser root creates must name a space explicitly. Explicit choices retain their independent membership and write-role checks.
 

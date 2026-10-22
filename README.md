@@ -44,7 +44,7 @@ Without a folder, the installers use `~/.local/bin` or `%LOCALAPPDATA%\Programs\
 ./pocketcontext stop
 ```
 
-The server listens on `http://127.0.0.1:8096` (change `port` in `pocketcontext.json`). New projects create a private Personal space and use it by default in the reader and CLI. Existing projects retain their Company default; explicit space selections always win. Run `pocketcontext help` for every command.
+The server listens on `http://127.0.0.1:8096` (change `port` in `pocketcontext.json`). New projects create only a private Personal space, owned by the initial user, and use it by default in the reader and CLI. Company is not created for new projects. Existing projects retain their saved default; legacy Company defaults remain supported. Explicit space selections always win. Run `pocketcontext help` for every command.
 
 ## Authentication
 
@@ -93,7 +93,7 @@ The reader's topics and custom catalogs come from published page properties: `to
 
 Manage spaces beside the space selector creates private named spaces and provides owner-only rename and reversible archive/restore controls. Archived spaces retain readable evidence and history; Company and Personal remain protected.
 
-Overview shows recent knowledge, guides and topic shortcuts; All pages is a separate filterable directory. Catalog navigation shows populated built-in catalogs and explicitly defined custom catalogs.
+Overview shows recent knowledge, guides and topic shortcuts; All pages is a separate filterable directory. Opening a published-page search result scrolls to and highlights the matching paragraph, preserving the selected space and publication. Catalog navigation shows populated built-in catalogs and explicitly defined custom catalogs.
 
 Sources includes uncited originals in the selected space. Its directory loads 50 metadata rows per page, with name/date ordering and direct page navigation; original files load only when opened. Sidebar search follows the selected section: publication-scoped search under Overview and All pages, and space-scoped source search under Sources. Source results cover filenames, metadata and extracted passage text. Evidence excerpts render safe Markdown; View in source opens the verified passage range in its original. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Source text remains untrusted evidence.
 

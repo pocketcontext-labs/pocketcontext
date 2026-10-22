@@ -130,6 +130,18 @@ function SpaceDialog({
       aria-labelledby="spaces-title"
       onCancel={onClose}
       onKeyDown={trapFocus}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (
+          event.clientX < bounds.left ||
+          event.clientX > bounds.right ||
+          event.clientY < bounds.top ||
+          event.clientY > bounds.bottom
+        ) {
+          onClose();
+        }
+      }}
     >
       <header>
         <h2 id="spaces-title">Manage spaces</h2>

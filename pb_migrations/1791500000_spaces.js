@@ -36,21 +36,26 @@ migrate(app => {
     indexes: ['CREATE UNIQUE INDEX idx_space_member ON space_members(space, account)',
       'CREATE INDEX idx_space_member_account ON space_members(account, active)']}));
   const members = app.findCollectionByNameOrId('space_members');
-  const company = new Record(spaces);
-  company.set('id', 'companyspace001');
-  company.set('kind', 'group');
-  company.set('name', 'Company');
-  company.set('revision', 1);
-  app.save(company);
-  // No owner is inferred: company membership remains operator-managed.
-  for (const user of app.findAllRecords('users')) {
-    const row = new Record(members);
-    row.set('space', company.id);
-    row.set('account', user.id);
-    row.set('role', 'editor');
-    row.set('active', !user.getBool('disabled'));
-    row.set('revision', 1);
-    app.save(row);
+  // Company is only a migration destination for existing projects. Fresh
+  // projects create each account's owned Personal space when the account is added.
+  let company = null;
+  if (app.store().get('pocketcontextNewDatabase') !== true) {
+    company = new Record(spaces);
+    company.set('id', 'companyspace001');
+    company.set('kind', 'group');
+    company.set('name', 'Company');
+    company.set('revision', 1);
+    app.save(company);
+    // No owner is inferred for legacy shared knowledge.
+    for (const user of app.findAllRecords('users')) {
+      const row = new Record(members);
+      row.set('space', company.id);
+      row.set('account', user.id);
+      row.set('role', 'editor');
+      row.set('active', !user.getBool('disabled'));
+      row.set('revision', 1);
+      app.save(row);
+    }
   }
 
   // Creation and membership changes are trusted server operations in this phase.
@@ -84,7 +89,7 @@ migrate(app => {
     app.save(collection);
     // Schema metadata backfill only: preserve all original columns, including
     // immutable timestamps and audit history, without invoking business hooks.
-    app.db().newQuery('UPDATE ' + name + ' SET space = {:space}').bind({space: company.id}).execute();
+    if (company) app.db().newQuery('UPDATE ' + name + ' SET space = {:space}').bind({space: company.id}).execute();
     collection.fields.getByName('space').required = true;
     app.save(collection);
   }

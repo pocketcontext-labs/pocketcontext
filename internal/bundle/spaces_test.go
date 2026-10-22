@@ -87,6 +87,16 @@ func TestProjectSpacePolicy(t *testing.T) {
 				return u, token
 			}
 			alice, token := createUser("alice@example.localhost")
+			if fresh {
+				spaces, err := app.FindAllRecords("spaces")
+				if err != nil || len(spaces) != 1 || spaces[0].GetString("kind") != "personal" || spaces[0].GetString("created_by") != alice.Id {
+					t.Fatalf("fresh project must contain only Alice's Personal space: %v, %v", spaces, err)
+				}
+				members, err := app.FindAllRecords("space_members")
+				if err != nil || len(members) != 1 || members[0].GetString("space") != spaces[0].Id || members[0].GetString("account") != alice.Id || members[0].GetString("role") != "owner" || !members[0].GetBool("active") {
+					t.Fatalf("fresh Personal space must have one active owner: %v, %v", members, err)
+				}
+			}
 			_, bobToken := createUser("bob@example.localhost")
 			first := request(http.MethodGet, "/api/spaces/default", token, "", 200)
 			second := request(http.MethodGet, "/api/spaces/default?account="+alice.Id, bobToken, "", 200)
@@ -109,11 +119,13 @@ func TestProjectSpacePolicy(t *testing.T) {
 			request(http.MethodGet, "/api/spaces/default", "", "", 401)
 			request(http.MethodGet, "/api/collections/project_policy/records", token, "", 403)
 			omitted := request(http.MethodPost, "/api/collections/pages/records", token, `{"slug":"implicit","kind":"concept"}`, 200)
-			explicit := request(http.MethodPost, "/api/collections/pages/records", token, `{"slug":"explicit","kind":"concept","space":"companyspace001"}`, 200)
-			if omitted["space"] != own || explicit["space"] != "companyspace001" {
+			explicit := request(http.MethodPost, "/api/collections/pages/records", token, `{"slug":"explicit","kind":"concept","space":"`+own+`"}`, 200)
+			if omitted["space"] != own || explicit["space"] != own {
 				t.Fatalf("root defaults: %v / %v", omitted, explicit)
 			}
 			if fresh {
+				request(http.MethodGet, "/api/collections/spaces/records/companyspace001", token, "", 404)
+				request(http.MethodPost, "/api/collections/pages/records", token, `{"slug":"company","kind":"concept","space":"companyspace001"}`, 404)
 				request(http.MethodPost, "/api/collections/pages/records", bobToken, `{"slug":"foreign","kind":"concept","space":"`+own+`"}`, 404)
 			}
 			// Changing startup evidence after migration does not change persisted policy.
@@ -123,6 +135,12 @@ func TestProjectSpacePolicy(t *testing.T) {
 			}
 			if got := request(http.MethodGet, "/api/spaces/default", token, "", 200); got["id"] != own {
 				t.Fatalf("policy changed: %v", got)
+			}
+			if fresh {
+				spaces, err := app.FindAllRecords("spaces")
+				if err != nil || len(spaces) != 2 {
+					t.Fatalf("migration replay must retain only the two Personal spaces: %v, %v", spaces, err)
+				}
 			}
 			personal := request(http.MethodPost, "/api/spaces/personal", token, `{}`, 200)["id"]
 			if got := request(http.MethodGet, "/api/spaces/default", token, "", 200); got["id"] != own {
@@ -153,7 +171,11 @@ func TestProjectSpacePolicy(t *testing.T) {
 			request(http.MethodPatch, endpoint, token, `{"archived":false,"expected_revision":3}`, 200)
 			request(http.MethodPost, "/api/collections/pages/records", token, `{"slug":"restored-write","kind":"concept","space":"`+managed+`"}`, 200)
 			request(http.MethodDelete, endpoint, token, "", 403)
-			request(http.MethodPatch, "/api/collections/spaces/records/companyspace001", token, `{"name":"Forbidden","expected_revision":1}`, 403)
+			companyStatus := 403
+			if fresh {
+				companyStatus = 404
+			}
+			request(http.MethodPatch, "/api/collections/spaces/records/companyspace001", token, `{"name":"Forbidden","expected_revision":1}`, companyStatus)
 			personalID := personal.(string)
 			request(http.MethodPatch, "/api/collections/spaces/records/"+personalID, token, `{"archived":true,"expected_revision":1}`, 400)
 			request(http.MethodPatch, "/api/collections/spaces/records/"+personalID, token, `{"name":"My notes","expected_revision":1}`, 200)

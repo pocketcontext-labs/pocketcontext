@@ -80,7 +80,10 @@ try {
   }
   await symlink(path.join(root, 'ui/node_modules'), path.join(ui, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   await cli(['init', '--email', 'reader@example.localhost', '--name', 'Reader Test', '--port', String(port), '--password-stdin'], 'synthetic reader password\n');
-  const defaultSpace = (await cli(['spaces'])).find(space => space.selected);
+  const initialSpaces = await cli(['spaces']);
+  assert.equal(initialSpaces.length, 1, 'fresh init creates only Personal');
+  const defaultSpace = initialSpaces.find(space => space.selected);
+  assert.equal(defaultSpace.role, 'owner', 'the initial account owns Personal');
   assert.equal(defaultSpace.kind, 'personal', 'fresh init defaults CLI to Personal');
   await cli(['stop']);
   start(process.execPath, [path.join(root, 'ui/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(vitePort)], {
@@ -91,7 +94,7 @@ try {
   await until(async () => (await fetch(`${origin}/api/bundle/instance`)).ok, 'reader readiness');
 
   const note = path.join(temporary, 'observatory.md');
-  await writeFile(note, '# Observatory evidence\n\nThe synthetic observatory opened in October. The telescope measures starlight every clear night.\n\n## Original notes\n\n**Original Markdown** keeps [[literal-internal-link]] and a footnote.[^1]\n\n[^1]: A normal original footnote.\n\n<script>window.__sourceInjected=true</script>\n');
+  await writeFile(note, '# Observatory evidence\n\nThe synthetic observatory opened in October. The telescope measures starlight every clear night. The synthetic tailcat transport connects the remote telescope.\n\n## Original notes\n\n**Original Markdown** keeps [[literal-internal-link]] and a footnote.[^1]\n\n[^1]: A normal original footnote.\n\n<script>window.__sourceInjected=true</script>\n');
   const source = await cli(['ingest', note, '--title', 'Observatory evidence']);
   const passage = (await cli(['sql', `SELECT id FROM passages WHERE rendition='${source.rendition}' ORDER BY ordinal LIMIT 1`])).rows[0][0];
   const pages = [];
@@ -102,7 +105,7 @@ try {
   }
   const revisions = new Map();
   const publications = [];
-  const body = edition => `## Observatory overview\n\nThe **observatory** opened in October, edition ${edition}.[^1] It follows [[reference-01|telescope catalog notes]].\n\n<img src=x onerror="window.__readerInjected=true">\n\n## Reading and evidence\n\n${'The observatory keeps synthetic field notes so colleagues can compare the claim with its source. '.repeat(10)}[^1]\n\n## Next steps\n\nRead the evidence before using these fictional examples.[^1]`;
+  const body = edition => `## Observatory overview\n\nThe **observatory** opened in October, edition ${edition}.[^1] It follows [[reference-01|telescope catalog notes]].\n\n<img src=x onerror="window.__readerInjected=true">\n\n## Reading and evidence\n\n${'The observatory keeps synthetic field notes so colleagues can compare the claim with its source. '.repeat(10)}[^1]\n\n## Next steps\n\nRead the evidence before using these fictional examples.[^1]\n\n## Remote notes\n\nThe **tailcat** transport connects the remote observatory telescope in edition ${edition}.[^1]`;
   for (let edition = 1; edition <= 2; edition++) {
     const run = await create('ingestion_runs', { key: `reader-edition-${edition}`, status: 'staging', description: 'Synthetic reader fixture' });
     const indexes = edition === 1 ? Array.from({ length: titles.length }, (_, index) => index).filter(index => index !== 11) : [0, 11, 12, 13];
@@ -150,7 +153,8 @@ try {
   await page.goto(signIn.signInLink);
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
   await assertLight('signed-in reader');
-  assert.equal(await page.getByRole('combobox', {name: 'Space', exact: true}).locator('option:checked').innerText(), 'Personal');
+  assert.equal((await page.locator('.workspace-label').innerText()).trim(), 'Personal');
+  assert.equal(await page.getByRole('combobox', {name: 'Space', exact: true}).count(), 0, 'a sole Personal space needs no selector');
   ok('login and reader remain light with a legacy dark preference and dark operating system');
   async function screenshot(name) {
     if (name.startsWith('home-') || name.startsWith('reader-')) {
@@ -327,6 +331,30 @@ try {
   await noOverflow('mobile search');
   await screenshot('search-mobile-light');
   assert(!(await snippet.innerText()).includes('reference-01'), 'internal link aliases hide raw target slugs in snippets');
+  for (const [width, height, publication, edition] of [[1440, 1000, publications[0], 'one'], [390, 844, publications[1], 'two']]) {
+    await page.setViewportSize({width, height});
+    const query = width === 1440 ? 'observatory tailcat' : 'tailcat';
+    await route(`#/?q=${encodeURIComponent(query)}&publication=${publication}&space=${defaultSpace.id}`, 'Search results');
+    await page.locator('.search-results').getByRole('link', {name:`Observatory edition ${edition}`,exact:true}).click();
+    const match = page.locator('article .markdown p.page-search-match');
+    await match.waitFor();
+    assert((await match.innerText()).includes('tailcat'), 'the result highlights the matching paragraph');
+    assert((await match.innerText()).includes(edition === 'one' ? 'edition 1' : 'edition 2'), 'the match belongs to the selected publication');
+    assert(await match.evaluate(element => element === document.activeElement), 'the matching paragraph receives keyboard focus');
+    await until(() => match.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const reader = document.getElementById('reader').getBoundingClientRect();
+      return bounds.top >= reader.top && bounds.bottom <= reader.bottom;
+    }), 'the matching paragraph scrolls into view');
+    assert(page.url().includes(`publication=${publication}`) && page.url().includes(`space=${defaultSpace.id}`), 'search result preserves publication and space');
+    await screenshot(`search-paragraph-${width}`);
+    await page.reload();
+    await match.waitFor();
+    await page.getByRole('link', {name:'← Back to search results',exact:true}).click();
+    await page.getByRole('heading', {name:'Search results',exact:true}).waitFor();
+    assert.equal(await page.locator('.page-search-match').count(), 0, 'returning to results clears the paragraph highlight');
+  }
+  ok('search results open and highlight matching paragraphs on desktop and mobile, including fixed publications and reloads');
   await route('#/page/observatory', 'Observatory edition two');
   await page.getByRole('button', { name: 'Open navigation' }).click();
   const drawerSearch = page.locator('.sidebar').getByRole('searchbox', { name: 'Search pages', exact: true });
@@ -456,14 +484,15 @@ try {
   await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'source ingestion refreshes count without publication');
   const unchangedPublication = (await cli(['sql', 'SELECT id FROM publications ORDER BY sequence DESC LIMIT 1'])).rows[0][0];
   assert.equal(unchangedPublication, publications[1]);
-  await page.goto(`${origin}/#/pages?space=companyspace001`);
+  const separateSpace = await create('spaces', {kind: 'group', name: 'Separate research'});
+  await page.goto(`${origin}/#/pages?space=${separateSpace.id}`);
   await page.getByRole('heading', { name: 'All pages', exact: true }).waitFor();
   await page.getByText('No pages have been published in this space yet.').waitFor();
   assert.equal(await page.locator('.catalog-navigation').count(), 0, 'empty space has no catalog links');
-  await cli(['ingest', extraNote, '--space', 'companyspace001', '--title', 'Company original']);
-  await page.goto(`${origin}/#/sources/?space=companyspace001`);
+  await cli(['ingest', extraNote, '--space', separateSpace.id, '--title', 'Separate original']);
+  await page.goto(`${origin}/#/sources/?space=${separateSpace.id}`);
   await page.reload();
-  await until(async () => /Sources\s*1$/.test(await sourcesNav.innerText()), 'source count isolates company-space inventory');
+  await until(async () => /Sources\s*1$/.test(await sourcesNav.innerText()), 'source count isolates explicitly created space inventory');
   assert.equal(await page.locator('#reader').getByText('Observatory evidence', { exact: true }).count(), 0);
   await page.goto(`${origin}/#/sources/?space=${defaultSpace.id}`);
   await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'returning to Personal restores its count');
@@ -487,12 +516,13 @@ try {
   await manager.getByRole('button',{name:'Save name',exact:true}).click();
   await manager.getByText('Space renamed.',{exact:true}).waitFor();
   await screenshot('spaces-desktop-light');
-  await manager.getByRole('button',{name:'Archive',exact:true}).click();
+  const renamedRow = manager.locator('li').filter({has:page.getByText('Synthetic renamed',{exact:true})});
+  await renamedRow.getByRole('button',{name:'Archive',exact:true}).click();
   await manager.getByRole('button',{name:'Confirm archive',exact:true}).click();
   await manager.getByText(/Space archived. You can restore/).waitFor();
   assert.equal(await manager.getByText('Synthetic renamed',{exact:true}).count(),0);
   await manager.getByLabel('Show archived spaces').check();
-  await manager.getByRole('button',{name:'Restore',exact:true}).click();
+  await renamedRow.getByRole('button',{name:'Restore',exact:true}).click();
   await manager.getByText('Space restored.',{exact:true}).waitFor();
   await page.setViewportSize({width:390,height:844});
   assert(await manager.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'space manager fits mobile');
@@ -502,9 +532,11 @@ try {
   await page.setViewportSize({width:1440,height:1000});
   await page.getByRole('button', {name:'Manage spaces',exact:true}).click();
   await manager.waitFor({state:'visible'});
-  await page.keyboard.press('Escape');
+  await manager.click({position:{x:8,y:8}});
+  assert(await manager.isVisible(), 'clicking dialog padding keeps the manager open');
+  await page.mouse.click(8, 8);
   await manager.waitFor({state:'hidden'});
-  await until(async () => page.getByRole('button', {name:'Manage spaces',exact:true}).evaluate(el => el === document.activeElement), 'space manager restores focus');
+  await until(async () => page.getByRole('button', {name:'Manage spaces',exact:true}).evaluate(el => el === document.activeElement), 'backdrop dismissal restores focus');
   const managed = (await cli(['sql',`SELECT name, archived, revision FROM spaces WHERE id='${managedId}'`])).rows[0];
   assert.deepEqual(managed, ['Synthetic renamed', false, 4]);
   ok('space manager creates, selects, renames, archives and restores through ordinary authenticated REST, and fits mobile');

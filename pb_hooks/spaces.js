@@ -251,13 +251,15 @@ function updateRequest(e) {
   return e.json(200, e.app.findRecordById('space_members', row.id));
 }
 
-// Provision company access only when an account is first created. Existing
-// inactive membership is an explicit revocation and is never reactivated.
+// Preserve admission to Company in existing projects only. Fresh projects have
+// no Company space. Inactive membership is never reactivated.
 function admitCompany(app, accountId) {
   app.runInTransaction(tx => {
+    const companies = tx.findRecordsByFilter('spaces', 'id = {:id}', '', 1, 0, {id: COMPANY_SPACE});
+    if (!companies.length) return;
     const user = tx.findRecordById('users', accountId);
     if (user.getBool('disabled') || membership(tx, COMPANY_SPACE, accountId)) return;
-    putMembership(tx, '', requireSpace(tx, COMPANY_SPACE), accountId, 'editor', true, null, true);
+    putMembership(tx, '', companies[0], accountId, 'editor', true, null, true);
   });
 }
 
