@@ -426,7 +426,11 @@ try {
   await noOverflow('mobile Markdown source');
   await screenshot('source-mobile-light');
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.locator('.sidebar').getByRole('combobox', { name: 'Search scope', exact: true }).selectOption('sources');
+  assert.equal(await page.getByRole('combobox', {name:'Search scope',exact:true}).count(), 0, 'section navigation replaces the search scope selector');
+  await page.locator('.primary-navigation').getByRole('link', {name:/All pages/}).click();
+  await page.locator('.sidebar').getByRole('searchbox', {name:'Search pages',exact:true}).waitFor();
+  await page.locator('.primary-navigation').getByRole('link', {name:/Sources/}).click();
+  await page.locator('.sidebar').getByRole('searchbox', {name:'Search sources',exact:true}).waitFor();
   const sourceSearch = page.locator('.sidebar').getByRole('searchbox');
   const sourceSearchIndexes = [];
   const observeSourceSearch = request => {

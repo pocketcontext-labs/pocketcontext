@@ -48,18 +48,7 @@
   font-size: 18px;
   margin-block: 24px 6px;
 }
-.search-scope {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 12px 0 8px;
-  font-size: 12px;
-}
-.search-scope select {
-  flex: 1;
-  min-width: 0;
-  padding: 6px;
-}
+
 @media (max-width: 800px) {
   .directory-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));

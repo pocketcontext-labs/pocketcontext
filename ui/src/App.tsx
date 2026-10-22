@@ -1004,24 +1004,6 @@ function Reader() {
             </select>
           </label>
         )}
-        <label className="search-scope">
-          Search in
-          <select
-            aria-label="Search scope"
-            value={current.collection === "pages" ? "pages" : "sources"}
-            onChange={(event) => {
-              location.hash =
-                event.target.value === "sources"
-                  ? evidenceHref("sources", "", search)
-                  : search.trim()
-                    ? searchHref(search, displayedPinned)
-                    : pagesHref({}, displayedPinned);
-            }}
-          >
-            <option value="pages">Pages</option>
-            <option value="sources">Sources</option>
-          </select>
-        </label>
         <label className="search">
           <span aria-hidden="true">⌕</span>
           <input
