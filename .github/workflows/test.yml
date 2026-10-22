@@ -41,13 +41,13 @@ jobs:
       - name: Unit tests
         run: |
           packages=./...
-          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client"; fi
-          CGO_ENABLED=1 go test -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 $packages
+          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client ./internal/tunnel"; fi
+          CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" $packages
       - name: Build the binary
         run: |
           exe=pocketcontext
           if [ "$RUNNER_OS" = Windows ]; then exe=pocketcontext.exe; fi
-          CGO_ENABLED=1 go build -trimpath -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 -o "bin/$exe" ./cmd/pocketcontext
+          CGO_ENABLED=1 go build -trimpath -tags "$(cat build-tags.txt)" -o "bin/$exe" ./cmd/pocketcontext
           echo "EXE=bin/$exe" >> "$GITHUB_ENV"
       - name: Development reader browser regression
         if: matrix.runner == 'ubuntu-24.04'

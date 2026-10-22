@@ -70,7 +70,7 @@ jobs:
       - name: Build the binary onto the desktop
         shell: bash
         run: |
-          CGO_ENABLED=1 go build -trimpath -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 -o bin/pocketcontext.exe ./cmd/pocketcontext
+          CGO_ENABLED=1 go build -trimpath -tags "$(cat build-tags.txt)" -o bin/pocketcontext.exe ./cmd/pocketcontext
           desktop="$(cygpath "$USERPROFILE")/Desktop/PocketContext"
           mkdir -p "$desktop"
           cp bin/pocketcontext.exe "$desktop/"

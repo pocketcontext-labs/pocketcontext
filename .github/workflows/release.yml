@@ -82,8 +82,8 @@ jobs:
       - name: Unit tests
         run: |
           packages=./...
-          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client"; fi
-          CGO_ENABLED=1 go test -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 $packages
+          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client ./internal/tunnel"; fi
+          CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" $packages
       - name: Build and inspect the release binary; package notices
         run: $PY scripts/release.py build --version "$RELEASE_VERSION" --commit "$RELEASE_COMMIT" --platform "$RELEASE_PLATFORM" --output dist
       - name: End-to-end test of the release binary

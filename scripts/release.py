@@ -25,7 +25,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "pocketcontext-labs/pocketcontext"
 PLATFORMS = ("linux_amd64", "linux_arm64", "darwin_arm64", "windows_amd64")
-TAGS = "sqlite_math_functions,sqlite_percentile,sqlite_fts5"
+# build-tags.txt is the one list of Go build tags: SQLite features and the
+# tailscale.com features the tunnel omits.
+TAGS = (ROOT / "build-tags.txt").read_text(encoding="utf-8").strip()
 GO_VERSION = "go1.27.1"
 GO_IMAGE = "golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414"
 PACKAGE = "github.com/pocketcontext-labs/pocketcontext/internal/bundle"

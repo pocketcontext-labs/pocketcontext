@@ -1,4 +1,5 @@
-TAGS := sqlite_math_functions,sqlite_percentile,sqlite_fts5
+# build-tags.txt lists the SQLite features and the tailscale.com features the tunnel omits.
+TAGS := $(shell cat build-tags.txt)
 VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/pocketcontext-labs/pocketcontext/internal/bundle.Version=$(VERSION)
 GOBUILD := go build -trimpath -tags $(TAGS) -ldflags "$(LDFLAGS)"
