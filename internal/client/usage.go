@@ -11,7 +11,7 @@ Setup and server:
   init --email EMAIL [--name NAME] [--port N] [--password-stdin]
                        create the project and local account, start the server
   ensure-running       start the server in the background unless it runs (alias: start)
-  serve                run the server in the foreground
+  serve [--ui-dev URL]  run in the foreground; optionally proxy a loopback Vite UI
   stop                 write back the database and stop the server
   status               show paths, port, lease and whether the server runs
   open [--email EMAIL] [--no-browser]

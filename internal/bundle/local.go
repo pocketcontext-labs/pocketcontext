@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ type localRoutes struct {
 	key   string
 	stop  chan struct{}
 	codes codeStore
+	uiDev string
 }
 
 // Sign-in code lifetimes in seconds. Codes live only in server memory.
@@ -138,9 +140,15 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 	})
 
 	e.Router.GET("/api/bundle/instance", func(re *core.RequestEvent) error {
-		return re.JSON(http.StatusOK, map[string]string{
+		info := map[string]any{
 			"app": "pocketcontext", "version": Version, "instance": l.p.Config.Instance, "key": l.p.Key,
-		})
+		}
+		if l.uiDev != "" {
+			// The repository launcher verifies the exact child before it may
+			// stop it; an existing server on this port is never adopted.
+			info["uiDev"], info["pid"] = l.uiDev, os.Getpid()
+		}
+		return re.JSON(http.StatusOK, info)
 	})
 
 	e.Router.POST("/api/bundle/token", func(re *core.RequestEvent) error {

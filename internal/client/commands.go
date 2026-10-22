@@ -268,7 +268,7 @@ parsed:
 		return nil
 	}
 	spec := map[string][2][]string{
-		"serve":                 {nil, {"take-over"}},
+		"serve":                 {{"ui-dev"}, {"take-over"}},
 		"start":                 {nil, {"take-over"}},
 		"ensure-running":        {nil, {"take-over"}},
 		"stop":                  {nil, nil},
@@ -337,7 +337,10 @@ parsed:
 	}
 	switch command {
 	case "serve":
-		return bundle.Serve(p, bundle.ServeOptions{TakeOver: a.bools["take-over"]})
+		if a.has("ui-dev") && a.flags["ui-dev"] == "" {
+			return fail(2, "--ui-dev needs a loopback Vite URL")
+		}
+		return bundle.Serve(p, bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"]})
 	case "start", "ensure-running":
 		if err := bundle.EnsureRunning(p, bundle.StartOptions{TakeOver: a.bools["take-over"]}); err != nil {
 			return fail(1, "%v", err)

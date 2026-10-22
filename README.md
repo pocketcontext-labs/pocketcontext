@@ -101,6 +101,29 @@ Native Windows builds use MinGW-w64 gcc.
 
 Releases (`scripts/release.py`, `.github/workflows/release.yml`): pushing a `vX.Y.Z` tag on `main` builds native static binaries on Linux amd64/arm64, macOS arm64 and Windows amd64, runs the name check and the end-to-end test against each, assembles `pocketcontext_<version>_<platform>.tar.gz`/`.zip`, `install.sh`, `install.ps1` and `checksums.txt`, publishes an immutable release, and then installs it with the one-line installers on every platform and tests again. CI (`.github/workflows/test.yml`) runs the unit tests, the name check and the end-to-end test on Linux (amd64, arm64), macOS and Windows.
 
+## Develop the reader
+
+Build the executable once with `make ui && make build`, then use Vite hot reload while editing `ui/src` in Codex. Choose a separate local development project with synthetic notes. Initialize it once and stop the server that `init` starts:
+
+```sh
+bin/pocketcontext init --db /absolute/path/to/dev/pocketcontext.db --port 18096 --email dev@example.localhost --name Developer
+bin/pocketcontext stop --db /absolute/path/to/dev/pocketcontext.db
+node scripts/dev.mjs --db /absolute/path/to/dev/pocketcontext.db
+# Equivalent: make dev DB=/absolute/path/to/dev/pocketcontext.db
+```
+
+The launcher requires an explicit existing database, reads its port from `pocketcontext.json`, starts Vite on `127.0.0.1:5173`, then runs the existing binary with `serve --ui-dev http://127.0.0.1:5173`. It refuses occupied ports, waits for readiness and stops its processes on Ctrl-C, using the normal authenticated shutdown to flush database snapshots. It neither installs dependencies nor rebuilds the executable. Use `--binary PATH` for another executable or `--vite-port PORT` when 5173 is occupied. On Windows use `bin/pocketcontext.exe` for the initialization commands; the Node launcher selects that default automatically.
+
+Open the reader at the project port (18096 in this example) and sign in with the development account. Alternatively, run `bin/pocketcontext open --db /absolute/path/to/dev/pocketcontext.db` in another terminal. Keep that browser open beside the Codex chat. CSS and compatible React edits update immediately; some module changes reload the page. The browser stays on PocketContext's origin: Go serves authentication and APIs, and proxies UI modules and the hot-reload WebSocket to Vite. The Vite port is an internal development upstream.
+
+After downloading an original, restarting Vite may require manually refreshing the reader to reconnect hot reload.
+
+`--ui-dev` is a foreground `serve` option, accepts only a loopback HTTP upstream, and is never stored in project configuration. Without it the executable serves its embedded reader. Go code, hooks and migrations still need a rebuild and restart. For manual process management, run Vite with `POCKETCONTEXT_DEV_PORT` set to the project port and start `serve --db PATH --ui-dev http://127.0.0.1:5173` separately.
+
+Hot reload does not type-check. Run `pnpm --dir ui typecheck`, `pnpm --dir ui test`, and `pnpm --dir ui build` after changes, plus `node --test tests/dev_launcher.test.mjs` after launcher changes. Before shipping, rebuild the embedded reader and executable and run the Go, name and end-to-end checks above.
+
+The browser regression check uses synthetic data and a temporary UI copy. Install its pinned Chromium once with `pnpm --dir ui exec playwright install chromium`, then run `node tests/ui_dev_browser.mjs --binary bin/pocketcontext`. CI runs this check on Linux amd64. Use `--browser /path/to/chromium` for a custom browser executable, or `--playwright /absolute/path/to/playwright/index.mjs` for a separate Playwright installation.
+
 ## Layout
 
 | Path | Content |
@@ -117,3 +140,5 @@ Releases (`scripts/release.py`, `.github/workflows/release.yml`): pushing a `vX.
 | `tests/e2e.py` | end-to-end test (standard-library Python) |
 | `tests/name_check.py` | name check of the repository and the binary |
 | `tests/test_release.py` | release tooling tests |
+| `scripts/dev.mjs`, `tests/dev_launcher.test.mjs` | development launcher and its tests |
+| `tests/ui_dev_browser.mjs` | browser regression for hot reload and development routing |

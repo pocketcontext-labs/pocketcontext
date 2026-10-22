@@ -36,6 +36,7 @@ var (
 // ServeOptions control one foreground server run.
 type ServeOptions struct {
 	TakeOver bool
+	UIDev    string
 }
 
 // unpack writes the embedded application files to a content-addressed cache
@@ -102,6 +103,14 @@ func unpack(p *Project) (string, error) {
 
 // Serve runs the server in the foreground until interrupted or stopped.
 func Serve(p *Project, opts ServeOptions) error {
+	var devUI *uiDevProxy
+	if opts.UIDev != "" {
+		var err error
+		devUI, err = newUIDevProxy(opts.UIDev, p)
+		if err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(p.Cache, 0700); err != nil {
 		return err
 	}
@@ -133,7 +142,7 @@ func Serve(p *Project, opts ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("unpacking application files: %w", err)
 	}
-	// The reader hook serves ui/dist relative to the working directory.
+	// Hooks resolve their embedded application files from this directory.
 	if err := os.Chdir(appDir); err != nil {
 		return err
 	}
@@ -201,7 +210,7 @@ func Serve(p *Project, opts ServeOptions) error {
 
 	var httpServer *http.Server
 	stop := make(chan struct{}, 1)
-	local := &localRoutes{p: p, store: store, key: key, stop: stop}
+	local := &localRoutes{p: p, store: store, key: key, stop: stop, uiDev: opts.UIDev}
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.InstallerFunc = nil // accounts are created by `pocketcontext init`
 		httpServer = e.Server
@@ -209,6 +218,11 @@ func Serve(p *Project, opts ServeOptions) error {
 			store.Changed()
 		}
 		local.register(e)
+		if devUI != nil {
+			devUI.register(e)
+		} else {
+			registerReader(e, filepath.Join(appDir, "ui", "dist"))
+		}
 		return e.Next()
 	})
 
@@ -248,6 +262,9 @@ func Serve(p *Project, opts ServeOptions) error {
 
 	addr := fmt.Sprintf("127.0.0.1:%d", p.Config.Port)
 	log.Printf("pocketcontext %s serving %s at http://%s", Version, p.DB, addr)
+	if devUI != nil {
+		log.Printf("UI development mode: serving the reader through %s", opts.UIDev)
+	}
 	serveErr := apis.Serve(app, apis.ServeConfig{
 		HttpAddr:       addr,
 		AllowedOrigins: []string{p.URL(), fmt.Sprintf("http://localhost:%d", p.Config.Port)},

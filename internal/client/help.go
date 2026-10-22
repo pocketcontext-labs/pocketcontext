@@ -26,7 +26,7 @@ var commandHelp = map[string]helpEntry{
 		"Start the server in the background unless it already runs for this database (alias: start). --take-over ignores a lease from another computer; use it only when that computer is off.",
 		"pocketcontext ensure-running"},
 	"start": {"start [--take-over]", "Alias of ensure-running.", "pocketcontext start"},
-	"serve": {"serve [--take-over]", "Run the server in the foreground until interrupted.", "pocketcontext serve"},
+	"serve": {"serve [--take-over] [--ui-dev URL]", "Run the server in the foreground until interrupted. --ui-dev http://127.0.0.1:5173 serves the reader through a loopback Vite development server; APIs and sign-in remain on this server. Start Vite separately or use the repository development launcher. This option is foreground-only and is not saved in project configuration.", "pocketcontext serve"},
 	"stop":  {"stop", "Write the database back to the synced folder and stop the server. Run it before switching computers.", "pocketcontext stop"},
 	"status": {"status",
 		"Show paths, port, lease, write-back conflicts and whether the server runs. With --url: whether the server answers and who is signed in.",
