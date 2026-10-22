@@ -72,8 +72,18 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
   stage-home RUN_ID --expected-revision N (--home SLUG | --clear-home) [--home-base ID]
   publish RUN_ID --expected-revision N [--home SLUG | --clear-home --home-base ID]
 
-Remote client (the server runs on another computer, reached through a
-tailcat or SSH forward of the same port; --url URL or POCKETCONTEXT_URL):
+Tunnel (carry the server's port to another computer; foreground, Ctrl-C stops):
+  tunnel serve [--new-address]
+                       on the agent computer: expose only the project's port
+                       through tailcat and print the private tunnel address
+                       (stable across restarts; --new-address replaces it)
+  tunnel forward (ADDRESS | --address-stdin) [--url URL]
+                       on the person's computer: listen on the same loopback
+                       port (default http://127.0.0.1:8096) and carry it to
+                       the agent computer; never uses a local database
+
+Remote client (the server runs on another computer, reached through
+` + "`tunnel forward`" + ` or an SSH forward of the same port; --url URL or POCKETCONTEXT_URL):
   login --url URL --code-stdin
                        sign in with a one-time code from ` + "`login-code`" + ` on the
                        agent computer, read from standard input; stores only

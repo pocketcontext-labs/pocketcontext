@@ -41,7 +41,7 @@ type session struct {
 
 // normalizeURL accepts only http://127.0.0.1:PORT or http://localhost:PORT.
 func normalizeURL(raw string) (string, error) {
-	bad := fail(2, "--url must be http://127.0.0.1:PORT or http://localhost:PORT; only loopback URLs are accepted (forward the server's port with tailcat or SSH)")
+	bad := fail(2, "--url must be http://127.0.0.1:PORT or http://localhost:PORT; only loopback URLs are accepted (forward the server's port with `pocketcontext tunnel forward` or SSH)")
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
 		return "", bad
@@ -124,8 +124,8 @@ func probe(base string) (*bundle.Instance, error) {
 	quick := &http.Client{Timeout: 5 * time.Second, CheckRedirect: noRedirect}
 	resp, err := quick.Get(base + "/api/bundle/instance")
 	if err != nil {
-		return nil, fail(1, "the PocketContext server at %s is not reachable. The server runs on the agent computer: check that it runs there and that the tailcat or SSH forward of the same port is active (for example `tailcat forward ADDR %s:%s`). Nothing was started here.",
-			base, port(base), port(base))
+		return nil, fail(1, "the PocketContext server at %s is not reachable. The server runs on the agent computer: check that it runs there and that the forward of the same port is active (for example `pocketcontext tunnel forward --address-stdin --url %s`, or `ssh -L %s:127.0.0.1:%s`). Nothing was started here.",
+			base, base, port(base), port(base))
 	}
 	defer resp.Body.Close()
 	var i bundle.Instance

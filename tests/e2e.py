@@ -214,6 +214,7 @@ def main():
             staging_scenario(pc)
             remote = Remote(binary, Path(temp) / 'other-computer', pc.url)
             remote_scenario(pc, remote)
+            tunnel_scenario(pc, remote)
             codes_scenario(pc, remote)
             lint_scenario(pc)
             navigation_scenario(pc)
@@ -801,6 +802,25 @@ def remote_scenario(pc, r):
     leftovers = [p for p in r.root.rglob('*') if p.name in ('pocketcontext.db', 'pocketcontext.json', 'local.key') or p.suffix in ('.db', '.lease')]
     check(not leftovers, f'remote mode creates no database, project or key: {leftovers}')
     check(sorted(p.name for p in r.work.iterdir()) == ['tea.md'], 'remote mode writes nothing to the working folder')
+
+
+def tunnel_scenario(pc, r):
+    """Offline checks of `tunnel`: its help and every refusal that comes before any network access."""
+    help_text = r.run('tunnel', '--help', url=False).stdout
+    check('tunnel serve' in help_text and 'tunnel forward' in help_text and '--address-stdin' in help_text, 'tunnel --help documents both sides')
+    check('tunnel serve' in r.run('help', url=False).stdout, 'the overview lists the tunnel')
+    for args, url in ((['tunnel', 'serve'], None), (['tunnel', 'forward', '--address-stdin', '--db', str(pc.db)], False),
+                      (['tunnel', 'forward', '--address-stdin', '--new-address'], None), (['tunnel'], False), (['tunnel', 'open'], False)):
+        r.run(*args, url=url, stdin='tcSyntheticButInvalid\n', expect=2)
+    for text in ('tcSyntheticButInvalidSecret', 'not-an-address'):
+        refused = r.run('tunnel', 'forward', '--address-stdin', stdin=text + '\n', expect=2)
+        check('not a valid tailcat address' in refused.stderr and text not in refused.stderr + refused.stdout,
+              'an invalid tunnel address is refused without being echoed')
+    refused = r.run('tunnel', 'forward', 'tcSyntheticButInvalidSecret', url=False, expect=2)
+    check('tcSyntheticButInvalidSecret' not in refused.stderr, 'an invalid address argument is not echoed')
+    missing = r.run('tunnel', 'serve', '--db', str(r.work / 'none.db'), url=False, expect=2)
+    check('no PocketContext database' in missing.stderr and not (r.work / 'none.db').exists(), 'tunnel serve never creates a database')
+    check(not list(user_cache(r.home).rglob('tunnel.json')), 'refused tunnel commands keep no tunnel identity')
 
 
 def codes_scenario(pc, r):

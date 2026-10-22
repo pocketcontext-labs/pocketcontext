@@ -303,6 +303,7 @@ parsed:
 		"login-code":            {{"email", "ttl"}, nil},
 		"login":                 {{"email"}, {"password-stdin", "code-stdin"}},
 		"logout":                {nil, nil},
+		"tunnel":                {nil, {"new-address", "address-stdin"}},
 	}
 	s, known := spec[command]
 	if !known {
@@ -313,6 +314,11 @@ parsed:
 		return err
 	}
 	pretty := a.bools["pretty"]
+	// The tunnel carries the port between computers; it is neither a server
+	// nor a knowledge command, so it chooses its own side below.
+	if command == "tunnel" {
+		return runTunnel(a, pretty)
+	}
 	// --url, or POCKETCONTEXT_URL without an explicit --db, selects remote mode.
 	remote, fromFlag := a.flags["url"], a.has("url")
 	if fromFlag && a.has("db") {
