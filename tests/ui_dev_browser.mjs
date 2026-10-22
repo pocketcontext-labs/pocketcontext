@@ -90,7 +90,7 @@ try {
   let server = start(binary, ['serve', '--db', db, '--ui-dev', upstream], { env, cwd: temporary });
   await until(async () => (await fetch(`${origin}/api/bundle/instance`)).ok, 'PocketContext readiness');
 
-  const original = '# Synthetic browser source\n\nThe observatory opened in October.\n';
+  const original = '---\ntitle: Synthetic browser source\ndate: 2026-10-22\n---\n\n# Synthetic browser source\n\nThe observatory opened in October.\n';
   const note = path.join(temporary, 'observatory.md');
   await writeFile(note, original);
   const ingested = await cli(['ingest', note]);
@@ -162,6 +162,16 @@ try {
   assert.equal(errors.length, 0, 'Vite restart must have no browser runtime errors');
   ok('hot reload recovers after restarting Vite with the same Go process');
   await page.evaluate(sourceID => { location.hash = `#/sources/${sourceID}`; }, ingested.source);
+  const metadata = page.locator('.source-metadata');
+  await metadata.waitFor();
+  assert.equal(await metadata.getAttribute('open'), null);
+  assert.equal(await page.getByRole('heading', { name: /^title:/ }).count(), 0);
+  await metadata.locator('summary').click();
+  assert(await metadata.locator('code').isVisible());
+  assert((await metadata.innerText()).includes('title: Synthetic browser source'));
+  await metadata.locator('summary').press('Enter');
+  assert.equal(await metadata.getAttribute('open'), null);
+  ok('front matter is collapsed metadata with mouse and keyboard disclosure controls');
   const downloadReady = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download original' }).click();
   const download = await downloadReady;

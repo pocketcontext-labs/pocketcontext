@@ -2,8 +2,10 @@ import { spaceLink } from "./spaceLinks";
 import { memo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkFrontmatter from "remark-frontmatter";
 import { visit } from "unist-util-visit";
 import { sourceHighlight } from "./sourceHighlight";
+import { sourceMetadata } from "./sourceMetadata";
 import type { SourceRange } from "./sourceRanges";
 
 export function headingId(text: string) {
@@ -131,7 +133,13 @@ export const Markdown = memo(function Markdown({
   };
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, [pageSyntax, { source: mode === "source" }], [sourceHighlight, { text: body, range: mode === "source" ? highlight : undefined }]]}
+      remarkPlugins={[
+        remarkGfm,
+        ...(mode === "source" ? [remarkFrontmatter] : []),
+        [sourceMetadata, { range: highlight }],
+        [pageSyntax, { source: mode === "source" }],
+        [sourceHighlight, { text: body, range: mode === "source" ? highlight : undefined }],
+      ]}
       skipHtml
       urlTransform={(url) =>
         (mode === "source" ? /^(https?:|mailto:|#)/i : /^(page:|citation:|https?:|mailto:|#)/i).test(url) ? url : ""

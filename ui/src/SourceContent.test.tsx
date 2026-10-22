@@ -12,6 +12,94 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const withMetadata =
+  "---\ntitle: Example note\ndate: 2026-10-22\n---\n\n# Example note\n\nCited **words**.";
+
+it("tucks source front matter away without rendering it as a heading", () => {
+  const { container } = render(
+    <SourceContent source={source} text={withMetadata} />,
+  );
+  expect(screen.getAllByRole("heading")).toHaveLength(1);
+  expect(screen.getByRole("heading", { name: "Example note" })).toBeVisible();
+  const metadata = container.querySelector("details")!;
+  expect(metadata).not.toHaveAttribute("open");
+  expect(metadata.querySelector("summary")).toHaveTextContent(
+    "Source metadata",
+  );
+  expect(metadata.querySelector("code")).toHaveTextContent(
+    "title: Example note",
+  );
+});
+
+it("preserves original line offsets when highlighting prose after front matter", () => {
+  const { container } = render(
+    <SourceContent
+      source={source}
+      text={withMetadata}
+      passage={{
+        id: "metadata-prose",
+        locator: "document; line 8",
+        body: "Cited **words**.",
+      }}
+      passageRequested
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Reading view" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(container.querySelector("strong mark")).toHaveTextContent("words");
+  expect(container.querySelector("details")).not.toHaveAttribute("open");
+  fireEvent.click(screen.getByRole("button", { name: "Exact source" }));
+  expect(container.querySelector("pre")?.textContent).toBe(withMetadata);
+});
+
+it("opens and highlights cited front matter and renders metadata safely in evidence", () => {
+  const body = "---\ntitle: <script>alert(1)</script>\n---";
+  const { container, rerender } = render(
+    <SourceContent
+      source={source}
+      text={body}
+      passage={{
+        id: "metadata-only",
+        locator: "front matter; lines 1-3",
+        body,
+      }}
+      passageRequested
+    />,
+  );
+  expect(container.querySelector("details")).toHaveAttribute("open");
+  expect(container.querySelector("[data-source-highlight]")).toHaveTextContent(
+    "title:",
+  );
+  expect(container.querySelector("script")).toBeNull();
+  rerender(<EvidenceExcerpt source={source} body={body} />);
+  expect(container.querySelector("details")).not.toHaveAttribute("open");
+  expect(container.querySelector("h2,script")).toBeNull();
+});
+
+it("keeps ordinary separators, incomplete front matter and plain text unchanged", () => {
+  const { container, rerender } = render(
+    <SourceContent source={source} text={"Opening\n\n---\n\nAfter"} />,
+  );
+  expect(container.querySelector("hr")).not.toBeNull();
+  expect(container.querySelector("details")).toBeNull();
+  rerender(<SourceContent source={source} text={"---\ntitle: Unclosed"} />);
+  expect(container).toHaveTextContent("title: Unclosed");
+  expect(container.querySelector("details")).toBeNull();
+  rerender(
+    <SourceContent
+      source={{
+        ...source,
+        media_type: "text/plain",
+        original_name: "note.txt",
+      }}
+      text={withMetadata}
+    />,
+  );
+  expect(container.querySelector("pre")?.textContent).toBe(withMetadata);
+});
+
 it("marks only the verified occurrence in rendered Markdown and scrolls to it", () => {
   const scroll = vi.fn();
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {

@@ -46,3 +46,6 @@
 .source-range-toolbar button { min-height: 40px; background: var(--panel); color: var(--text); padding: 8px 12px; }
 .source-range-toolbar button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .source-range-note { font-size: 14px; color: var(--muted); line-height: 1.6; }
+.markdown .source-metadata { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+.markdown .source-metadata > summary { cursor: pointer; width: fit-content; }
+.markdown .source-metadata pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
