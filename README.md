@@ -2,6 +2,8 @@
 
 A local knowledge base in one binary. Ingest text notes as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces separate shared and personal knowledge; full-text search covers published pages and original source passages. The binary contains the server (on PocketBase), the browser reader and the command-line client, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
+See [what changed in 0.8.0](docs/releases/0.8.0.md), including reader navigation, source browsing, space management and UI hot reload.
+
 ## A project
 
 ```

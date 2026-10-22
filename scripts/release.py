@@ -448,6 +448,9 @@ def publish(args):
                 "Both installers accept a target folder (for example inside iCloud Drive, OneDrive, Dropbox or Google Drive): "
                 "`POCKETCONTEXT_INSTALL_DIR=...` or `$env:POCKETCONTEXT_INSTALL_DIR=...`.\n\n"
                 f"See the [README](https://github.com/{REPOSITORY}/blob/{tag}/README.md).\n\n{marker}")
+        notes = ROOT / "docs" / "releases" / f"{release_version}.md"
+        if notes.is_file():
+            body = notes.read_text(encoding="utf-8").strip() + "\n\n---\n\n" + body
         release = api("releases", "POST", {"tag_name": tag, "target_commitish": revision,
                       "name": f"PocketContext {release_version}", "body": body, "draft": True, "prerelease": False})
     require({asset["name"] for asset in release.get("assets", [])} <= set(expected), "Draft contains unexpected assets")

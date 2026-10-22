@@ -5,6 +5,7 @@ Runs on Linux, macOS and Windows with the standard library only. Every run uses
 a temporary project folder, home and cache, and a free loopback port.
 """
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -249,8 +250,10 @@ def legacy_default_scenario(binary, root):
     legacy = Project(binary, root)
     # An empty pre-upgrade SQLite database is enough to distinguish existing
     # projects. Application records are created only via the API below.
-    with sqlite3.connect(legacy.db) as db:
+    with closing(sqlite3.connect(legacy.db)) as db:
         db.execute('PRAGMA user_version=0')
+    # SQLite's transaction context does not close the connection. Release the
+    # handle before the server snapshots over this file, including on Windows.
     try:
         result = legacy.json('init', '--email', 'legacy@example.localhost', '--port', str(legacy.port),
                              '--password-stdin', stdin=PASSWORD + '\n')
