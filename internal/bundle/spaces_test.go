@@ -28,7 +28,7 @@ func TestProjectSpacePolicy(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 			app.Store().Set("pocketcontextNewDatabase", fresh)
-			jsvm.MustRegister(app, jsvm.Config{HooksDir: filepath.Join(root, "pb_hooks"), MigrationsDir: filepath.Join(root, "pb_migrations"), HooksWatch: false})
+			jsvm.MustRegister(app, hooksConfig(root, ""))
 			if err := app.Bootstrap(); err != nil {
 				t.Fatal(err)
 			}

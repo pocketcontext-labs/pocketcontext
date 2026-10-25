@@ -185,12 +185,7 @@ func Serve(p *Project, opts ServeOptions) error {
 	app.OnCollectionAfterUpdateSuccess().Unbind(notifyWatcher)
 	app.OnCollectionAfterDeleteSuccess().Unbind(notifyWatcher)
 	server.RegisterMaintenance(app, controller)
-	jsvm.MustRegister(app, jsvm.Config{
-		HooksDir:      filepath.Join(appDir, "pb_hooks"),
-		MigrationsDir: filepath.Join(appDir, "pb_migrations"),
-		TypesDir:      p.Cache,
-		HooksWatch:    false,
-	})
+	jsvm.MustRegister(app, hooksConfig(appDir, p.Cache))
 	server.RegisterDatabase(app, filepath.Join(appDir, "server.json"), store.livePath())
 
 	changed := func(e *core.ModelEvent) error {

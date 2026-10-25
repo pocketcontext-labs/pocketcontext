@@ -193,8 +193,8 @@ function audit(e,action){
   const fs=e.app.newFilesystem();let reader,hash;
   try {
    reader=fs.getReader(e.record.baseFilesPath()+'/'+e.record.getString('original'));
-   const command=$os.cmd('sha256sum');command.stdin=reader;
-   hash=toString(command.output()).split(' ')[0];
+   // In-process SHA-256 of the raw bytes (internal/bundle/hooks.go); hooks never run external tools.
+   hash=$pocketcontext.sha256(reader);
   } catch (_) { invalid('Cannot hash original'); }
   finally { if(reader)reader.close();fs.close(); }
   if(!/^[a-f0-9]{64}$/.test(hash))invalid('Cannot hash original');
