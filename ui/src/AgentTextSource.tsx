@@ -113,7 +113,8 @@ export function AgentTextSource({
       active = false;
       controller.abort();
     };
-  }, [space, source]);
+    // A newly cited passage can belong to text extracted after this page loaded.
+  }, [space, source, cited?.id]);
   const load = (rendition: string, offset: number) => {
     let active = true;
     setBusy(true);
