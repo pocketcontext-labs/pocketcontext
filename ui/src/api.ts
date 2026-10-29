@@ -13,8 +13,9 @@ import type {
   Source,
 } from "./types";
 
-// Private publication content never leaves memory. Session changes and confirmed
-// membership loss discard every entry, including pending reads.
+// Private publication content never leaves memory. Session changes and a space
+// that disappears (for example after a recovered database) discard every entry,
+// including pending reads.
 const validatedPublications = new MemoryCache<number | null>(128, 4096);
 const publicationCache = new MemoryCache<Publication | null>(128, 256 * 1024);
 const pageLists = new MemoryCache<PageSummary[]>(8, 8 * 1024 * 1024);
@@ -269,12 +270,14 @@ export interface Space {
   archived?: boolean;
   /** The project's default space, which cannot be archived. */
   is_default?: boolean;
+  /** Revision of the settings row that names the default space. */
+  settings_revision?: number;
 }
 /** Every space of the project, with the default first. */
 export async function listSpaces(): Promise<Space[]> {
   if (!pb.authStore.record?.id) throw new Error("Please sign in to continue");
   const rows = await query<Space>(
-    `SELECT s.id, s.name, s.revision, s.archived, s.id = t.default_space AS is_default FROM spaces s, settings t ORDER BY s.id = t.default_space DESC, s.name, s.id LIMIT 200`,
+    `SELECT s.id, s.name, s.revision, s.archived, s.id = t.default_space AS is_default, t.revision AS settings_revision FROM spaces s, settings t ORDER BY s.id = t.default_space DESC, s.name, s.id LIMIT 200`,
   );
   return rows
     .filter((row) => /^[a-z0-9]{15}$/.test(row.id))
@@ -288,17 +291,18 @@ export async function listSpaces(): Promise<Space[]> {
 export function selectSpace(spaces: Space[], requested: string): Space | null {
   return spaces.find((space) => space.id === requested) ?? null;
 }
-export async function defaultSpace(): Promise<{
+export interface DefaultSpace {
   id: string;
   name: string;
   archived: boolean;
-}> {
+  revision: number;
+  settings_revision: number;
+}
+export async function defaultSpace(): Promise<DefaultSpace> {
   const generation = sessionGeneration;
-  const result = await pb.send<{
-    id: string;
-    name: string;
-    archived: boolean;
-  }>("/api/spaces/default", { method: "GET" });
+  const result = await pb.send<DefaultSpace>("/api/spaces/default", {
+    method: "GET",
+  });
   if (generation !== sessionGeneration || !pb.authStore.isValid)
     throw new Error("Session changed");
   identity(result.id);
@@ -316,6 +320,17 @@ export async function updateSpace(
   return pb
     .collection("spaces")
     .update(space.id, { ...changes, expected_revision: space.revision });
+}
+/** Make an active space the default. The settings revision guards against a
+ * default changed elsewhere since the spaces were listed. */
+export async function setDefaultSpace(space: Space): Promise<{ id: string }> {
+  if (!Number.isInteger(space.settings_revision))
+    throw new Error("Reload the spaces and try again");
+  await pb.collection("settings").update("projectsettings", {
+    default_space: space.id,
+    expected_revision: space.settings_revision,
+  });
+  return { id: space.id };
 }
 export async function evidenceSpace(
   collection: "sources" | "passages",
@@ -641,7 +656,7 @@ async function signIn(email: string, password: string): Promise<void> {
     )
       throw new Error("Session changed");
     if (result.record.collectionName !== "users")
-      throw new Error("Invalid workspace identity");
+      throw new Error("Unexpected sign-in response");
     authStore.save(result.token, result.record);
   } finally {
     ended = true;
@@ -678,7 +693,7 @@ export async function refreshSession(): Promise<void> {
     )
       return;
     if (result.record.collectionName !== "users")
-      throw new Error("Invalid workspace identity");
+      throw new Error("Unexpected sign-in response");
     refreshedAt = Date.now();
     refreshedToken = result.token;
     pb.authStore.save(result.token, result.record);
@@ -937,6 +952,7 @@ export const api = {
   defaultSpace,
   createSpace,
   updateSpace,
+  setDefaultSpace,
   evidenceSpace,
   cancelLogin,
   loginPassword,

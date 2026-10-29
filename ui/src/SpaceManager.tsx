@@ -4,6 +4,25 @@ import { api, sessionGeneration, type Space } from "./api";
 import "./spaceManager.css";
 import { trapFocus } from "./readerControls";
 
+/** Explain a refused change; the server's own message names a rule it enforces. */
+function failure(error: unknown): string {
+  const { status, response } = (error ?? {}) as {
+    status?: number;
+    response?: { message?: unknown };
+  };
+  if (status === 409)
+    return "This changed elsewhere. The list now shows the latest details; please try again.";
+  if (status === 404) return "This space no longer exists.";
+  if (status === 403) return "Restore this archived space before changing it.";
+  if (
+    status === 400 &&
+    typeof response?.message === "string" &&
+    response.message
+  )
+    return response.message;
+  return "Could not save the change. Please try again.";
+}
+
 export default function SpaceManager({
   selected,
   onChanged,
@@ -102,14 +121,8 @@ function SpaceDialog({
       setNotice(success);
     } catch (e) {
       if (!active()) return;
-      const status = (e as { status?: number }).status;
-      setError(
-        status === 409
-          ? "This space changed elsewhere. Review the latest details and try again."
-          : status === 403 || status === 404
-            ? "You no longer have permission to manage this space."
-            : "Could not save the change. Please try again.",
-      );
+      setError(failure(e));
+      // A conflict or refusal means the list is stale: show the current state.
       try {
         await reload();
       } catch {
@@ -154,8 +167,8 @@ function SpaceDialog({
         </button>
       </header>
       <p>
-        Organize your knowledge in separate spaces. New spaces are visible only
-        to you.
+        Spaces keep separate sets of sources and pages apart. The default space
+        opens whenever a link does not name one.
       </p>
       <form
         onSubmit={(e) => {
@@ -197,7 +210,7 @@ function SpaceDialog({
       {loading ? (
         <p>Loading spaces…</p>
       ) : (
-        <ul className="space-manager-list">
+        <ul className="space-manager-list" aria-label="Spaces">
           {spaces
             .filter((space) => showArchived || !space.archived)
             .map((space) => (
@@ -205,63 +218,84 @@ function SpaceDialog({
                 <div className="space-manager-row">
                   <div>
                     <strong>{space.name}</strong>
-                    <small>
-                      {[
-                        space.archived && "Archived",
-                        space.is_default && "Default",
-                        space.id === selected && "Current space",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </small>
+                    <span className="space-badges">
+                      {space.is_default && (
+                        <span className="space-badge is-default">Default</span>
+                      )}
+                      {space.archived && (
+                        <span className="space-badge">Archived</span>
+                      )}
+                      {space.id === selected && (
+                        <span className="space-badge">Open now</span>
+                      )}
+                    </span>
                   </div>
                   <div className="space-manager-actions">
+                    {space.id !== selected && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          void onChanged(space.id)
+                            .then(onClose)
+                            .catch(() =>
+                              setError("Could not open this space."),
+                            );
+                        }}
+                      >
+                        Open
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => {
-                        void onChanged(space.id)
-                          .then(onClose)
-                          .catch(() => setError("Could not open this space."));
+                        setEditing(space.id);
+                        setNewName(space.name);
+                        setArchive(null);
                       }}
                     >
-                      Open
+                      Rename
                     </button>
-                    {
-                      <>
-                        <button
-                          disabled={busy}
-                          onClick={() => {
-                            setEditing(space.id);
-                            setNewName(space.name);
-                            setArchive(null);
-                          }}
-                        >
-                          Rename
-                        </button>
-                        {!space.is_default && (
-                          <button
-                            disabled={busy}
-                            onClick={() => {
-                              if (space.archived)
-                                void run(
-                                  () =>
-                                    api.updateSpace(space, {
-                                      archived: false,
-                                    }),
-                                  "Space restored.",
-                                );
-                              else {
-                                setArchive(space);
-                                setEditing("");
-                              }
-                            }}
-                          >
-                            {space.archived ? "Restore" : "Archive"}
-                          </button>
-                        )}
-                      </>
-                    }
+                    {!space.is_default && !space.archived && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(
+                            () => api.setDefaultSpace(space),
+                            `“${space.name}” is now the default space.`,
+                          )
+                        }
+                      >
+                        Make default
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busy || space.is_default}
+                      aria-describedby={
+                        space.is_default ? "space-default-rule" : undefined
+                      }
+                      title={
+                        space.is_default
+                          ? "Make another space the default before archiving this one."
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (space.archived)
+                          void run(
+                            () => api.updateSpace(space, { archived: false }),
+                            "Space restored.",
+                          );
+                        else {
+                          setArchive(space);
+                          setEditing("");
+                        }
+                      }}
+                    >
+                      {space.archived ? "Restore" : "Archive"}
+                    </button>
                   </div>
                 </div>
                 {editing === space.id && (
@@ -301,11 +335,12 @@ function SpaceDialog({
                 {archive?.id === space.id && (
                   <div className="space-archive-confirm">
                     <p>
-                      Archive “{space.name}”? It will leave the space selector.
-                      Existing links and evidence stay readable; restore it here
-                      to make changes again.
+                      Archive “{space.name}”? It leaves the space selector and
+                      becomes read-only. Its sources, pages and links stay
+                      readable; restore it here to make changes again.
                     </p>
                     <button
+                      type="button"
                       disabled={busy}
                       onClick={() =>
                         void run(
@@ -316,7 +351,11 @@ function SpaceDialog({
                     >
                       Confirm archive
                     </button>
-                    <button disabled={busy} onClick={() => setArchive(null)}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setArchive(null)}
+                    >
                       Cancel
                     </button>
                   </div>
@@ -325,9 +364,10 @@ function SpaceDialog({
             ))}
         </ul>
       )}
-      <p className="space-manager-hint">
-        The default space cannot be archived. Archiving preserves all sources
-        and history.
+      <p className="space-manager-hint" id="space-default-rule">
+        The default space cannot be archived; make another space the default
+        first. Archived spaces must be restored before they can become the
+        default. Archiving keeps every source, page and publication.
       </p>
     </dialog>
   );

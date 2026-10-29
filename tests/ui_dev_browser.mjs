@@ -181,6 +181,27 @@ try {
   assert.equal(denied.status, 404, 'originals must still require file authorization');
   ok('authenticated original download is byte-exact and anonymous access is denied');
 
+  const [initialDefault] = (await cli(['sql', 'SELECT default_space FROM settings'])).rows[0];
+  const second = await cli(['create-space', 'Synthetic second space']);
+  await page.getByRole('button', { name: 'Manage spaces' }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage spaces' });
+  const rowFor = name => manager.locator('li').filter({ has: page.locator('strong', { hasText: new RegExp(`^${name}$`) }) });
+  const firstRow = rowFor('Default'), secondRow = rowFor('Synthetic second space');
+  await secondRow.waitFor();
+  assert(await firstRow.getByRole('button', { name: 'Archive', exact: true }).isDisabled(), 'the default space cannot be archived');
+  await secondRow.getByRole('button', { name: 'Make default', exact: true }).click();
+  await manager.getByText('“Synthetic second space” is now the default space.', { exact: true }).waitFor();
+  assert(await secondRow.getByRole('button', { name: 'Archive', exact: true }).isDisabled(), 'the new default cannot be archived');
+  assert(await firstRow.getByRole('button', { name: 'Archive', exact: true }).isEnabled(), 'the former default can be archived');
+  assert.equal((await cli(['sql', 'SELECT default_space FROM settings'])).rows[0][0], second.id);
+  await firstRow.getByRole('button', { name: 'Make default', exact: true }).click();
+  await manager.getByText('“Default” is now the default space.', { exact: true }).waitFor();
+  assert.equal((await cli(['sql', 'SELECT default_space FROM settings'])).rows[0][0], initialDefault);
+  await page.keyboard.press('Escape');
+  await manager.waitFor({ state: 'hidden' });
+  assert.equal(errors.length, 0, 'space manager must have no browser runtime errors');
+  ok('the development reader sets the default space and never archives it');
+
   await cli(['stop']);
   await until(async () => server.exitCode !== null, 'development server shutdown');
   server = start(binary, ['serve', '--db', db], { env, cwd: temporary });

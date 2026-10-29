@@ -8,7 +8,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-describe("membership reconciliation", () => {
+describe("space list reconciliation", () => {
   it("shares a burst of forced checks and rechecks events during its trailing read", async () => {
     const reads = new ReconciledRead<string>();
     const first = deferred<string>(), second = deferred<string>(), third = deferred<string>();

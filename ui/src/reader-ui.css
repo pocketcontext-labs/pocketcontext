@@ -40,17 +40,6 @@
   margin-left: auto;
   color: var(--muted);
 }
-.space-options {
-  color: var(--muted);
-  font-size: 12px;
-}
-.space-options summary {
-  padding: 8px 4px;
-  cursor: pointer;
-}
-.space-options button {
-  margin-block: 8px;
-}
 .navigation-group > summary {
   padding: 12px 10px;
   cursor: pointer;

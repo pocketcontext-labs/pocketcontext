@@ -7,6 +7,7 @@ import {
   listPublications,
   pb,
   selectSpace,
+  setDefaultSpace,
   type Space,
 } from "./api";
 import { pageHref } from "./Markdown";
@@ -67,10 +68,17 @@ describe("production space selection", () => {
   it("lists every space with archived and default flags", async () => {
     signIn();
     const send = vi.spyOn(pb, "send").mockResolvedValue({
-      columns: ["id", "name", "revision", "archived", "is_default"],
+      columns: [
+        "id",
+        "name",
+        "revision",
+        "archived",
+        "is_default",
+        "settings_revision",
+      ],
       rows: [
-        [main.id, "Default", 1, 0, 1],
-        [research.id, "Research", 2, 1, 0],
+        [main.id, "Default", 1, 0, 1, 5],
+        [research.id, "Research", 2, 1, 0, 5],
       ],
       truncated: false,
     });
@@ -81,6 +89,7 @@ describe("production space selection", () => {
         revision: 1,
         archived: false,
         is_default: true,
+        settings_revision: 5,
       },
       {
         id: research.id,
@@ -88,6 +97,7 @@ describe("production space selection", () => {
         revision: 2,
         archived: true,
         is_default: false,
+        settings_revision: 5,
       },
     ]);
     const sql = (send.mock.calls[0][1] as { body: { sql: string } }).body.sql;
@@ -98,6 +108,26 @@ describe("production space selection", () => {
     vi.spyOn(pb, "collection").mockReturnValue({ create } as never);
     await expect(createSpace("Research")).resolves.toEqual({ id: research.id });
     expect(create).toHaveBeenCalledWith({ name: "Research" });
+  });
+  it("makes a space the default through the revision-checked settings row", async () => {
+    const update = vi.fn().mockResolvedValue({ id: "projectsettings" });
+    const collection = vi
+      .spyOn(pb, "collection")
+      .mockReturnValue({ update } as never);
+    await expect(
+      setDefaultSpace({ ...research, settings_revision: 5 }),
+    ).resolves.toEqual({ id: research.id });
+    expect(collection).toHaveBeenCalledWith("settings");
+    expect(update).toHaveBeenCalledWith("projectsettings", {
+      default_space: research.id,
+      expected_revision: 5,
+    });
+  });
+  it("refuses to set a default without a listed settings revision", async () => {
+    const update = vi.fn();
+    vi.spyOn(pb, "collection").mockReturnValue({ update } as never);
+    await expect(setDefaultSpace(research)).rejects.toThrow(/Reload/);
+    expect(update).not.toHaveBeenCalled();
   });
   it("scopes publication history to selected space", async () => {
     const send = vi

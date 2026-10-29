@@ -31,8 +31,7 @@
 .space-manager h2 {
   margin: 0;
 }
-.space-manager p,
-.space-manager small {
+.space-manager p {
   color: var(--muted);
 }
 .space-create-form,
@@ -67,6 +66,9 @@
   cursor: wait;
   opacity: 0.55;
 }
+.space-manager button[aria-describedby]:disabled {
+  cursor: not-allowed;
+}
 .space-manager-list {
   margin: 12px 0;
   padding: 0;
@@ -80,9 +82,26 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.space-manager small {
-  display: block;
-  margin-top: 4px;
+.space-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.space-badges:empty {
+  display: none;
+}
+.space-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.space-badge.is-default {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
 }
 .space-manager-actions {
   flex-wrap: wrap;

@@ -153,7 +153,7 @@ function Reader() {
   const routeSelection = useRef(current);
   const [publications, setPublications] = useState<Publication[]>([]);
   const [spaces, setSpaces] = useState<Space[]>([]);
-  const [membershipsLoaded, setMembershipsLoaded] = useState(false);
+  const [spacesLoaded, setSpacesLoaded] = useState(false);
   const [space, setSpace] = useState<Space | null>(null);
   const selectedSpace = useRef("");
   const sourceCount = useSourceCount(space?.id);
@@ -165,9 +165,9 @@ function Reader() {
     selection: ReturnType<typeof route>;
   } | null>(null);
   const [error, setError] = useState("");
-  const membershipsCache = useRef<Space[] | null>(null);
-  const membershipsCheckedAt = useRef(0);
-  const membershipReads = useRef(new ReconciledRead<Space[]>());
+  const spacesCache = useRef<Space[] | null>(null);
+  const spacesCheckedAt = useRef(0);
+  const spaceReads = useRef(new ReconciledRead<Space[]>());
   const histories = useRef(new Map<string, Publication[]>());
   const historyRequests = useRef(new Map<string, Promise<Publication[]>>());
   const authority = useRef(0);
@@ -283,7 +283,7 @@ function Reader() {
           setSnapshot(null);
           setPublications([]);
           setSpaces([]);
-          setMembershipsLoaded(false);
+          setSpacesLoaded(false);
           setSpace(null);
           selectedSpace.current = "";
           setEvidence(null);
@@ -330,30 +330,30 @@ function Reader() {
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   }, []);
-  const readMemberships = async (refresh: boolean): Promise<Space[]> => {
+  const readSpaces = async (refresh: boolean): Promise<Space[]> => {
     const identity = sessionGeneration;
     if (!mounted.current) throw new Error("Reader closed");
-    // Navigation shares a recent authorization check; focus, reconnect, realtime
-    // and the interval always recheck, including same-identity revocations.
+    // Navigation shares a recent session and space check; focus, reconnect,
+    // realtime and the interval always recheck the session and the space list.
     if (
       !refresh &&
-      !membershipReads.current.active &&
-      membershipsCache.current &&
-      Date.now() - membershipsCheckedAt.current < 60000
+      !spaceReads.current.active &&
+      spacesCache.current &&
+      Date.now() - spacesCheckedAt.current < 60000
     )
-      return membershipsCache.current;
-    return membershipReads.current.read(async () => {
+      return spacesCache.current;
+    return spaceReads.current.read(async () => {
       if (!mounted.current || identity !== sessionGeneration)
         throw new Error("Session changed");
       await api.refreshSession();
       if (!mounted.current || identity !== sessionGeneration)
         throw new Error("Session changed");
-      const memberships = await api.listSpaces();
+      const listed = await api.listSpaces();
       if (!mounted.current || identity !== sessionGeneration)
         throw new Error("Session changed");
       const removed =
-        membershipsCache.current?.filter(
-          (old) => !memberships.some((item) => item.id === old.id),
+        spacesCache.current?.filter(
+          (old) => !listed.some((item) => item.id === old.id),
         ) || [];
       if (removed.length) {
         authority.current++;
@@ -376,11 +376,11 @@ function Reader() {
           );
         }
       }
-      membershipsCache.current = memberships;
-      membershipsCheckedAt.current = Date.now();
-      setSpaces(memberships);
-      setMembershipsLoaded(true);
-      return memberships;
+      spacesCache.current = listed;
+      spacesCheckedAt.current = Date.now();
+      setSpaces(listed);
+      setSpacesLoaded(true);
+      return listed;
     }, refresh);
   };
   const readHistory = (
@@ -434,11 +434,11 @@ function Reader() {
     try {
       const unknownSpace =
         current.space !== undefined &&
-        !membershipsCache.current?.some((item) => item.id === current.space);
-      const memberships = await readMemberships(refresh || unknownSpace);
+        !spacesCache.current?.some((item) => item.id === current.space);
+      const known = await readSpaces(refresh || unknownSpace);
       access = authority.current;
       if (!active()) return;
-      // A pinned publication or evidence link resolves its authorized space.
+      // A pinned publication or evidence link resolves its own space.
       const [resolvedPublication, recordSpace] = await Promise.all([
         current.publication
           ? api.getPublication(current.publication)
@@ -454,7 +454,7 @@ function Reader() {
         (current.space !== undefined
           ? current.space
           : (await api.defaultSpace()).id);
-      const chosen = selectSpace(memberships, requestedSpace);
+      const chosen = selectSpace(known, requestedSpace);
       if (!active()) return;
       if (!chosen || (current.publication && !pinned)) {
         setSnapshot(null);
@@ -473,7 +473,7 @@ function Reader() {
       }
       const changedSpace = chosen.id !== selectedSpace.current;
       if (active()) {
-        setSpaces(memberships);
+        setSpaces(known);
         setSpace(chosen);
         if (changedSpace) {
           setSnapshot(null);
@@ -545,8 +545,8 @@ function Reader() {
         );
       }
     } catch (e) {
-      // A transient failure leaves the last complete authorized view available.
-      // Confirmed membership loss and unavailable selections are cleared above.
+      // A transient failure leaves the last complete view available. A space that
+      // disappeared and unavailable selections are cleared above.
       if (active()) setError(message(e));
     } finally {
       if (own === generation.current) setBusy(false);
@@ -555,10 +555,10 @@ function Reader() {
   const refresh = useCallback(async () => {
     if (refreshInFlight.current) {
       refreshQueued.current = true;
-      // Authorization checks must never wait behind a slow page download.
-      // A confirmed loss immediately clears private views and fences that load.
+      // Session and space checks must never wait behind a slow page download.
+      // A space that disappeared immediately clears its views and fences that load.
       try {
-        await readMemberships(true);
+        await readSpaces(true);
       } catch (error) {
         if (mounted.current) setError(message(error));
       }
@@ -958,11 +958,11 @@ function Reader() {
             <span className="workspace-dot" /> {space?.name || "Default"}
           </div>
         )}
-        {membershipsLoaded && (
+        {spacesLoaded && (
           <SpaceManager
             selected={space?.id}
             onChanged={async (destination) => {
-              await readMemberships(true);
+              await readSpaces(true);
               if (destination)
                 location.hash = `#/?space=${encodeURIComponent(destination)}`;
               else await refresh();
@@ -1733,8 +1733,8 @@ function Login() {
           Connected.
         </h1>
         <p>
-          A quiet place to explore your workspace’s knowledge, follow
-          connections and get back to the source.
+          Your notes and sources, gathered into pages you can follow back to the
+          original evidence.
         </p>
         <form className="login-form" onSubmit={password}>
           <input
@@ -1747,6 +1747,7 @@ function Login() {
             Password
             <input
               required
+              autoFocus
               name="password"
               type="password"
               autoComplete="current-password"
@@ -1757,8 +1758,8 @@ function Login() {
           </button>
         </form>
         <p className="login-hint">
-          Or run <code>pocketcontext open</code> to sign in with a single-use
-          link.
+          Use the password you chose with <code>pocketcontext init</code>, or
+          run <code>pocketcontext open</code> to sign in with a single-use link.
         </p>
         {error && (
           <p role="alert" className="login-error">

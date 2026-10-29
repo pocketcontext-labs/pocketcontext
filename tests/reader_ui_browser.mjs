@@ -557,6 +557,10 @@ try {
   await page.getByRole('button', {name:'Manage spaces',exact:true}).click();
   const manager = page.getByRole('dialog', {name:'Manage spaces'});
   await manager.getByText('Default', {exact:true}).first().waitFor();
+  const defaultRow = manager.locator('li').filter({has:page.locator('strong',{hasText:/^Default$/})});
+  assert(await defaultRow.locator('.space-badge', {hasText:'Default'}).isVisible(), 'the default space is labelled');
+  assert(await defaultRow.getByRole('button',{name:'Archive',exact:true}).isDisabled(), 'the default space cannot be archived');
+  assert.equal(await defaultRow.getByRole('button',{name:'Make default',exact:true}).count(), 0, 'the default space offers no Make default');
   assert(await manager.getByLabel('New space name').evaluate(el => el === document.activeElement), 'space manager focuses its name field');
   await trapCheck(manager);
   await manager.getByLabel('New space name').fill('Synthetic research');
@@ -578,6 +582,24 @@ try {
   await manager.getByLabel('Show archived spaces').check();
   await renamedRow.getByRole('button',{name:'Restore',exact:true}).click();
   await manager.getByText('Space restored.',{exact:true}).waitFor();
+  await renamedRow.getByRole('button',{name:'Make default',exact:true}).click();
+  await manager.getByText('“Synthetic renamed” is now the default space.',{exact:true}).waitFor();
+  await renamedRow.locator('.space-badge', {hasText:'Default'}).waitFor();
+  assert(await renamedRow.getByRole('button',{name:'Archive',exact:true}).isDisabled(), 'the new default cannot be archived');
+  assert(await defaultRow.getByRole('button',{name:'Archive',exact:true}).isEnabled(), 'the former default can be archived again');
+  assert.equal((await cli(['sql','SELECT default_space FROM settings'])).rows[0][0], managedId, 'Make default updates the settings row');
+  const unchecked = await page.evaluate(async ({ space }) => {
+    const token = JSON.parse(localStorage.getItem('pocketcontext.reader.auth')).token;
+    const current = await (await fetch('/api/spaces/default', { headers: { Authorization: token } })).json();
+    const response = await fetch(`/api/collections/spaces/records/${space}`, {
+      method: 'PATCH', headers: { Authorization: token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: true, expected_revision: current.revision }),
+    });
+    return response.status;
+  }, { space: managedId });
+  assert.equal(unchecked, 400, 'the server refuses to archive the default space');
+  await defaultRow.getByRole('button',{name:'Make default',exact:true}).click();
+  await manager.getByText('“Default” is now the default space.',{exact:true}).waitFor();
   await page.setViewportSize({width:390,height:844});
   assert(await manager.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'space manager fits mobile');
   await screenshot('spaces-mobile-light');
@@ -593,7 +615,8 @@ try {
   await until(async () => page.getByRole('button', {name:'Manage spaces',exact:true}).evaluate(el => el === document.activeElement), 'backdrop dismissal restores focus');
   const managed = (await cli(['sql',`SELECT name, archived, revision FROM spaces WHERE id='${managedId}'`])).rows[0];
   assert.deepEqual(managed, ['Synthetic renamed', false, 4]);
-  ok('space manager creates, selects, renames, archives and restores through ordinary authenticated REST, and fits mobile');
+  assert.equal((await cli(['sql','SELECT default_space FROM settings'])).rows[0][0], defaultSpace.id, 'the default space is restored');
+  ok('space manager creates, selects, renames, archives, restores and sets the default through ordinary authenticated REST, guards the default from archival, and fits mobile');
 
   assert.equal(errors.length, 0, 'reader has no browser runtime errors');
   ok('search snippets safely render plain highlighted excerpts and fit mobile width');
