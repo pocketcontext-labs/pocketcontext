@@ -2,13 +2,13 @@
 
 A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces partition the knowledge of the project's one user; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
-See [what changed in 0.11.0](docs/releases/0.11.0.md): PocketContext is single-user, spaces are plain partitions with their own commands, and databases from earlier releases are not opened (no upgrade path). Earlier: [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
+See [what changed in 0.11.1](docs/releases/0.11.1.md): the recommended layout keeps the binary in the project folder, beside its database. Earlier: [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
 ## A project
 
 ```
 PocketContext/              ← any folder; may be in iCloud Drive, OneDrive, Dropbox or Google Drive
-  pocketcontext[.exe]       the binary (optional here; it can live anywhere)
+  pocketcontext[.exe]       the binary (recommended here; it can live anywhere)
   pocketcontext.db          the database
   pocketcontext.json        port and project ID (no secrets)
   storage/                  immutable originals of ingested files
@@ -31,7 +31,7 @@ $env:POCKETCONTEXT_INSTALL_DIR = "$env:OneDrive\PocketContext"
 irm https://github.com/pocketcontext-labs/pocketcontext/releases/latest/download/install.ps1 | iex
 ```
 
-Without a folder, the installers use `~/.local/bin` or `%LOCALAPPDATA%\Programs\PocketContext`. Each verifies the archive against the release's `checksums.txt` and installs only the executable. Releases are immutable GitHub releases; the Windows binary is unsigned, so SmartScreen may ask for confirmation.
+Install into the project folder, beside `pocketcontext.db`: the project then carries the release that can open it, which matters because a release may refuse databases created by earlier ones (0.11.0 does), and commands find the database without `--db`. Two caveats: the installer replaces an existing `pocketcontext` in that folder, so check its `--version` first and never replace the binary of a project created by a different release; and Linux and macOS binaries share the name `pocketcontext`, so a synced folder used from both needs the binary installed outside it (Windows' `pocketcontext.exe` can sit beside either). Sync clients may also evict a file to a placeholder; keep the project folder downloaded on computers that run it. Without a folder, the installers use `~/.local/bin` or `%LOCALAPPDATA%\Programs\PocketContext`. Each verifies the archive against the release's `checksums.txt` and installs only the executable. Releases are immutable GitHub releases; the Windows binary is unsigned, so SmartScreen may ask for confirmation.
 
 ## Quick start
 
