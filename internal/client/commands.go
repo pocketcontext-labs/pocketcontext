@@ -293,6 +293,9 @@ parsed:
 		"ingest":                {{"title", "date", "version"}, nil},
 		"search":                {{"publication", "sequence", "limit", "offset", "generation"}, nil},
 		"passages":              {{"version", "out"}, nil},
+		"extract":               {{"text", "tool", "version", "original-sha256", "conversion"}, nil},
+		"pending":               {{"limit"}, nil},
+		"original":              {{"out"}, nil},
 		"lint":                  {nil, nil},
 		"stage":                 {nil, {"dry-run"}},
 		"check-run":             {nil, nil},
@@ -697,6 +700,30 @@ func runData(c *Client, command string, a *args, pretty bool) error {
 		}
 		data, err = c.Ingest(a.pos[0], IngestOptions{Title: a.flags["title"], Date: a.flags["date"], Version: a.flags["version"],
 			VersionSet: a.has("version"), DateSet: a.has("date")})
+	case "extract":
+		if err := a.need(1, "extract SOURCE_ID --text FILE --tool TOOL [--version LABEL] [--original-sha256 HEX] [--conversion TEXT]"); err != nil {
+			return err
+		}
+		data, err = c.Extract(a.pos[0], ExtractOptions{Text: a.flags["text"], Tool: a.flags["tool"], Version: a.flags["version"],
+			OriginalSHA256: a.flags["original-sha256"], Conversion: a.flags["conversion"],
+			VersionSet: a.has("version"), OriginalSet: a.has("original-sha256"), ConversionSet: a.has("conversion")})
+	case "pending":
+		if err := a.need(0, "pending [--limit N]"); err != nil {
+			return err
+		}
+		limit, err := a.intFlag("limit", 50)
+		if err != nil {
+			return err
+		}
+		data, err = c.Pending(limit)
+		if err != nil {
+			return err
+		}
+	case "original":
+		if err := a.need(1, "original SOURCE_ID --out FILE"); err != nil {
+			return err
+		}
+		data, err = c.Original(a.pos[0], a.flags["out"])
 	case "search":
 		if err := a.need(1, "search TERMS [--limit N] [--offset N --generation G --publication ID]"); err != nil {
 			return err

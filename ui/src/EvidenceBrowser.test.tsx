@@ -1,6 +1,7 @@
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -30,6 +31,7 @@ it("reads a deep-linked source directly without fetching a sibling list", async 
         media_type: "text/plain",
         source_date: "",
         sha256: "synthetic",
+        text_renditions: 1,
       },
     ]);
   const onTitleChange = vi.fn();
@@ -88,6 +90,7 @@ const sourceFixture = (
   media_type: original_name.endsWith(".md") ? "text/markdown" : "text/plain",
   source_date: "2026-10-22",
   sha256: "a".repeat(64),
+  text_renditions: 1,
 });
 
 it("provides a paginated source reading list in the main content even with separate sidebar navigation", async () => {
@@ -357,4 +360,194 @@ it("keeps passage identity, publication context and explicit space in source lin
   } finally {
     location.hash = old;
   }
+});
+
+const binaryFixture = () => ({
+  ...sourceFixture("source000000009", "Scanned contract", "contract.pdf"),
+  media_type: "application/pdf",
+  text_renditions: 0,
+});
+const agentPassage = (n: number) => ({
+  id: `passage${String(n).padStart(8, "0")}`,
+  ordinal: n,
+  locator: `# Contract; lines ${n}-${n}`,
+  body: `Converted clause ${n}`,
+});
+const agentRendition = (id: string, version_label: string, tool: string) => ({
+  id,
+  version_label,
+  created: "2026-10-29 10:00:00.000Z",
+  notes: JSON.stringify({
+    derived: true,
+    passages: 21,
+    tool,
+    conversion: "Rendered pages to Markdown",
+  }),
+});
+const binaryProps = {
+  space: "companyspace001",
+  collection: "sources" as const,
+  id: "source000000009",
+  term: "",
+  publication: "",
+  offset: 0,
+  navigation: null,
+};
+
+it("shows a non-text original's facts and its labelled agent-derived passages without decoding it", async () => {
+  const source = binaryFixture();
+  const passages = Array.from({ length: 25 }, (_, n) => agentPassage(n + 1));
+  const queries = vi
+    .spyOn(readerAPI, "query")
+    .mockImplementation(async (sql) => {
+      if (sql.includes("FROM renditions WHERE"))
+        return [
+          agentRendition("rendition000002", "agent-2", "second reader"),
+          agentRendition(
+            "rendition000001",
+            "agent-1",
+            "claude-opus-5-5 read the PDF",
+          ),
+        ];
+      if (sql.includes("FROM passages p")) {
+        const [, limit, offset] = /LIMIT (\d+) OFFSET (\d+)/.exec(sql)!;
+        return passages
+          .slice(Number(offset), Number(offset) + Number(limit))
+          .map((p) => ({
+            ...p,
+            body: `${p.body} ${sql.includes("rendition000001") ? "v1" : "v2"}`,
+          }));
+      }
+      return [source];
+    });
+  const preview = vi.spyOn(readerAPI.api, "sourceText");
+  vi.spyOn(readerAPI.api, "originalSize").mockResolvedValue(3 * 1024 * 1024);
+  render(<EvidenceBrowser {...binaryProps} />);
+  expect(await screen.findByText("3 MiB (3,145,728 bytes)")).toBeVisible();
+  const facts = screen.getByRole("region", { name: "Original file" });
+  expect(within(facts).getByText("application/pdf")).toBeVisible();
+  expect(within(facts).getByText("contract.pdf")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Download original" }),
+  ).toBeVisible();
+  const derived = await screen.findByRole("region", {
+    name: "Agent-derived passages",
+  });
+  expect(
+    within(derived).getByText("Agent-derived text — not an exact copy"),
+  ).toBeVisible();
+  expect(
+    await within(derived).findByText("Converted clause 1 v2"),
+  ).toBeVisible();
+  expect(within(derived).getByText("second reader")).toBeVisible();
+  expect(within(derived).getAllByRole("listitem")).toHaveLength(20);
+  expect(
+    within(derived).getByRole("link", { name: "# Contract; lines 1-1" }),
+  ).toHaveAttribute("href", "#/passages/passage00000001");
+  fireEvent.click(screen.getByRole("button", { name: "Load more passages" }));
+  await waitFor(() =>
+    expect(within(derived).getAllByRole("listitem")).toHaveLength(25),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Load more passages" }),
+  ).toBeNull();
+  const version = within(derived).getByRole("combobox", {
+    name: "Extracted text version",
+  });
+  fireEvent.change(version, { target: { value: "rendition000001" } });
+  expect(
+    await within(derived).findByText("Converted clause 1 v1"),
+  ).toBeVisible();
+  expect(
+    within(derived).getByText("claude-opus-5-5 read the PDF"),
+  ).toBeVisible();
+  expect(preview).not.toHaveBeenCalled();
+  expect(document.querySelector(".source-content, mark")).toBeNull();
+  const sql = queries.mock.calls.map(([value]) => value);
+  expect(sql.find((value) => value.includes("FROM sources WHERE"))).toContain(
+    "r.kind='text') AS text_renditions",
+  );
+  for (const value of sql.filter((item) => item.includes("FROM passages p")))
+    expect(value).toContain(
+      "p.space='companyspace001' AND r.space='companyspace001' AND r.source='source000000009' AND r.kind='agent-text'",
+    );
+});
+
+it("marks a non-text original without any rendition as needing extraction", async () => {
+  const source = binaryFixture();
+  vi.spyOn(readerAPI, "query").mockImplementation(async (sql) =>
+    sql.includes("FROM renditions WHERE") ? [] : [source],
+  );
+  vi.spyOn(readerAPI.api, "sourceText");
+  vi.spyOn(readerAPI.api, "originalSize").mockResolvedValue(null);
+  render(<EvidenceBrowser {...binaryProps} />);
+  expect(
+    await screen.findByText(
+      /No text has been extracted from this original yet/,
+    ),
+  ).toBeVisible();
+  expect(screen.getByText("Needs extraction")).toBeVisible();
+  expect(await screen.findByText("Unknown")).toBeVisible();
+  expect(readerAPI.api.sourceText).not.toHaveBeenCalled();
+});
+
+it("shows a cited agent-text passage labelled and unhighlighted on its non-text source", async () => {
+  const source = binaryFixture();
+  const cited = { ...agentPassage(3), kind: "agent-text" };
+  vi.spyOn(readerAPI, "query").mockImplementation(async (sql) => {
+    if (sql.includes("FROM renditions WHERE"))
+      return [agentRendition("rendition000001", "agent-1", "reader")];
+    if (sql.includes("p.id='passage00000003'")) return [cited];
+    if (sql.includes("FROM passages p"))
+      return [agentPassage(1), agentPassage(2), agentPassage(3)];
+    return [source];
+  });
+  vi.spyOn(readerAPI.api, "originalSize").mockResolvedValue(10);
+  const { container } = render(
+    <EvidenceBrowser {...binaryProps} passage={cited.id} />,
+  );
+  const box = await screen.findByRole("region", { name: "Cited passage" });
+  expect(
+    within(box).getByText("Agent-derived text — not an exact copy"),
+  ).toBeVisible();
+  expect(within(box).getByText("Converted clause 3")).toBeVisible();
+  await waitFor(() =>
+    expect(
+      container.querySelector(".agent-text-list li.cited"),
+    ).toHaveTextContent("Converted clause 3"),
+  );
+  expect(container.querySelector("mark")).toBeNull();
+});
+
+it("labels an agent-text passage record and keeps the needs-extraction filter on return", async () => {
+  vi.spyOn(readerAPI, "query").mockImplementation(async (sql) =>
+    sql.includes("FROM sources WHERE")
+      ? [binaryFixture()]
+      : [
+          {
+            id: "passage00000001",
+            title: "Scanned contract",
+            locator: "# Contract; lines 1-1",
+            body: "Converted clause 1",
+            kind: "agent-text",
+            source_id: "source000000009",
+          },
+        ],
+  );
+  render(
+    <EvidenceBrowser
+      {...binaryProps}
+      collection="passages"
+      id="passage00000001"
+    />,
+  );
+  expect(
+    await screen.findByText("Agent-derived text — not an exact copy"),
+  ).toBeVisible();
+  cleanup();
+  vi.spyOn(readerAPI.api, "originalSize").mockResolvedValue(10);
+  render(<EvidenceBrowser {...binaryProps} sourceFilter="pending" />);
+  expect(
+    await screen.findByRole("link", { name: "← All sources" }),
+  ).toHaveAttribute("href", "#/sources/?order=newest&filter=pending");
 });

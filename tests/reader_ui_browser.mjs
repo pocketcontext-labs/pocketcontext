@@ -498,6 +498,60 @@ try {
   await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'returning to Personal restores its count');
   ok('protected Markdown originals render safely and source counts refresh independently per space');
 
+  // A non-text original is stored without a rendition until the agent converts it.
+  // Upload it as the signed-in reader so the check does not depend on CLI support.
+  const scan = await page.evaluate(async ({ space }) => {
+    const auth = JSON.parse(localStorage.getItem('pocketcontext.reader.auth'));
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0xff, 0xfe, 0x00, 0x81, ...new Array(2035).fill(0x9c)]);
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ space, title: 'Scanned contract', original_name: 'contract.pdf', media_type: 'application/pdf' })) form.append(key, value);
+    form.append('original', new File([bytes], 'contract.pdf', { type: 'application/pdf' }));
+    const response = await fetch('/api/collections/sources/records', { method: 'POST', headers: { Authorization: auth.token }, body: form });
+    if (!response.ok) throw new Error(`source upload failed: ${response.status}`);
+    return response.json();
+  }, { space: defaultSpace.id });
+  await page.goto(`${origin}/#/sources/?space=${defaultSpace.id}&filter=pending`);
+  const pendingTable = page.getByRole('table', { name: 'Sources in this space' });
+  await pendingTable.getByRole('link', { name: 'Scanned contract' }).waitFor();
+  assert.equal(await page.getByRole('combobox', { name: 'Filter sources' }).inputValue(), 'pending');
+  assert.equal(await pendingTable.getByRole('row').count(), 2, 'only the unextracted original needs extraction');
+  await pendingTable.getByText('Needs extraction').waitFor();
+  await page.getByText('1–1 of 1 sources needing extraction').waitFor();
+  await screenshot('source-directory-pending-desktop-light');
+  await pendingTable.getByRole('link', { name: 'Scanned contract' }).click();
+  const originalFile = page.getByRole('region', { name: 'Original file' });
+  await originalFile.getByText('application/pdf').waitFor();
+  await until(async () => /2 KiB \(2,048 bytes\)/.test(await originalFile.innerText()), 'non-text original shows its size');
+  await page.getByText(/No text has been extracted from this original yet/).waitFor();
+  assert.equal(await page.locator('.source-content').count(), 0, 'a non-text original is never decoded as text');
+  assert((await page.getByRole('link', { name: '← All sources' }).getAttribute('href')).includes('filter=pending'), 'return keeps the needs-extraction filter');
+  await page.getByRole('button', { name: 'Download original' }).waitFor();
+  const rendition = await create('renditions', {
+    source: scan.id, kind: 'agent-text', processor: 'agent text / pocketcontext-3 structure', version_label: 'agent-1',
+    notes: JSON.stringify({ derived: true, passages: 1, sha256: '0'.repeat(64), text_sha256: '0'.repeat(64), tool: 'synthetic reader conversion' }),
+  });
+  const derivedPassage = await create('passages', { rendition: rendition.id, ordinal: 1, locator: '# Contract; lines 1-3', body: '# Contract\n\nThe synthetic indemnity clause survives termination.' });
+  await page.goto(`${origin}/#/sources/${scan.id}?space=${defaultSpace.id}&passage=${derivedPassage.id}`);
+  const derived = page.getByRole('region', { name: 'Agent-derived passages' });
+  await derived.getByText('The synthetic indemnity clause survives termination.').waitFor();
+  await derived.getByText('Agent-derived text — not an exact copy').waitFor();
+  await derived.getByText('synthetic reader conversion').waitFor();
+  await page.getByRole('region', { name: 'Cited passage' }).getByText('Agent-derived text — not an exact copy').waitFor();
+  assert.equal(await page.locator('mark, [data-source-highlight]').count(), 0, 'agent-text passages are never highlighted in an original');
+  await screenshot('source-agent-text-desktop-light');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await noOverflow('mobile non-text source');
+  await screenshot('source-agent-text-mobile-light');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${origin}/#/sources/?space=${defaultSpace.id}&filter=pending`);
+  await page.getByText('Every source in this space has extracted text.').waitFor();
+  await page.goto(`${origin}/#/passages/${derivedPassage.id}?space=${defaultSpace.id}`);
+  await page.locator('.evidence-record').getByText('Agent-derived text — not an exact copy').waitFor();
+  await page.goto(`${origin}/#/sources/?space=${defaultSpace.id}&q=indemnity`);
+  const derivedHit = page.locator('.source-search .search-results li').filter({ hasText: 'Scanned contract' });
+  await derivedHit.getByText('Agent-derived text — not an exact copy').waitFor();
+  ok('non-text originals need extraction, show file facts and label agent-derived passages without highlighting');
+
   await page.setViewportSize({width:1440,height:1000});
   await page.goto(`${origin}/#/?space=${defaultSpace.id}`);
   await page.getByRole('button', {name:'Manage spaces',exact:true}).click();

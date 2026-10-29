@@ -15,14 +15,22 @@ export function sourceOrder(value: unknown): SourceOrder {
     ? (value as SourceOrder)
     : "newest";
 }
+/** Sources whose original has no rendition of any kind: the agent still has to convert it. */
+export type SourceFilter = "" | "pending";
+export function sourceFilter(value: unknown): SourceFilter {
+  return value === "pending" ? "pending" : "";
+}
+const pendingCondition =
+  "NOT EXISTS (SELECT 1 FROM renditions r WHERE r.source=s.id)";
 export function sourceDirectoryHref(
   offset = 0,
   order: SourceOrder = "newest",
   publication = "",
   id = "",
+  filter: SourceFilter = "",
 ) {
   const href = evidenceHref("sources", id, "", publication, offset);
-  return `${href}${href.includes("?") ? "&" : "?"}order=${order}`;
+  return `${href}${href.includes("?") ? "&" : "?"}order=${order}${sourceFilter(filter) ? `&filter=${sourceFilter(filter)}` : ""}`;
 }
 export function SourceSearchForm({
   term = "",
@@ -67,6 +75,7 @@ type SourceRow = {
   original_name: string;
   source_date: string;
   created: string;
+  renditions: number;
 };
 export default function SourceDirectory({
   space,
@@ -74,16 +83,19 @@ export default function SourceDirectory({
   offset,
   order: requestedOrder,
   publication = "",
+  filter: requestedFilter = "",
 }: {
   space: string;
   count: number | null;
   offset: number;
   order?: SourceOrder;
   publication?: string;
+  filter?: SourceFilter;
 }) {
   // Runtime state can outlive a route shape during development hot reload.
   // Normalize again at the SQL boundary rather than trusting a typed prop.
   const order = sourceOrder(requestedOrder);
+  const filter = sourceFilter(requestedFilter);
   const [authEpoch, setAuthEpoch] = useState(0);
   useEffect(
     () => pb.authStore.onChange(() => setAuthEpoch((value) => value + 1)),
@@ -94,6 +106,7 @@ export default function SourceDirectory({
     key: string;
     rows: SourceRow[];
     more: boolean;
+    pending: number | null;
   } | null>(null);
   const [error, setError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
@@ -101,7 +114,7 @@ export default function SourceDirectory({
     100000,
     Math.max(0, Math.floor(offset / SOURCE_PAGE_SIZE) * SOURCE_PAGE_SIZE),
   );
-  const key = `${space}:${safeOffset}:${order}:${authEpoch}`;
+  const key = `${space}:${safeOffset}:${order}:${filter}:${authEpoch}`;
   const [pending, setPending] = useState(true);
   useEffect(() => {
     let active = true;
@@ -113,15 +126,30 @@ export default function SourceDirectory({
       setPending(false);
       return;
     }
-    void query<SourceRow>(
-      `SELECT id,title,original_name,source_date,created FROM sources WHERE space='${space}' ORDER BY ${orders[order]} LIMIT ${SOURCE_PAGE_SIZE + 1} OFFSET ${safeOffset}`,
-    )
-      .then((rows) => {
+    const scope = `s.space='${space}'${filter ? ` AND ${pendingCondition}` : ""}`;
+    void Promise.all([
+      query<SourceRow>(
+        `SELECT s.id,s.title,s.original_name,s.source_date,s.created,(SELECT count(*) FROM renditions r WHERE r.source=s.id) AS renditions FROM sources s WHERE ${scope} ORDER BY ${orders[order]} LIMIT ${SOURCE_PAGE_SIZE + 1} OFFSET ${safeOffset}`,
+      ),
+      // The space total counts every source; the filtered view needs its own.
+      filter
+        ? query<{ count: number }>(
+            `SELECT count(*) AS count FROM sources s WHERE ${scope}`,
+          )
+        : null,
+    ])
+      .then(([rows, pending]) => {
         if (active)
           setLoaded({
             key,
             rows: rows.slice(0, SOURCE_PAGE_SIZE),
             more: rows.length > SOURCE_PAGE_SIZE,
+            pending:
+              pending?.length === 1 &&
+              Number.isSafeInteger(pending[0].count) &&
+              pending[0].count >= 0
+                ? pending[0].count
+                : null,
           });
       })
       .catch((reason) => {
@@ -145,8 +173,9 @@ export default function SourceDirectory({
   }, [safeOffset, order]);
   const rows = loaded?.key === key ? loaded.rows : [];
   const more = loaded?.key === key && loaded.more;
+  const total = filter ? (loaded?.key === key ? loaded.pending : null) : count;
   const totalPages =
-    count === null ? null : Math.max(1, Math.ceil(count / SOURCE_PAGE_SIZE));
+    total === null ? null : Math.max(1, Math.ceil(total / SOURCE_PAGE_SIZE));
   const page = Math.floor(safeOffset / SOURCE_PAGE_SIZE) + 1;
   const [jump, setJump] = useState(String(page));
   useEffect(() => setJump(String(page)), [page]);
@@ -158,6 +187,8 @@ export default function SourceDirectory({
             Math.max(0, safeOffset - SOURCE_PAGE_SIZE),
             order,
             publication,
+            "",
+            filter,
           )}
         >
           ← Previous
@@ -178,6 +209,8 @@ export default function SourceDirectory({
               (next - 1) * SOURCE_PAGE_SIZE,
               order,
               publication,
+              "",
+              filter,
             );
         }}
       >
@@ -202,6 +235,8 @@ export default function SourceDirectory({
             safeOffset + SOURCE_PAGE_SIZE,
             order,
             publication,
+            "",
+            filter,
           )}
         >
           Next →
@@ -228,11 +263,32 @@ export default function SourceDirectory({
           {pending
             ? "Loading sources…"
             : rows.length
-              ? `${(safeOffset + 1).toLocaleString()}–${(safeOffset + rows.length).toLocaleString()}${count === null ? "" : ` of ${count.toLocaleString()}`} sources`
-              : count === 0
-                ? "0 sources"
+              ? `${(safeOffset + 1).toLocaleString()}–${(safeOffset + rows.length).toLocaleString()}${total === null ? "" : ` of ${total.toLocaleString()}`} ${filter ? "sources needing extraction" : "sources"}`
+              : total === 0
+                ? filter
+                  ? "0 sources needing extraction"
+                  : "0 sources"
                 : "No sources on this page"}
         </p>
+        <label>
+          Show{" "}
+          <select
+            aria-label="Filter sources"
+            value={filter}
+            onChange={(event) => {
+              location.hash = sourceDirectoryHref(
+                0,
+                order,
+                publication,
+                "",
+                sourceFilter(event.target.value),
+              );
+            }}
+          >
+            <option value="">All sources</option>
+            <option value="pending">Needs extraction</option>
+          </select>
+        </label>
         <label>
           Sort{" "}
           <select
@@ -243,6 +299,8 @@ export default function SourceDirectory({
                 0,
                 sourceOrder(event.target.value),
                 publication,
+                "",
+                filter,
               );
             }}
           >
@@ -261,7 +319,7 @@ export default function SourceDirectory({
         <>
           {(safeOffset > 0 ||
             more ||
-            (count !== null && count > SOURCE_PAGE_SIZE)) &&
+            (total !== null && total > SOURCE_PAGE_SIZE)) &&
             pager}
           <div className="source-directory-table">
             <table>
@@ -283,10 +341,19 @@ export default function SourceDirectory({
                           order,
                           publication,
                           row.id,
+                          filter,
                         )}
                       >
                         {row.title}
                       </a>
+                      {row.renditions === 0 && (
+                        <strong
+                          className="source-badge"
+                          title="No extracted text yet: the agent converts this original and runs pocketcontext extract"
+                        >
+                          Needs extraction
+                        </strong>
+                      )}
                       <span title={row.original_name}>{row.original_name}</span>
                     </td>
                     <td>{row.source_date || "—"}</td>
@@ -301,11 +368,21 @@ export default function SourceDirectory({
               {safeOffset ? (
                 <>
                   This page is empty.{" "}
-                  <a href={sourceDirectoryHref(0, order, publication)}>
+                  <a
+                    href={sourceDirectoryHref(
+                      0,
+                      order,
+                      publication,
+                      "",
+                      filter,
+                    )}
+                  >
                     Return to the first page
                   </a>
                   .
                 </>
+              ) : filter ? (
+                "Every source in this space has extracted text."
               ) : (
                 "No sources yet. Ingest an original to add evidence to this space."
               )}

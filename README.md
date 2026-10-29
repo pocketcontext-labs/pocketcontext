@@ -1,8 +1,8 @@
 # PocketContext
 
-A local knowledge base in one binary. Ingest text notes as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces separate shared and personal knowledge; full-text search covers published pages and original source passages. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
+A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces separate shared and personal knowledge; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
-See [what changed in 0.9.2](docs/releases/0.9.2.md): `ingest` works on Windows again, and new projects start with only a private Personal space. Earlier: [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
+See [what changed in 0.10.0](docs/releases/0.10.0.md): `ingest` stores any file, and the agent converts PDFs, images and audio into derived text with `extract`. Earlier: [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again and new projects starting with only a private Personal space, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
 ## A project
 
@@ -11,7 +11,7 @@ PocketContext/              ← any folder; may be in iCloud Drive, OneDrive, Dr
   pocketcontext[.exe]       the binary (optional here; it can live anywhere)
   pocketcontext.db          the database
   pocketcontext.json        port, account email, project ID (no secrets)
-  storage/                  immutable originals of ingested notes
+  storage/                  immutable originals of ingested files
 ```
 
 The database defaults to `pocketcontext.db` beside the binary; `--db PATH` or `POCKETCONTEXT_DB` selects another. While the server runs, a working copy lives in the per-machine cache (`os.UserCacheDir()/pocketcontext/<key>/`) together with the logs and the private local key; unpacked application files live in `os.UserCacheDir()/pocketcontext/app/`. The server writes a consistent copy (`VACUUM INTO` plus an atomic rename) back to `pocketcontext.db` a few seconds after changes and on `stop`, so sync clients only ever see complete files.
@@ -87,7 +87,7 @@ A different local port is refused by the server's Host check. `--url` (or `POCKE
 
 ## Scope
 
-Ingestion accepts UTF-8 text notes only (`.txt .md .markdown .csv .json .rst .log` or no extension); anything else is rejected before upload. There is no audio, image or PDF ingestion, no export, no external identity provider, no object storage and no hosted deployment. See [docs/data-model.md](docs/data-model.md) and [docs/spaces.md](docs/spaces.md) for the rules the server enforces, and [origin](docs/origin.md) for maintenance history.
+`ingest` stores any file up to 50 MiB (UTF-8 text up to 100 MiB) as an immutable original. It splits UTF-8 text (`.txt .md .markdown .csv .json .rst .log .srt .org`, or no extension when the content is valid UTF-8) into passages itself. Any other file is stored without passages and its media type is taken from the extension, never from the content. The binary never parses PDFs, images, audio or office documents and calls no external tool or service for them: the user's agent downloads the original (`original SOURCE --out FILE`), converts it to UTF-8 text or Markdown with its own abilities, and records the result with `extract SOURCE --text FILE --tool TOOL`. That creates an `agent-text` rendition whose passages are derived evidence, not an exact copy of the original; `pending` lists sources that still need it. Originals are never replaced, so a large file is shrunk before ingest (for example audio to Opus), with its provenance recorded by `extract --original-sha256` and `--conversion`. There is no export, no external identity provider, no object storage and no hosted deployment. See [docs/data-model.md](docs/data-model.md) and [docs/spaces.md](docs/spaces.md) for the rules the server enforces, and [origin](docs/origin.md) for maintenance history.
 
 The reader's topics and custom catalogs come from published page properties: `topics` and `catalogs` list group keys. Optional definition pages (`navigation_kind: "topic"` or `"catalog"`, keyed by their slug) supply labels, order and catalog columns. Existing pages with no topic membership appear under the unassigned group; titles never assign membership. Definitions, memberships and catalog settings follow the selected publication, including historical views. See the [navigation contract and examples](docs/data-model.md#topic-and-catalog-navigation).
 
@@ -95,7 +95,7 @@ Manage spaces beside the space selector creates private named spaces and provide
 
 Overview shows recent knowledge, guides and topic shortcuts; All pages is a separate filterable directory. Opening a published-page search result scrolls to and highlights the matching paragraph, preserving the selected space and publication. Catalog navigation shows populated built-in catalogs and explicitly defined custom catalogs.
 
-Sources includes uncited originals in the selected space. Its directory loads 50 metadata rows per page, with name/date ordering and direct page navigation; original files load only when opened. Sidebar search follows the selected section: publication-scoped search under Overview and All pages, and space-scoped source search under Sources. Source results cover filenames, metadata and extracted passage text. Evidence excerpts render safe Markdown; View in source opens the verified passage range in its original. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Source text remains untrusted evidence.
+Sources includes uncited originals in the selected space. Its directory loads 50 metadata rows per page, with name/date ordering and direct page navigation; original files load only when opened. Sidebar search follows the selected section: publication-scoped search under Overview and All pages, and space-scoped source search under Sources. Source results cover filenames, metadata and extracted passage text. Evidence excerpts render safe Markdown; View in source opens the verified passage range in its original. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Sources with no extracted text yet appear under the Needs extraction filter. A non-text original shows its media type and size and a protected download, never a text preview; its agent-text passages, and evidence excerpts and search results drawn from them, are labelled "Agent-derived text — not an exact copy", and View in source does not highlight them in the original. Source text remains untrusted evidence.
 
 ## Build
 
@@ -145,7 +145,7 @@ The browser regression check uses synthetic data and a temporary UI copy. Instal
 | --- | --- |
 | `cmd/pocketcontext` | entry point |
 | `internal/bundle` | project resolution, working copy and write-back, lease, local routes, server lifecycle |
-| `internal/client` | CLI commands, text ingestion, search, lint, skill installation |
+| `internal/client` | CLI commands, ingestion and extraction, search, lint, skill installation |
 | `internal/tunnel` | `tunnel serve` and `tunnel forward` on tailcat: identity, port filter, loopback proxy |
 | `internal/pocketcontext` | vendored server (SQL reads, snapshots, search); see `VENDORED.md` |
 | `pb_hooks`, `pb_migrations` | schema and server-side rules |

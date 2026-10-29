@@ -371,6 +371,25 @@ describe("published knowledge reads", () => {
     }
   });
 
+  it("carries each cited passage's rendition kind so agent text is labelled", async () => {
+    const citation = {
+      id: "citation0000001", marker: "1", note: "", passage_id: "passage00000001", ordinal: 1,
+      locator: "# Scan; lines 1-2", passage_body: "Converted words", rendition_kind: "agent-text",
+      source_id: "source000000001", source_title: "Scan", original_name: "scan.pdf", original: "scan.pdf",
+      media_type: "application/pdf", source_date: "", sha256: "a".repeat(64),
+    };
+    const send = vi.spyOn(pb, "send").mockImplementation(async (_path, options) => {
+      const sql = options?.body.sql as string;
+      if (sql.includes("AS manifest_type")) return validManifest();
+      if (sql.includes("r.body")) return response([detailRow({ id: "revision0000001", page: "page00000000001" }, 1)]);
+      if (sql.includes("AS passage_id")) return response(Number(/OFFSET (\d+)/.exec(sql)![1]) ? [] : [citation]);
+      return response([]);
+    });
+    const page = await getPage(publication, "scan");
+    expect(page?.citations[0].passage).toEqual({ id: "passage00000001", ordinal: 1, locator: "# Scan; lines 1-2", body: "Converted words", kind: "agent-text" });
+    expect(send.mock.calls.map((call) => call[1]?.body.sql as string).find((sql) => sql.includes("AS passage_id"))).toContain("e.kind AS rendition_kind");
+  });
+
   it.each([false, true])("loads all 738 transcript citations within the request budget (oversized batch: %s)", async (oversized) => {
     const citations = Array.from({ length: 738 }, (_, i) => ({
       id: String(i).padStart(15, "0"), marker: String(i + 1),

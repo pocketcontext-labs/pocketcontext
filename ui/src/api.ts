@@ -517,6 +517,7 @@ interface CitationRow {
   ordinal: number;
   locator: string;
   passage_body: string;
+  rendition_kind: string;
   source_id: string;
   source_title: string;
   original_name: string;
@@ -565,7 +566,7 @@ async function readPage(
   if (!page) return null;
   const [rows, backlinks, links] = await Promise.all([
     allRows<CitationRow>(
-      `SELECT c.id, c.marker, c.note, t.id AS passage_id, t.ordinal, t.locator, t.body AS passage_body, s.id AS source_id, s.title AS source_title, s.original_name, s.original, s.media_type, s.source_date, s.sha256 FROM citations c JOIN passages t ON t.id=c.passage JOIN renditions e ON e.id=t.rendition JOIN sources s ON s.id=e.source WHERE c.page_revision=${identity(page.id)} ORDER BY c.id`,
+      `SELECT c.id, c.marker, c.note, t.id AS passage_id, t.ordinal, t.locator, t.body AS passage_body, e.kind AS rendition_kind, s.id AS source_id, s.title AS source_title, s.original_name, s.original, s.media_type, s.source_date, s.sha256 FROM citations c JOIN passages t ON t.id=c.passage JOIN renditions e ON e.id=t.rendition JOIN sources s ON s.id=e.source WHERE c.page_revision=${identity(page.id)} ORDER BY c.id`,
       // Transcript pages can cite hundreds of short passages. Use the normal
       // batch size; allRows shrinks it if long passages exceed the byte budget.
       100,
@@ -596,6 +597,7 @@ async function readPage(
         ordinal: row.ordinal,
         locator: row.locator,
         body: row.passage_body,
+        kind: row.rendition_kind,
       },
       source: {
         id: row.source_id,
@@ -713,6 +715,43 @@ export async function originalURL(source: Source): Promise<string> {
     source.original,
     { token, download: true },
   );
+}
+/** Size of the protected original from a one-byte ranged read; null when unknown. */
+export async function originalSize(
+  source: Source,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const token = pb.authStore.token;
+  const url = await originalURL(source);
+  if (new URL(url).origin !== new URL(pb.baseURL).origin)
+    throw new Error("Invalid original location");
+  const response = await fetch(url, {
+    signal,
+    cache: "no-store",
+    credentials: "same-origin",
+    redirect: "error",
+    headers: { Range: "bytes=0-0" },
+  });
+  await response.body?.cancel().catch(() => {});
+  if (!response.ok) {
+    if (
+      (response.status === 401 || response.status === 403) &&
+      token === pb.authStore.token
+    )
+      pb.authStore.clear();
+    throw new Error("This original is unavailable or access was denied.");
+  }
+  const range = /^bytes \d+-\d+\/(\d+)$/.exec(
+    response.headers.get("content-range") || "",
+  );
+  const size = Number(
+    range
+      ? range[1]
+      : response.status === 200
+        ? (response.headers.get("content-length") ?? "")
+        : "",
+  );
+  return Number.isSafeInteger(size) && size > 0 ? size : null;
 }
 export const SOURCE_PREVIEW_BYTES = 2 * 1024 * 1024;
 export class SourcePreviewLimitError extends Error {
@@ -920,6 +959,7 @@ export const api = {
   getPage,
   searchPages,
   originalURL,
+  originalSize,
   sourceText,
   sourceCount,
   watchSources,

@@ -2,6 +2,7 @@ import { spaceLink } from "./spaceLinks";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, pb, query } from "./api";
+import { AgentTextSource } from "./AgentTextSource";
 import { EvidenceExcerpt } from "./EvidenceExcerpt";
 import { SourceContent } from "./SourceContent";
 import type { Passage, Source } from "./types";
@@ -34,11 +35,15 @@ export function sourcePassageHref(
   return evidenceHref("sources", sourceId, "", publication, 0, passageId);
 }
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+/** Only a source with a `text` rendition is a verified UTF-8 original to preview. */
+const textual = (source: { text_renditions: number }) =>
+  Number.isSafeInteger(source.text_renditions) && source.text_renditions > 0;
 type Row = {
   id: string;
   title: string;
   body?: string;
   locator?: string;
+  kind?: string;
   source_id?: string;
   original_name?: string;
   source_date?: string;
@@ -54,6 +59,7 @@ export default function EvidenceBrowser({
   onTitleChange,
   passage = "",
   sourceOrder = "newest",
+  sourceFilter = "",
 }: {
   space: string;
   collection: EvidenceCollection;
@@ -65,6 +71,7 @@ export default function EvidenceBrowser({
   onTitleChange?: (title: string) => void;
   passage?: string;
   sourceOrder?: string;
+  sourceFilter?: string;
 }) {
   const [cited, setCited] = useState<{
     key: string;
@@ -93,7 +100,11 @@ export default function EvidenceBrowser({
   const [loadedKey, setLoadedKey] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [selected, setSelected] = useState<Row | null>(null);
-  const [source, setSource] = useState<Source | null>(null);
+  // text_renditions counts the source's `text` renditions: only those split the
+  // original itself, so only those sources get a decoded preview.
+  const [source, setSource] = useState<
+    (Source & { text_renditions: number }) | null
+  >(null);
   const [more, setMore] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -114,7 +125,7 @@ export default function EvidenceBrowser({
             const base =
               collection === "sources"
                 ? "SELECT s.id, s.title, s.original_name, s.source_date FROM sources s"
-                : "SELECT p.id, s.title, p.locator, p.body, s.id AS source_id FROM passages p JOIN renditions r ON r.id=p.rendition JOIN sources s ON s.id=r.source";
+                : "SELECT p.id, s.title, p.locator, p.body, r.kind, s.id AS source_id FROM passages p JOIN renditions r ON r.id=p.rendition JOIN sources s ON s.id=r.source";
             const key = collection === "sources" ? "s.id" : "p.id";
             // Evidence is listed per selected space; SQL snapshots already hide foreign spaces.
             const inSpace = `${collection === "sources" ? "s" : "p"}.space=${literal(space)}`;
@@ -137,8 +148,8 @@ export default function EvidenceBrowser({
               : null;
             const original = record
               ? (
-                  await query<Source>(
-                    `SELECT id,title,original_name,original,media_type,source_date,sha256 FROM sources WHERE space=${literal(space)} AND id=${literal(record.source_id || record.id)} LIMIT 1`,
+                  await query<Source & { text_renditions: number }>(
+                    `SELECT id,title,original_name,original,media_type,source_date,sha256,(SELECT count(*) FROM renditions r WHERE r.source=sources.id AND r.space=sources.space AND r.kind='text') AS text_renditions FROM sources WHERE space=${literal(space)} AND id=${literal(record.source_id || record.id)} LIMIT 1`,
                   )
                 )[0]
               : null;
@@ -173,6 +184,7 @@ export default function EvidenceBrowser({
       collection !== "sources" ||
       !source ||
       source.id !== id ||
+      !textual(source) ||
       sourceToken.current !== pb.authStore.token
     )
       return;
@@ -215,7 +227,7 @@ export default function EvidenceBrowser({
     }
     let active = true;
     void query<Passage>(
-      `SELECT p.id,p.ordinal,p.locator,p.body FROM passages p JOIN renditions r ON r.id=p.rendition WHERE p.id=${literal(passage)} AND p.space=${literal(space)} AND r.space=${literal(space)} AND r.source=${literal(id)} LIMIT 1`,
+      `SELECT p.id,p.ordinal,p.locator,p.body,r.kind FROM passages p JOIN renditions r ON r.id=p.rendition WHERE p.id=${literal(passage)} AND p.space=${literal(space)} AND r.space=${literal(space)} AND r.source=${literal(id)} LIMIT 1`,
     )
       .then((rows) => {
         if (active) setCited({ key: citedKey, value: rows[0] ?? null });
@@ -309,7 +321,7 @@ export default function EvidenceBrowser({
       {collection === "sources" && id && (
         <a
           className="source-directory-back"
-          href={`${evidenceHref("sources", "", term, publication, offset)}${evidenceHref("sources", "", term, publication, offset).includes("?") ? "&" : "?"}order=${encodeURIComponent(sourceOrder)}`}
+          href={`${evidenceHref("sources", "", term, publication, offset)}${evidenceHref("sources", "", term, publication, offset).includes("?") ? "&" : "?"}order=${encodeURIComponent(sourceOrder)}${sourceFilter === "pending" ? "&filter=pending" : ""}`}
         >
           ← {term ? "Back to search results" : "All sources"}
         </a>
@@ -382,7 +394,20 @@ export default function EvidenceBrowser({
                 </a>
               )}
             </div>
-            {collection === "sources" && source && (
+            {collection === "sources" && source && !textual(source) && (
+              <div className="source-reading">
+                <AgentTextSource
+                  key={`${source.id}:${authEpoch}`}
+                  space={space}
+                  source={source}
+                  publication={publication}
+                  cited={cited?.key === citedKey ? cited.value : null}
+                  citedRequested={Boolean(passage)}
+                  citedLoading={Boolean(passage) && cited?.key !== citedKey}
+                />
+              </div>
+            )}
+            {collection === "sources" && source && textual(source) && (
               <div className="source-reading">
                 {preview?.source !== source.id ||
                 preview.token !== pb.authStore.token ? (
@@ -407,6 +432,7 @@ export default function EvidenceBrowser({
               <EvidenceExcerpt
                 body={selected.body}
                 source={source || undefined}
+                kind={selected.kind}
               />
             )}
             {selected.source_id && (

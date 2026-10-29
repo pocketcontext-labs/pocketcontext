@@ -49,3 +49,21 @@
 .markdown .source-metadata { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
 .markdown .source-metadata > summary { cursor: pointer; width: fit-content; }
 .markdown .source-metadata pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+
+.agent-text-label { display: inline-block; margin: 12px 0 0; padding: 3px 9px; border: 1px solid var(--accent-border); border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1.5; }
+.source-badge { display: inline-block; padding: 1px 8px; border: 1px solid var(--accent-border); border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; line-height: 1.6; white-space: nowrap; }
+.source-original { padding: 14px 16px; border: 1px solid var(--border); border-radius: 7px; }
+.source-original > p { margin-top: 0; }
+.source-original dl, .agent-text-passages dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 14px; }
+.source-original dt, .agent-text-passages dt { color: var(--muted); }
+.source-original dd, .agent-text-passages dd { margin: 0; overflow-wrap: anywhere; }
+.agent-text-passages { margin-top: 28px; }
+.agent-text-passages h2 { margin: 0; font-size: 1.1rem; }
+.agent-text-cited { margin-top: 20px; padding: 12px 14px; border: 1px solid var(--accent-border); border-radius: 7px; }
+.agent-text-cited > p { margin: 0; font-size: 14px; }
+.agent-text-cited > p span { display: block; margin-top: 4px; color: var(--muted); overflow-wrap: anywhere; }
+.agent-text-list { list-style: none; margin: 20px 0; padding: 0; }
+.agent-text-list li { padding: 12px 0; border-top: 1px solid var(--border); }
+.agent-text-list li.cited { border-left: 3px solid var(--accent); padding-left: 12px; }
+.agent-text-list .evidence-excerpt { margin: 8px 0 0; }
+.search-results .agent-text-label { margin: 6px 0 0; }

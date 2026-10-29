@@ -44,19 +44,27 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
   batch JSON|-                       up to 20 writes in one transaction
   newid                              print a new 15-character record ID
   ingest PATH [--title T] [--date D] [--version V]
-                                     store a UTF-8 text note and extract passages
-                                     split by headings and paragraphs; Markdown
-                                     front matter title: and published:/date:
-                                     fill title and source date unless given;
-                                     reuses an existing rendition unless
-                                     --version is given (new ones are v3,
-                                     which fold passages under 200 characters
-                                     into a neighbour)
+                                     store a file; a UTF-8 text note also gets
+                                     passages split by headings and paragraphs;
+                                     Markdown front matter title: and
+                                     published:/date: fill title and source
+                                     date unless given; reuses an existing
+                                     rendition unless --version is given (new
+                                     ones are v3, which fold passages under 200
+                                     characters into a neighbour). Other files
+                                     (PDF, image, audio, ...) are only stored
+  pending [--limit N]                list sources without a rendition, newest first
+  original SOURCE_ID --out FILE      download a verified original to a new file
+  extract SOURCE_ID --text FILE --tool TOOL [--version LABEL]
+          [--original-sha256 HEX] [--conversion TEXT]
+                                     record your UTF-8 conversion of a stored
+                                     file as derived agent-text passages
   passages SOURCE_ID [--version V] [--out FILE]
                                      print a source's passages as plain text in
                                      ordinal order, each after a line with
-                                     ordinal, passage ID and locator; --out
-                                     writes them to a file
+                                     ordinal, passage ID and locator (marked
+                                     derived for agent text); --out writes them
+                                     to a file
   search TERMS [--limit N] [--offset N --generation G --publication ID] [--sequence N]
   lint                               check published graph structure
   stage SPEC|- [--dry-run]           validate a JSON spec of page revisions, then

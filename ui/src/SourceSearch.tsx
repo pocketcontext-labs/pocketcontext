@@ -8,6 +8,8 @@ import {
   type SourceSearchPage,
 } from "./sourceSearchApi";
 import { highlightSearchText, searchExcerpt } from "./searchText";
+import { AgentTextLabel } from "./EvidenceExcerpt";
+import { isAgentText } from "./sourceRanges";
 
 function Highlight({ text, query }: { text: string; query: string }) {
   return highlightSearchText(text, query).map((part, n) =>
@@ -170,6 +172,7 @@ export default function SourceSearch({
             <span className="page-eyebrow">
               {hit.passage ? "EXTRACTED PASSAGE" : "SOURCE METADATA"}
             </span>
+            {hit.passage && isAgentText(hit) && <AgentTextLabel />}
             <h2>
               <a href={sourceSearchHitHref(space, hit)} aria-label={hit.title}>
                 <Highlight text={hit.title} query={query} />

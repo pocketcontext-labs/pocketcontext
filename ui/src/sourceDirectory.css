@@ -160,3 +160,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.source-directory-table td .source-badge {
+  margin-top: 6px;
+}

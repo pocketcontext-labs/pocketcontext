@@ -122,3 +122,20 @@ it("metadata-only results omit passage and publication parameters", async () => 
   );
   expect(screen.getByText("note.md")).toBeVisible();
 });
+
+it("labels matching passages from agent-derived text", async () => {
+  vi.spyOn(sources, "searchSources").mockResolvedValue({
+    generation: "a".repeat(64),
+    hits: [hit(1), { ...hit(2), kind: "agent-text" }],
+    hasMore: false,
+  });
+  render(<SourceSearch space={space} query="rocket" visible epoch={0} />);
+  await screen.findByRole("link", { name: "Rocket 2" });
+  const items = screen.getAllByRole("listitem");
+  expect(
+    within(items[0]).queryByText("Agent-derived text — not an exact copy"),
+  ).toBeNull();
+  expect(
+    within(items[1]).getByText("Agent-derived text — not an exact copy"),
+  ).toBeVisible();
+});

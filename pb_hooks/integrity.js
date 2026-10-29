@@ -39,6 +39,11 @@ function checks(app,run,report,guard){
   const bodyMarkers=[...body.matchAll(/\[\^(\d+)\]/g)].map(m=>m[1]);
   const metadata=require(`${__hooks}/properties.js`);
   const {properties,evidence}=metadata.validate(r);
+  // An exact copy reproduces original bytes, so only a text source qualifies; agent text is derived.
+  if(properties.catalog_type==='repository_document'&&properties.output_mode==='exact_copy'){
+   const source=local(app,'sources',properties.source_id,space);
+   if(!rows(app,'renditions',"source = {:source} && kind = 'text'",{source:source.id}).length)report(page,'property','Exact-copy source must be a text source');
+  }
   const markers=new Set(bodyMarkers);
   for(const key of Object.keys(evidence))for(const marker of evidence[key])markers.add(marker);
   for(const marker of markers)if(!citations.some(c=>c.getString('marker')===marker))report(page,'missing-marker','Missing citation marker '+marker);

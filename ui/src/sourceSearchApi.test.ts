@@ -22,9 +22,9 @@ const metadata = () => ({
   rows: [[source, "Note", "note.md", ""]],
   truncated: false,
 });
-const relationship = () => ({
-  columns: ["id", "source", "locator"],
-  rows: [[passage, source, "lines 1-3"]],
+const relationship = (kind = "text") => ({
+  columns: ["id", "source", "locator", "kind"],
+  rows: [[passage, source, "lines 1-3", kind]],
   truncated: false,
 });
 beforeEach(() =>
@@ -133,5 +133,18 @@ it("maps bounded-index failures and does not place query content into hydration 
   await searchSources(space, "' OR 1=1");
   expect((send.mock.calls[2][1]?.body as { sql: string }).sql).not.toContain(
     "OR 1=1",
+  );
+});
+
+it("hydrates the rendition kind of a matching passage", async () => {
+  const send = vi
+    .spyOn(pb, "send")
+    .mockResolvedValueOnce(response())
+    .mockResolvedValueOnce(metadata())
+    .mockResolvedValueOnce(relationship("agent-text"));
+  const found = await searchSources(space, "rocket");
+  expect(found.hits[0]).toMatchObject({ passage, kind: "agent-text" });
+  expect((send.mock.calls[2][1]?.body as { sql: string }).sql).toContain(
+    "r.kind",
   );
 });

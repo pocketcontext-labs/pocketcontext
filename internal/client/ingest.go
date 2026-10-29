@@ -19,15 +19,28 @@ import (
 	"unicode/utf8"
 )
 
-// Text extensions accepted by the bundle. Everything else is rejected before
-// upload: the bundle stores and extracts text notes only.
+// Text extensions the binary extracts itself. Any other file is stored as it
+// is, without a rendition, for the agent to convert and record with `extract`.
 var textExtensions = map[string]string{
 	".txt": "text/plain", ".md": "text/markdown", ".markdown": "text/markdown",
 	".csv": "text/csv", ".json": "application/json", ".rst": "text/x-rst", ".log": "text/plain",
+	".srt": "application/x-subrip", ".org": "text/org",
+}
+
+// Media types of other files, by extension only: content is never sniffed.
+var binaryTypes = map[string]string{
+	".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+	".gif": "image/gif", ".svg": "image/svg+xml", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".ogg": "audio/ogg",
+	".opus": "audio/opus", ".wav": "audio/wav", ".flac": "audio/flac", ".mp4": "video/mp4", ".webm": "video/webm",
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".epub": "application/epub+zip", ".zip": "application/zip",
 }
 
 const (
-	maxSource = 100 << 20
+	maxSource       = 100 << 20
+	maxBinarySource = 50 << 20
 	// The default rendition version. Version labels are free text; the splitter
 	// is chosen by the rendition's processor, so v1 and v2 renditions stay valid.
 	defaultVersion = "v3"
@@ -583,7 +596,9 @@ type IngestOptions struct {
 	VersionSet, DateSet  bool
 }
 
-// Ingest stores one immutable text source and its evidence passages.
+// Ingest stores one immutable source. A text note also gets its evidence
+// passages; any other file is stored as it is, for the agent to convert and
+// record with `extract`.
 //
 // Compatibility: v1 renditions (processor pocketcontext-1) hold fixed
 // 24,000-character passages and v2 renditions (pocketcontext-2 structure) keep
@@ -609,20 +624,12 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 		return nil, fail(2, "source must be a regular file")
 	}
 	suffix := strings.ToLower(filepath.Ext(abs))
-	media, ok := textExtensions[suffix]
-	if suffix == "" {
-		media, ok = "application/octet-stream", true
-	}
-	if !ok {
-		names := make([]string, 0, len(textExtensions))
-		for ext := range textExtensions {
-			names = append(names, ext)
-		}
-		sort.Strings(names)
-		return nil, fail(2, "unsupported source type %s: PocketContext accepts UTF-8 text notes only (%s); nothing was uploaded", suffix, strings.Join(names, " "))
-	}
+	media, isText := textExtensions[suffix]
 	if info.Size() > maxSource {
 		return nil, fail(2, "source must be no larger than 100 MiB")
+	}
+	if !isText && suffix != "" && info.Size() > maxBinarySource {
+		return nil, fail(2, binaryTooLarge)
 	}
 	content, err := os.ReadFile(abs)
 	if err != nil {
@@ -632,6 +639,12 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 		return nil, fail(2, "source is empty or a Git LFS pointer; retrieve actual source bytes first")
 	}
 	text := strings.TrimPrefix(string(content), "\ufeff")
+	if suffix == "" {
+		media, isText = "application/octet-stream", utf8.ValidString(text)
+	}
+	if !isText {
+		return c.ingestBinary(abs, suffix, content, o)
+	}
 	if !utf8.ValidString(text) {
 		return nil, fail(2, "text source is not UTF-8; convert it to UTF-8 first")
 	}
@@ -653,17 +666,98 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 			date = v
 		}
 	}
+	result, found, err := c.store(abs, suffix, media, title, date, content)
+	if err != nil {
+		return nil, err
+	}
+	sourceID := result["source"].(string)
+	delete(result, "media_type")
+	result["status"], result["next"] = "extracted", nextSynthesize
+	if found && (o.Title != "" || o.DateSet) {
+		result["note"] = "source already stored; its title and date are immutable and were not changed"
+	}
+	if !o.VersionSet {
+		version = defaultVersion
+		labels, err := c.Rows("SELECT version_label FROM renditions WHERE source = " + literal(sourceID) + " AND kind = 'text' ORDER BY created, id LIMIT 1000")
+		if err != nil {
+			return nil, err
+		}
+		if i := preferredRendition(labels); i >= 0 {
+			version, _ = labels[i]["version_label"].(string)
+		}
+	}
+	split := func(proc string) []passage { return splitFor(proc, text, markdown) }
+	rendition, passages, err := c.extraction(sourceID, "text", processor, version, split, manifest)
+	if err != nil {
+		return nil, err
+	}
+	result["rendition"], result["version"], result["passages"] = rendition["id"], version, len(passages)
+	switch proc, _ := rendition["processor"].(string); proc {
+	case processorV1:
+		result["processor"] = proc
+		result["note"] = "passages come from a v1 extraction (fixed 24,000-character cuts); run with --version v3 for structure-aware passages"
+	case processorV2:
+		result["processor"] = proc
+		result["note"] = "passages come from a v2 extraction (tiny passages kept apart); run with --version v3 to re-extract with them merged"
+	}
+	return result, nil
+}
+
+const (
+	nextSynthesize = "Synthesize cited page revisions in a staging ingestion run, then publish."
+	binaryTooLarge = "a source that is not text must be no larger than 50 MiB; shrink or convert it first"
+)
+
+// ingestBinary stores a file that is not text without a rendition; the agent
+// converts it and records the text with `extract`.
+func (c *Client) ingestBinary(abs, suffix string, content []byte, o IngestOptions) (map[string]any, error) {
+	if o.VersionSet {
+		return nil, fail(2, "--version applies to text sources; convert the file and run `pocketcontext extract`")
+	}
+	if len(content) > maxBinarySource {
+		return nil, fail(2, binaryTooLarge)
+	}
+	media, ok := binaryTypes[suffix]
+	if !ok {
+		media = "application/octet-stream"
+	}
+	result, found, err := c.store(abs, suffix, media, o.Title, o.Date, content)
+	if err != nil {
+		return nil, err
+	}
+	if found && (o.Title != "" || o.DateSet) {
+		result["note"] = "source already stored; its title and date are immutable and were not changed"
+	}
+	labels, err := c.Rows("SELECT version_label FROM renditions WHERE source = " + literal(result["source"]) + " ORDER BY created, id LIMIT 1000")
+	if err != nil {
+		return nil, err
+	}
+	if len(labels) == 0 {
+		result["status"], result["next"] = "stored", fmt.Sprintf("Read the original (pocketcontext original %s --out FILE), convert it to UTF-8 text or Markdown, then run pocketcontext extract %s --text FILE --tool TOOL", result["source"], result["source"])
+		return result, nil
+	}
+	versions := make([]string, len(labels))
+	for i, l := range labels {
+		versions[i] = fmt.Sprint(l["version_label"])
+	}
+	result["status"], result["versions"], result["next"] = "extracted", versions, nextSynthesize
+	return result, nil
+}
+
+// store uploads the original once per space, recovering a lost response, and
+// returns the common result fields and whether the source already existed.
+func (c *Client) store(abs, suffix, media, title, date string, content []byte) (map[string]any, bool, error) {
 	sum := sha256.Sum256(content)
 	digest := hex.EncodeToString(sum[:])
 	space, err := c.SpaceID()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// Deduplication is per space: the same bytes in another space are a separate source.
-	findSource := "SELECT id, sha256, title, source_date FROM sources WHERE sha256 = " + literal(digest) + " AND space = " + literal(space) + " LIMIT 1"
+	findSource := "SELECT id, sha256, title, source_date, media_type FROM sources WHERE sha256 = " + literal(digest) + " AND space = " + literal(space) + " LIMIT 1"
 	found, err := c.Rows(findSource)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var source map[string]any
 	if len(found) > 0 {
@@ -686,47 +780,39 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 			if again, qerr := c.Rows(findSource); qerr == nil && len(again) > 0 {
 				source = again[0]
 			} else {
-				return nil, err
+				return nil, false, err
 			}
 		}
 	}
 	if source["sha256"] != digest {
-		return nil, fail(1, "server original checksum differs; stop and investigate before extraction")
+		return nil, false, fail(1, "server original checksum differs; stop and investigate before extraction")
 	}
 	sourceID, _ := source["id"].(string)
-	result := map[string]any{"space": space, "source": sourceID, "sha256": digest, "title": source["title"], "source_date": source["source_date"],
-		"status": "extracted", "next": "Synthesize cited page revisions in a staging ingestion run, then publish."}
-	if len(found) > 0 && (o.Title != "" || o.DateSet) {
-		result["note"] = "source already stored; its title and date are immutable and were not changed"
-	}
-	if !o.VersionSet {
-		version = defaultVersion
-		labels, err := c.Rows("SELECT version_label FROM renditions WHERE source = " + literal(sourceID) + " AND kind = 'text' ORDER BY created, id LIMIT 1000")
-		if err != nil {
-			return nil, err
-		}
-		if i := preferredRendition(labels); i >= 0 {
-			version, _ = labels[i]["version_label"].(string)
-		}
-	}
-	findRendition := "SELECT id, processor, notes FROM renditions WHERE source = " + literal(sourceID) + " AND kind = 'text' AND version_label = " + literal(version) + " LIMIT 1"
+	return map[string]any{"space": space, "source": sourceID, "sha256": digest, "title": source["title"], "source_date": source["source_date"],
+		"media_type": source["media_type"]}, len(found) > 0, nil
+}
+
+// extraction creates or resumes one rendition and its passages. split returns
+// the passages a rendition with the given processor holds, notes its manifest;
+// an existing rendition is always checked with the splitter of its own processor.
+func (c *Client) extraction(sourceID, kind, proc, version string, split func(string) []passage, notes func([]passage) string) (map[string]any, []passage, error) {
+	findRendition := "SELECT id, processor, notes FROM renditions WHERE source = " + literal(sourceID) + " AND kind = " + literal(kind) + " AND version_label = " + literal(version) + " LIMIT 1"
 	existing, err := c.Rows(findRendition)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var rendition map[string]any
-	passages := splitFor(processor, text, markdown)
 	if len(existing) > 0 {
-		proc, _ := existing[0]["processor"].(string)
-		passages = splitFor(proc, text, markdown)
+		proc, _ = existing[0]["processor"].(string)
 	}
-	expectedManifest := manifest(passages)
+	passages := split(proc)
+	expectedManifest := notes(passages)
 	if len(existing) == 0 {
-		data, err := c.Must("POST", records("renditions"), map[string]any{"source": sourceID, "kind": "text", "processor": processor, "version_label": version, "notes": expectedManifest})
+		data, err := c.Must("POST", records("renditions"), map[string]any{"source": sourceID, "kind": kind, "processor": proc, "version_label": version, "notes": expectedManifest})
 		if err != nil {
 			again, qerr := c.Rows(findRendition)
 			if qerr != nil || len(again) == 0 {
-				return nil, err
+				return nil, nil, err
 			}
 			rendition = again[0]
 		} else {
@@ -738,25 +824,16 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 	if notes, _ := rendition["notes"].(string); notes != expectedManifest {
 		var previous, expected any
 		if json.Unmarshal([]byte(notes), &previous) != nil || json.Unmarshal([]byte(expectedManifest), &expected) != nil || fmt.Sprint(previous) != fmt.Sprint(expected) {
-			return nil, fail(4, "existing rendition has different extracted content; preserve it and select a new --version")
+			return nil, nil, fail(4, "existing rendition has different extracted content; preserve it and select a new --version")
 		}
 	}
 	renditionID, _ := rendition["id"].(string)
-	result["rendition"], result["version"], result["passages"] = renditionID, version, len(passages)
-	switch proc, _ := rendition["processor"].(string); proc {
-	case processorV1:
-		result["processor"] = proc
-		result["note"] = "passages come from a v1 extraction (fixed 24,000-character cuts); run with --version v3 for structure-aware passages"
-	case processorV2:
-		result["processor"] = proc
-		result["note"] = "passages come from a v2 extraction (tiny passages kept apart); run with --version v3 to re-extract with them merged"
-	}
 	for i, p := range passages {
 		ordinal := i + 1
 		query := fmt.Sprintf("SELECT id, locator, body FROM passages WHERE rendition = %s AND ordinal = %d LIMIT 1", literal(renditionID), ordinal)
 		previous, err := c.Rows(query)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(previous) == 0 {
 			_, err := c.Must("POST", records("passages"), map[string]any{"rendition": renditionID, "ordinal": ordinal, "locator": p.Locator, "body": p.Body})
@@ -764,14 +841,14 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 				continue
 			}
 			if previous, _ = c.Rows(query); len(previous) == 0 {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		if previous[0]["locator"] != p.Locator || previous[0]["body"] != p.Body {
-			return nil, fail(4, "existing passage differs from extraction; select a new rendition version")
+			return nil, nil, fail(4, "existing passage differs from extraction; select a new rendition version")
 		}
 	}
-	return result, nil
+	return rendition, passages, nil
 }
 
 func (c *Client) upload(fields map[string]string, filename string, content []byte) (map[string]any, error) {

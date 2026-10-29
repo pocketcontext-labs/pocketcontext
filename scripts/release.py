@@ -442,7 +442,7 @@ def publish(args):
             return
     else:
         base = f"https://github.com/{REPOSITORY}/releases/download/{tag}"
-        body = (f"PocketContext {release_version}: a local, text-only knowledge base: server, reader and CLI in one binary.\n\n"
+        body = (f"PocketContext {release_version}: a local knowledge base: server, reader and CLI in one binary.\n\n"
                 "Linux amd64 and arm64: static musl binaries. macOS arm64: macOS 15 or later, ad hoc signed. "
                 "Windows amd64: statically linked MinGW build, unsigned.\n\n"
                 f"Install on Linux or macOS: `curl -fsSL {base}/install.sh | sh`\n\n"

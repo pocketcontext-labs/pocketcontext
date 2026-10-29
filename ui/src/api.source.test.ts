@@ -1,6 +1,7 @@
 import { createHash, webcrypto } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  originalSize,
   pb,
   sourceCount,
   sourceText,
@@ -191,4 +192,31 @@ it("reconciles source events and reconnects, and ignores callbacks from a logged
   stop();
   expect(stopConnected).toHaveBeenCalledOnce();
   expect(stopSources).toHaveBeenCalledOnce();
+});
+
+it("reads an original's size from a one-byte ranged request without downloading it", async () => {
+  const content = bytes("%PDF-1.7 synthetic");
+  const fetcher = vi.fn().mockResolvedValue(
+    new Response(content.slice(0, 1), {
+      status: 206,
+      headers: { "content-range": `bytes 0-0/${5 * 1024 * 1024}` },
+    }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  await expect(originalSize(original(content))).resolves.toBe(5 * 1024 * 1024);
+  expect(fetcher).toHaveBeenCalledWith(
+    expect.stringContaining("/api/files/sources/"),
+    expect.objectContaining({
+      headers: { Range: "bytes=0-0" },
+      redirect: "error",
+    }),
+  );
+  fetcher.mockResolvedValue(
+    new Response(content, { headers: { "content-length": "18" } }),
+  );
+  await expect(originalSize(original(content))).resolves.toBe(18);
+  fetcher.mockResolvedValue(new Response(null, { status: 403 }));
+  await expect(originalSize(original(content))).rejects.toThrow(
+    "access was denied",
+  );
 });

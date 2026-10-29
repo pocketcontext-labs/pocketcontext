@@ -9,6 +9,20 @@ export interface VerifiedSourceRange {
   range: SourceRange;
 }
 
+/** Text the user's agent produced from a non-text original (PDF, image, audio…). */
+export const AGENT_TEXT = "agent-text";
+export const AGENT_TEXT_LABEL = "Agent-derived text — not an exact copy";
+export function isAgentText(passage?: Pick<Passage, "kind"> | null): boolean {
+  return passage?.kind === AGENT_TEXT;
+}
+/** Only `text` renditions split the original itself; any other kind is derived
+ * evidence whose locators refer to converted text, never to the original. */
+export function isExactPassage(passage?: Pick<Passage, "kind"> | null) {
+  return Boolean(
+    passage && (passage.kind === undefined || passage.kind === "text"),
+  );
+}
+
 export function isMarkdownSource(
   source?: Pick<Source, "media_type" | "original_name">,
 ): boolean {
@@ -36,8 +50,9 @@ function characterOffset(text: string, count: number): number | null {
  * Never search for the first matching phrase: identical passages can occur twice. */
 export function verifySourceRange(
   original: string,
-  passage: Pick<Passage, "locator" | "body">,
+  passage: Pick<Passage, "locator" | "body" | "kind">,
 ): VerifiedSourceRange | null {
+  if (!isExactPassage(passage)) return null;
   // sourceText's UTF-8 decoder removes the same single BOM as ingestion.
   const raw = original;
   const delimiter = passage.locator.lastIndexOf("; ");

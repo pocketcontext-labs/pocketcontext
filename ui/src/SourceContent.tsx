@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "./Markdown";
-import { isMarkdownSource, verifySourceRange } from "./sourceRanges";
+import {
+  AGENT_TEXT_LABEL,
+  isExactPassage,
+  isMarkdownSource,
+  verifySourceRange,
+} from "./sourceRanges";
 import type { Passage, Source } from "./types";
 
 export function SourceContent({
@@ -12,7 +17,7 @@ export function SourceContent({
 }: {
   text: string;
   source: Pick<Source, "id" | "media_type" | "original_name">;
-  passage?: Pick<Passage, "id" | "body" | "locator"> | null;
+  passage?: Pick<Passage, "id" | "body" | "locator" | "kind"> | null;
   passageRequested?: boolean;
   passageLoading?: boolean;
 }) {
@@ -67,9 +72,11 @@ export function SourceContent({
         <p role="status">Checking cited passage…</p>
       ) : passageRequested && !verified ? (
         <p className="source-range-note" role="status">
-          {passage
-            ? "This passage could not be verified against the original. No source range is highlighted."
-            : "This passage is unavailable for this original."}
+          {!passage
+            ? "This passage is unavailable for this original."
+            : !isExactPassage(passage)
+              ? `${AGENT_TEXT_LABEL}. Its locator refers to the agent's converted text, so no source range is highlighted.`
+              : "This passage could not be verified against the original. No source range is highlighted."}
         </p>
       ) : null}
       {verified && (

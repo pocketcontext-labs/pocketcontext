@@ -39,6 +39,8 @@ export interface Passage {
   ordinal: number;
   locator: string;
   body: string;
+  /** Rendition kind: `text` splits the verified original; `agent-text` is derived. */
+  kind?: string;
 }
 
 export interface Citation {

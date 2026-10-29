@@ -9,6 +9,8 @@ export interface SourceSearchHit {
   excerpt: string;
   passage?: string;
   locator?: string;
+  /** Rendition kind of the matching passage; `agent-text` is derived evidence. */
+  kind?: string;
 }
 export interface SourceSearchPage {
   generation: string;
@@ -173,8 +175,13 @@ export async function searchSources(
     hit.passage ? [identity(hit.passage)] : [],
   );
   const passages = passageIDs.length
-    ? await query<{ id: string; source: string; locator: string }>(
-        `SELECT p.id,r.source,p.locator FROM passages p JOIN renditions r ON r.id=p.rendition JOIN sources s ON s.id=r.source WHERE s.space=${scope} AND r.space=s.space AND p.space=s.space AND s.id IN (${sourceIDs}) AND p.id IN (${passageIDs.join(",")}) ORDER BY p.id LIMIT 100`,
+    ? await query<{
+        id: string;
+        source: string;
+        locator: string;
+        kind: string;
+      }>(
+        `SELECT p.id,r.source,p.locator,r.kind FROM passages p JOIN renditions r ON r.id=p.rendition JOIN sources s ON s.id=r.source WHERE s.space=${scope} AND r.space=s.space AND p.space=s.space AND s.id IN (${sourceIDs}) AND p.id IN (${passageIDs.join(",")}) ORDER BY p.id LIMIT 100`,
       )
     : [];
   active();
@@ -195,7 +202,7 @@ export async function searchSources(
       return {
         ...source,
         ...hit,
-        ...(passage ? { locator: passage.locator } : {}),
+        ...(passage ? { locator: passage.locator, kind: passage.kind } : {}),
       };
     }),
   };

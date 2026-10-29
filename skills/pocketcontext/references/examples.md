@@ -57,6 +57,18 @@ pocketcontext passages SOURCE_ID______ --out source-passages.txt   # every passa
 pocketcontext sql "SELECT id, ordinal, locator, body FROM passages WHERE rendition = 'RENDITION_ID_15' ORDER BY ordinal LIMIT 10 OFFSET 0"
 ```
 
+Convert a non-text source (the binary stores it; you write the text):
+
+```sh
+pocketcontext ingest /path/to/scan.pdf --title 'Scanned letter'   # "status": "stored"
+pocketcontext pending
+pocketcontext original SOURCE_ID______ --out work/scan.pdf   # a new file in a temporary folder
+# read work/scan.pdf yourself and write a faithful conversion to work/scan.md
+pocketcontext extract SOURCE_ID______ --text work/scan.md --tool 'claude-opus-5-5 read the PDF'
+pocketcontext extract AUDIO_SOURCE_ID --text work/talk.md --tool 'groq whisper-large-v3-turbo' \
+  --original-sha256 HEX_SHA256_OF_THE_M4A --conversion 'ffmpeg m4a to 32 kbit/s Opus before ingest'
+```
+
 
 ```sh
 pocketcontext create ingestion_runs '{"key":"example-source-v1","status":"staging","description":"Synthesize synthetic example evidence","sources":["SOURCE_ID______"]}'

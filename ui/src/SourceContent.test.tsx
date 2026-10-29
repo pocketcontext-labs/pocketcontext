@@ -192,3 +192,45 @@ it("renders evidence as safe source Markdown only for Markdown originals", () =>
   expect(container.querySelector("pre")).toHaveTextContent("## Evidence");
   expect(container.querySelector("h2,strong,ul")).toBeNull();
 });
+
+it("never highlights an agent-text passage in an original and says why", () => {
+  const { container } = render(
+    <SourceContent
+      source={source}
+      text={"Same words\nOther words"}
+      passage={{
+        id: "passage00000001",
+        locator: "document; line 1",
+        body: "Same words",
+        kind: "agent-text",
+      }}
+      passageRequested
+    />,
+  );
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Agent-derived text — not an exact copy",
+  );
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "no source range is highlighted",
+  );
+  expect(container.querySelector("mark")).toBeNull();
+});
+
+it("labels agent-text evidence and shows it as plain text", () => {
+  const { container, rerender } = render(
+    <EvidenceExcerpt
+      body={"## Heading\n\n**Derived**"}
+      source={source}
+      kind="agent-text"
+    />,
+  );
+  expect(
+    screen.getByText("Agent-derived text — not an exact copy"),
+  ).toBeVisible();
+  expect(container.querySelector("pre")).toHaveTextContent("## Heading");
+  expect(container.querySelector("h2,strong")).toBeNull();
+  rerender(<EvidenceExcerpt body="Exact" source={source} kind="text" />);
+  expect(
+    screen.queryByText("Agent-derived text — not an exact copy"),
+  ).toBeNull();
+});

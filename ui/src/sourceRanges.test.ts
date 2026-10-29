@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { verifySourceRange } from "./sourceRanges";
+import { isAgentText, isExactPassage, verifySourceRange } from "./sourceRanges";
 
 it("uses locator positions to distinguish repeated text and verifies the exact body", () => {
   const text = "Repeated words\nDifferent words\nRepeated words";
@@ -78,4 +78,20 @@ it.each([
   "lines 1-2, characters 1-2 of line 3",
 ])("rejects invalid locator %s without guessing", (locator) => {
   expect(verifySourceRange("One\nTwo", { locator, body: "One" })).toBeNull();
+});
+
+it("never verifies agent-text locators against the original, even when they match", () => {
+  const text = "# Report\n\nSame words";
+  const passage = { locator: "# Report; lines 1-3", body: text };
+  expect(verifySourceRange(text, passage)).not.toBeNull();
+  expect(verifySourceRange(text, { ...passage, kind: "text" })).not.toBeNull();
+  expect(
+    verifySourceRange(text, { ...passage, kind: "agent-text" }),
+  ).toBeNull();
+  // Unknown future kinds are derived too: only `text` splits the original.
+  expect(verifySourceRange(text, { ...passage, kind: "ocr" })).toBeNull();
+  expect(isExactPassage({ kind: "agent-text" })).toBe(false);
+  expect(isAgentText({ kind: "agent-text" })).toBe(true);
+  expect(isAgentText({ kind: "text" })).toBe(false);
+  expect(isAgentText(null)).toBe(false);
 });

@@ -1,8 +1,9 @@
 import Brand from "./Brand";
 import SpaceManager from "./SpaceManager";
 import SourceSearch from "./SourceSearch";
-import SourceDirectory, { sourceOrder } from "./SourceDirectory";
+import SourceDirectory, { sourceFilter, sourceOrder } from "./SourceDirectory";
 import { EvidenceExcerpt } from "./EvidenceExcerpt";
+import { AGENT_TEXT_LABEL, isAgentText } from "./sourceRanges";
 import PagesDirectory, { pagesHref } from "./PagesDirectory";
 import { availableCatalogTypes } from "./catalogNavigation";
 import { useSourceCount } from "./useSourceCount";
@@ -1355,6 +1356,7 @@ function Reader() {
                   id={view.record}
                   passage={view.passage}
                   sourceOrder={view.sourceOrder}
+                  sourceFilter={sourceFilter(view.filter)}
                   term={view.query}
                   publication={view.publication}
                   offset={view.offset}
@@ -1372,6 +1374,7 @@ function Reader() {
                   count={sourceCount}
                   offset={view.offset}
                   order={view.sourceOrder}
+                  filter={sourceFilter(view.filter)}
                   publication={view.publication}
                 />
               )}
@@ -1515,6 +1518,8 @@ function Reader() {
                             <small>
                               {c.passage.locator ||
                                 `Passage ${c.passage.ordinal}`}
+                              {isAgentText(c.passage) &&
+                                ` · ${AGENT_TEXT_LABEL}`}
                             </small>
                           </span>
                           <span aria-hidden="true">↗</span>
@@ -1669,6 +1674,7 @@ function Reader() {
             <EvidenceExcerpt
               body={evidence.passage.body}
               source={evidence.source}
+              kind={evidence.passage.kind}
             />
             <p>
               <a href={evidenceHref("passages", evidence.passage.id)}>

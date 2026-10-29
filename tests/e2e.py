@@ -212,6 +212,7 @@ def main():
         try:
             scenario(pc)
             staging_scenario(pc)
+            binary_scenario(pc)
             remote = Remote(binary, Path(temp) / 'other-computer', pc.url)
             remote_scenario(pc, remote)
             tunnel_scenario(pc, remote)
@@ -405,10 +406,6 @@ def scenario(pc):
     second = pc.json('ingest', str(note))
     check(first['status'] == 'extracted' and first['passages'] == 1, 'ingest stores a text note and extracts passages')
     check(first['source'] == second['source'] and first['rendition'] == second['rendition'], 'repeated ingest deduplicates')
-    image = notes / 'photo.png'
-    image.write_bytes(b'\x89PNG\r\n')
-    rejected = pc.run('ingest', str(image), expect=2)
-    check('text notes only' in rejected.stderr, 'non-text sources are rejected before upload')
 
     passage = pc.json('sql', f"SELECT id FROM passages WHERE rendition = '{first['rendition']}' LIMIT 1")['rows'][0][0]
     run = pc.json('create', 'ingestion_runs', json.dumps({'key': 'coffee-v1', 'status': 'staging', 'description': 'Coffee', 'sources': [first['source']]}))
@@ -575,9 +572,126 @@ def passages_scenario(pc, notes, first):
     data = out.read_bytes()
     check(data == want.encode('utf-8') and b'\r' not in data, 'passages --out writes the text as UTF-8 with LF line endings')
     refused = pc.run('passages', first['source'], '--version', 'v9', expect=1)
-    check('no text rendition "v9"' in refused.stderr and 'v3' in refused.stderr, 'passages names the renditions when --version matches none')
+    check('no rendition "v9"' in refused.stderr and 'v3' in refused.stderr, 'passages names the renditions when --version matches none')
     check('not found in this space' in pc.run('passages', 'zzzzzzzzzzzzzzz', expect=1).stderr, 'passages refuses an unknown source')
     check('source ID' in pc.run('passages', 'Episode one', expect=2).stderr, 'passages takes a source ID, not a title')
+
+
+def binary_scenario(pc):
+    """A file that is not text is stored as it is, converted by the agent and recorded with extract."""
+    notes = pc.root / 'binary-notes'
+    notes.mkdir()
+    original = notes / 'scan.pdf'
+    original.write_bytes(b'%PDF-1.7\n%\xe2\xe3\xcf\xd3\n' + bytes(range(256)) * 8 + b'\n%%EOF\n')
+    digest = hashlib.sha256(original.read_bytes()).hexdigest()
+    check('--version applies to text sources' in pc.run('ingest', str(original), '--version', 'v3', expect=2).stderr,
+          'ingest refuses --version for a binary before upload')
+    check(pc.json('sql', f"SELECT count(*) FROM sources WHERE sha256 = '{digest}'")['rows'][0][0] == 0, 'a refused binary is not uploaded')
+    stored = pc.json('ingest', str(original), '--title', 'Quarterly scan')
+    source = stored['source']
+    check(stored['status'] == 'stored' and stored['media_type'] == 'application/pdf' and stored['sha256'] == digest
+          and stored['title'] == 'Quarterly scan' and 'rendition' not in stored and f'pocketcontext original {source}' in stored['next']
+          and f'pocketcontext extract {source}' in stored['next'], f'ingest stores a binary without a rendition: {stored}')
+    check(pc.json('ingest', str(original))['source'] == source, 'repeated binary ingest deduplicates')
+    check(pc.json('sql', f"SELECT count(*) FROM renditions WHERE source = '{source}'")['rows'][0][0] == 0, 'a binary source has no rendition')
+    odd = notes / 'blob'
+    odd.write_bytes(b'\xff\xfe\x00binary without extension')
+    blob = pc.json('ingest', str(odd))
+    check(blob['status'] == 'stored' and blob['media_type'] == 'application/octet-stream', f'an extensionless binary is stored: {blob}')
+    unknown = notes / 'model.xyz'
+    unknown.write_bytes(b'\x00\x01 synthetic')
+    check(pc.json('ingest', str(unknown))['media_type'] == 'application/octet-stream', 'an unknown extension is stored as octet-stream')
+    subtitles = notes / 'talk.srt'
+    subtitles.write_text('1\n00:00:01,000 --> 00:00:02,000\n# Not a heading\n', encoding='utf-8')
+    srt = pc.json('ingest', str(subtitles))
+    locator = pc.json('sql', f"SELECT locator FROM passages WHERE rendition = '{srt['rendition']}'")['rows']
+    check(srt['status'] == 'extracted' and locator == [['document; lines 1-3']], f'.srt is extracted as plain text: {srt} {locator}')
+
+    pending = pc.json('pending')
+    ids = [row['id'] for row in pending['sources']]
+    check(source in ids and blob['source'] in ids and srt['source'] not in ids and not pending['truncated']
+          and pending['space'] == pc.json('whoami')['space'], f'pending lists sources without a rendition: {pending}')
+    row = next(row for row in pending['sources'] if row['id'] == source)
+    check(row['title'] == 'Quarterly scan' and row['original_name'] == 'scan.pdf' and row['media_type'] == 'application/pdf'
+          and set(row) == {'id', 'title', 'original_name', 'media_type', 'source_date', 'created'}, f'pending rows carry metadata: {row}')
+    check(len(pc.json('pending', '--limit', '1')['sources']) == 1 and pc.json('pending', '--limit', '1')['truncated'], 'pending --limit truncates')
+    check(pc.run('pending', '--limit', '501', expect=2).returncode == 2, 'pending refuses a limit above 500')
+
+    out = notes / 'download.pdf'
+    got = pc.json('original', source, '--out', str(out))
+    check(out.read_bytes() == original.read_bytes() and got['sha256'] == digest and got['bytes'] == len(original.read_bytes())
+          and got['media_type'] == 'application/pdf' and Path(got['out']).samefile(out), f'original downloads identical bytes: {got}')
+    check('already exists' in pc.run('original', source, '--out', str(out), expect=2).stderr, 'original refuses to overwrite a file')
+
+    converted = notes / 'scan.md'
+    converted.write_text('# Quarterly scan\n\nRevenue of the Zephyrine unit grew by 7 percent.\n\n## Outlook\n\nHiring continues.\n', encoding='utf-8')
+    tool = 'synthetic agent read the PDF'
+    check('--tool' in pc.run('extract', source, '--text', str(converted), expect=2).stderr, 'extract requires --tool')
+    extracted = pc.json('extract', source, '--text', str(converted), '--tool', tool)
+    check(extracted['status'] == 'extracted' and extracted['derived'] is True and extracted['version'] == 'agent-1'
+          and extracted['passages'] == 1 and extracted['source'] == source and extracted['space'] == pending['space'], f'extract records agent text: {extracted}')
+    kind, processor, label, notes_json = pc.json('sql', f"SELECT kind, processor, version_label, notes FROM renditions WHERE id = '{extracted['rendition']}'")['rows'][0]
+    manifest = json.loads(notes_json)
+    check(kind == 'agent-text' and processor == 'agent text / pocketcontext-3 structure' and label == 'agent-1'
+          and manifest['derived'] is True and manifest['tool'] == tool and manifest['passages'] == 1
+          and manifest['text_sha256'] == hashlib.sha256(converted.read_bytes()).hexdigest() and 'conversion' not in manifest,
+          f'the agent-text rendition records its provenance: {kind} {processor} {manifest}')
+    check(source not in [row['id'] for row in pc.json('pending')['sources']], 'an extracted source leaves pending')
+    rows = pc.json('sql', f"SELECT id, ordinal, locator, body FROM passages WHERE rendition = '{extracted['rendition']}' ORDER BY ordinal")['rows']
+    printed = pc.run('passages', source).stdout
+    check(printed == passages_text(rows).replace(rows[0][2] + '\n', rows[0][2] + ' · derived: agent text\n', 1)
+          and rows[0][2] == '# Quarterly scan; lines 1-7', f'passages reads agent text and marks it derived: {printed!r}')
+    summary = pc.json('passages', source, '--out', str(notes / 'scan-passages.txt'))
+    check(summary['derived'] is True and summary['version'] == 'agent-1', f'passages --out marks agent text derived: {summary}')
+    again = pc.json('ingest', str(original))
+    check(again['status'] == 'extracted' and again['versions'] == ['agent-1'] and 'Synthesize' in again['next'],
+          f'ingest reports the agent-text versions of a stored binary: {again}')
+
+    # Resume: identical text completes a partial rendition; different text under the same version is refused.
+    resumed = pc.json('extract', source, '--text', str(converted), '--tool', tool)
+    check(resumed['rendition'] == extracted['rendition'] and resumed['passages'] == 1, 'extract with identical text resumes the rendition')
+    changed = notes / 'scan-v2.md'
+    changed.write_text('# Quarterly scan\n\nRevenue of the Zephyrine unit grew by 9 percent.\n', encoding='utf-8')
+    conflict = pc.run('extract', source, '--text', str(changed), '--tool', tool, expect=4)
+    check('preserve it and select a new --version' in conflict.stderr, 'different text under the same version exits 4')
+    check('preserve it' in pc.run('extract', source, '--text', str(converted), '--tool', 'another tool', expect=4).stderr,
+          'a different tool under the same version exits 4')
+    second = pc.json('extract', source, '--text', str(changed), '--tool', 'synthetic transcriber', '--version', 'agent-2',
+                     '--original-sha256', '0' * 64, '--conversion', 'pdf pages rendered to PNG before reading')
+    manifest = json.loads(pc.json('sql', f"SELECT notes FROM renditions WHERE id = '{second['rendition']}'")['rows'][0][0])
+    check(second['version'] == 'agent-2' and second['rendition'] != extracted['rendition'] and manifest['original_sha256'] == '0' * 64
+          and manifest['conversion'] == 'pdf pages rendered to PNG before reading', f'a second version is added beside the first: {second} {manifest}')
+    check('9 percent' in pc.run('passages', source).stdout and '7 percent' in pc.run('passages', source, '--version', 'agent-1').stdout,
+          'passages prefers the newest agent-text rendition; --version selects another')
+    check(pc.run('extract', source, '--text', str(changed), '--tool', tool, '--original-sha256', 'ABC', expect=2).returncode == 2,
+          'extract refuses a malformed --original-sha256')
+
+    text_note = notes / 'memo.md'
+    text_note.write_text('# Memo\n\nThe Zephyrine memo is copied verbatim.\n', encoding='utf-8')
+    memo = pc.json('ingest', str(text_note))
+    check('text source; ingest extracts it' in pc.run('extract', memo['source'], '--text', str(converted), '--tool', tool, expect=2).stderr,
+          'extract refuses a text source')
+    check('not found' in pc.run('extract', 'zzzzzzzzzzzzzzz', '--text', str(converted), '--tool', tool, expect=1).stderr,
+          'extract refuses an unknown source')
+
+    # An exact copy reproduces original bytes: agent text never qualifies.
+    passage = {name: pc.json('sql', f"SELECT id FROM passages WHERE rendition = '{r}' LIMIT 1")['rows'][0][0]
+               for name, r in (('binary', extracted['rendition']), ('text', memo['rendition']))}
+    run = pc.json('create', 'ingestion_runs', json.dumps({'key': 'exact-copy', 'status': 'staging', 'description': 'Exact copies'}))
+    for slug, name, src in (('scan-copy', 'binary', source), ('memo-copy', 'text', memo['source'])):
+        page = pc.json('create', 'pages', json.dumps({'slug': slug, 'kind': 'entity'}))
+        revision = pc.json('create', 'page_revisions', json.dumps({
+            'run': run['id'], 'page': page['id'], 'base_revision': '', 'title': slug, 'summary': slug, 'body': 'Copied verbatim.[^1]',
+            'properties': {'catalog_type': 'repository_document', 'document_type': 'other', 'output_mode': 'exact_copy', 'source_id': src}}))
+        pc.json('create', 'citations', json.dumps({'page_revision': revision['id'], 'passage': passage[name], 'marker': '1'}))
+    checked = json.loads(pc.run('check-run', run['id'], expect=3).stdout)
+    problems = [(p['page'], p['kind'], p['detail']) for p in checked['problems'] if p['kind'] == 'property']
+    check(problems == [('scan-copy', 'property', 'Exact-copy source must be a text source')], f'exact_copy is refused for a binary source only: {checked}')
+    current = pc.json('get', 'ingestion_runs', run['id'])
+    refused = pc.run('publish', run['id'], '--expected-revision', str(current['revision']), expect=1)
+    check('Exact-copy source must be a text source' in refused.stdout + refused.stderr, 'publication refuses an exact copy of a binary source')
+    current = pc.json('get', 'ingestion_runs', run['id'])
+    pc.json('update', 'ingestion_runs', run['id'], json.dumps({'status': 'cancelled', 'expected_revision': current['revision']}))
 
 
 def staging_scenario(pc):
@@ -760,6 +874,12 @@ def remote_scenario(pc, r):
     summary = r.json('passages', source['source'], '--out', str(r.root / 'tea-passages.txt'))
     check(summary['passages'] == 1 and (r.root / 'tea-passages.txt').read_bytes() == passages_text(rows).encode('utf-8'),
           'remote passages --out writes the file on the other computer')
+    (r.root / 'leaf.png').write_bytes(b'\x89PNG\r\n\x1a\n synthetic remote image \x00\xff')
+    image = r.json('ingest', str(r.root / 'leaf.png'))
+    check(image['status'] == 'stored' and image['media_type'] == 'image/png', 'remote ingest stores a binary')
+    fetched = r.json('original', image['source'], '--out', str(r.root / 'leaf-copy.png'))
+    check((r.root / 'leaf-copy.png').read_bytes() == (r.root / 'leaf.png').read_bytes() and fetched['sha256'] == image['sha256'],
+          'remote original downloads the verified bytes')
     run = r.json('create', 'ingestion_runs', json.dumps({'key': 'tea-v1', 'status': 'staging', 'description': 'Tea', 'sources': [source['source']]}))
     page = r.json('create', 'pages', '{"slug":"tea-policy","kind":"summary"}')
     revision = r.json('create', 'page_revisions', '-', stdin=json.dumps({
