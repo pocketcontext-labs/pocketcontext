@@ -1,32 +1,30 @@
 {
+  "limits": {
+    "maxBytes": 1048576,
+    "maxRows": 500,
+    "timeoutMs": 2000
+  },
+  "permissionModel": "shared",
   "search": {
     "indexes": [
-      "pages"
+      "pages",
+      "sources"
     ],
     "limits": {
+      "defaultLimit": 20,
       "maxIndexBytes": 8388608,
-      "maxQueryBytes": 4096,
-      "maxTerms": 16,
-      "maxOffset": 10000,
-      "maxScopeMembers": 10000,
       "maxLimit": 100,
-      "defaultLimit": 20
+      "maxOffset": 10000,
+      "maxQueryBytes": 4096,
+      "maxScopeMembers": 10000,
+      "maxTerms": 16
     }
   },
   "tables": [
     {
-      "name": "audit_log",
       "columns": [
         {
           "name": "action",
-          "type": "TEXT"
-        },
-        {
-          "name": "actor",
-          "type": "TEXT"
-        },
-        {
-          "name": "actor_type",
           "type": "TEXT"
         },
         {
@@ -53,17 +51,13 @@
           "name": "space",
           "type": "TEXT"
         }
-      ]
+      ],
+      "name": "audit_log"
     },
     {
-      "name": "citations",
       "columns": [
         {
           "name": "created",
-          "type": "TEXT"
-        },
-        {
-          "name": "created_by",
           "type": "TEXT"
         },
         {
@@ -91,32 +85,36 @@
           "type": "NUMERIC"
         },
         {
-          "name": "updated",
-          "type": "TEXT"
-        },
-        {
-          "name": "updated_by",
-          "type": "TEXT"
-        },
-        {
           "name": "space",
           "type": "TEXT"
+        },
+        {
+          "name": "updated",
+          "type": "TEXT"
         }
-      ]
+      ],
+      "name": "citations"
     },
     {
-      "name": "ingestion_runs",
       "columns": [
+        {
+          "name": "clear_home",
+          "type": "BOOLEAN"
+        },
         {
           "name": "created",
           "type": "TEXT"
         },
         {
-          "name": "created_by",
+          "name": "description",
           "type": "TEXT"
         },
         {
-          "name": "description",
+          "name": "home",
+          "type": "TEXT"
+        },
+        {
+          "name": "home_base",
           "type": "TEXT"
         },
         {
@@ -140,44 +138,24 @@
           "type": "JSON"
         },
         {
+          "name": "space",
+          "type": "TEXT"
+        },
+        {
           "name": "status",
           "type": "TEXT"
         },
         {
           "name": "updated",
           "type": "TEXT"
-        },
-        {
-          "name": "updated_by",
-          "type": "TEXT"
-        },
-        {
-          "name": "home",
-          "type": "TEXT"
-        },
-        {
-          "name": "home_base",
-          "type": "TEXT"
-        },
-        {
-          "name": "clear_home",
-          "type": "BOOLEAN"
-        },
-        {
-          "name": "space",
-          "type": "TEXT"
         }
-      ]
+      ],
+      "name": "ingestion_runs"
     },
     {
-      "name": "page_links",
       "columns": [
         {
           "name": "created",
-          "type": "TEXT"
-        },
-        {
-          "name": "created_by",
           "type": "TEXT"
         },
         {
@@ -193,25 +171,21 @@
           "type": "NUMERIC"
         },
         {
+          "name": "space",
+          "type": "TEXT"
+        },
+        {
           "name": "target",
           "type": "TEXT"
         },
         {
           "name": "updated",
           "type": "TEXT"
-        },
-        {
-          "name": "updated_by",
-          "type": "TEXT"
-        },
-        {
-          "name": "space",
-          "type": "TEXT"
         }
-      ]
+      ],
+      "name": "page_links"
     },
     {
-      "name": "page_revisions",
       "columns": [
         {
           "name": "archived",
@@ -230,10 +204,6 @@
           "type": "TEXT"
         },
         {
-          "name": "created_by",
-          "type": "TEXT"
-        },
-        {
           "name": "id",
           "type": "TEXT"
         },
@@ -242,11 +212,23 @@
           "type": "TEXT"
         },
         {
+          "name": "properties",
+          "type": "JSON"
+        },
+        {
+          "name": "property_evidence",
+          "type": "JSON"
+        },
+        {
           "name": "revision",
           "type": "NUMERIC"
         },
         {
           "name": "run",
+          "type": "TEXT"
+        },
+        {
+          "name": "space",
           "type": "TEXT"
         },
         {
@@ -260,34 +242,14 @@
         {
           "name": "updated",
           "type": "TEXT"
-        },
-        {
-          "name": "updated_by",
-          "type": "TEXT"
-        },
-        {
-          "name": "properties",
-          "type": "JSON"
-        },
-        {
-          "name": "property_evidence",
-          "type": "JSON"
-        },
-        {
-          "name": "space",
-          "type": "TEXT"
         }
-      ]
+      ],
+      "name": "page_revisions"
     },
     {
-      "name": "pages",
       "columns": [
         {
           "name": "created",
-          "type": "TEXT"
-        },
-        {
-          "name": "created_by",
           "type": "TEXT"
         },
         {
@@ -307,21 +269,17 @@
           "type": "TEXT"
         },
         {
-          "name": "updated",
-          "type": "TEXT"
-        },
-        {
-          "name": "updated_by",
-          "type": "TEXT"
-        },
-        {
           "name": "space",
           "type": "TEXT"
+        },
+        {
+          "name": "updated",
+          "type": "TEXT"
         }
-      ]
+      ],
+      "name": "pages"
     },
     {
-      "name": "passages",
       "columns": [
         {
           "name": "body",
@@ -329,10 +287,6 @@
         },
         {
           "name": "created",
-          "type": "TEXT"
-        },
-        {
-          "name": "created_by",
           "type": "TEXT"
         },
         {
@@ -356,24 +310,24 @@
           "type": "NUMERIC"
         },
         {
-          "name": "updated",
-          "type": "TEXT"
-        },
-        {
-          "name": "updated_by",
-          "type": "TEXT"
-        },
-        {
           "name": "space",
           "type": "TEXT"
+        },
+        {
+          "name": "updated",
+          "type": "TEXT"
         }
-      ]
+      ],
+      "name": "passages"
     },
     {
-      "name": "publications",
       "columns": [
         {
           "name": "created",
+          "type": "TEXT"
+        },
+        {
+          "name": "home",
           "type": "TEXT"
         },
         {
@@ -393,24 +347,16 @@
           "type": "NUMERIC"
         },
         {
-          "name": "home",
-          "type": "TEXT"
-        },
-        {
           "name": "space",
           "type": "TEXT"
         }
-      ]
+      ],
+      "name": "publications"
     },
     {
-      "name": "renditions",
       "columns": [
         {
           "name": "created",
-          "type": "TEXT"
-        },
-        {
-          "name": "created_by",
           "type": "TEXT"
         },
         {
@@ -438,32 +384,49 @@
           "type": "TEXT"
         },
         {
-          "name": "updated",
+          "name": "space",
           "type": "TEXT"
         },
         {
-          "name": "updated_by",
+          "name": "updated",
           "type": "TEXT"
         },
         {
           "name": "version_label",
           "type": "TEXT"
-        },
-        {
-          "name": "space",
-          "type": "TEXT"
         }
-      ]
+      ],
+      "name": "renditions"
     },
     {
-      "name": "sources",
       "columns": [
         {
           "name": "created",
           "type": "TEXT"
         },
         {
-          "name": "created_by",
+          "name": "default_space",
+          "type": "TEXT"
+        },
+        {
+          "name": "id",
+          "type": "TEXT"
+        },
+        {
+          "name": "revision",
+          "type": "NUMERIC"
+        },
+        {
+          "name": "updated",
+          "type": "TEXT"
+        }
+      ],
+      "name": "settings"
+    },
+    {
+      "columns": [
+        {
+          "name": "created",
           "type": "TEXT"
         },
         {
@@ -495,6 +458,10 @@
           "type": "TEXT"
         },
         {
+          "name": "space",
+          "type": "TEXT"
+        },
+        {
           "name": "supersedes",
           "type": "TEXT"
         },
@@ -505,60 +472,11 @@
         {
           "name": "updated",
           "type": "TEXT"
-        },
-        {
-          "name": "updated_by",
-          "type": "TEXT"
-        },
-        {
-          "name": "space",
-          "type": "TEXT"
         }
-      ]
+      ],
+      "name": "sources"
     },
     {
-      "name": "space_members",
-      "columns": [
-        {
-          "name": "account",
-          "type": "TEXT"
-        },
-        {
-          "name": "active",
-          "type": "BOOLEAN"
-        },
-        {
-          "name": "created",
-          "type": "TEXT"
-        },
-        {
-          "name": "created_by",
-          "type": "TEXT"
-        },
-        {
-          "name": "id",
-          "type": "TEXT"
-        },
-        {
-          "name": "revision",
-          "type": "NUMERIC"
-        },
-        {
-          "name": "role",
-          "type": "TEXT"
-        },
-        {
-          "name": "space",
-          "type": "TEXT"
-        },
-        {
-          "name": "updated",
-          "type": "TEXT"
-        }
-      ]
-    },
-    {
-      "name": "spaces",
       "columns": [
         {
           "name": "archived",
@@ -569,15 +487,7 @@
           "type": "TEXT"
         },
         {
-          "name": "created_by",
-          "type": "TEXT"
-        },
-        {
           "name": "id",
-          "type": "TEXT"
-        },
-        {
-          "name": "kind",
           "type": "TEXT"
         },
         {
@@ -592,26 +502,8 @@
           "name": "updated",
           "type": "TEXT"
         }
-      ]
-    },
-    {
-      "name": "user_directory",
-      "columns": [
-        {
-          "name": "id",
-          "type": "TEXT"
-        },
-        {
-          "name": "name",
-          "type": "TEXT"
-        }
-      ]
+      ],
+      "name": "spaces"
     }
-  ],
-  "permissionModel": "shared",
-  "limits": {
-    "maxRows": 500,
-    "maxBytes": 1048576,
-    "timeoutMs": 2000
-  }
+  ]
 }

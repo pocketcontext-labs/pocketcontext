@@ -109,13 +109,11 @@ function problems(app,run){
  checks(app,run,(page,kind,message,detail)=>add(page,kind,detail||message),(page,fn)=>{try{fn(page);}catch(err){add(page,'invalid',thrown(err));}});
  return out;
 }
-// GET /api/pocketcontext/runs/{id}/check: read-only, for space members (readers included).
+// GET /api/pocketcontext/runs/{id}/check: read-only, also for runs in archived spaces.
 function checkRequest(e){
  const id=e.request.pathValue('id');
  if(!/^[a-z0-9]{15}$/.test(id))spaces().missing();
- if(e.auth.getBool('disabled'))throw new ForbiddenError('Disabled account');
  let run;try{run=e.app.findRecordById('ingestion_runs',id);}catch(_){spaces().missing();}
- spaces().requireMember(e.app,run.getString('space'),e.auth.id,false);
  const status=run.getString('status');
  const found=status==='staging'?problems(e.app,run):[{page:'',kind:'run-closed',detail:'Run is '+status+'; only staging runs can be checked and published'}];
  return e.json(200,{run:run.id,ok:!found.length,problems:found});
@@ -148,50 +146,46 @@ function validate(app,r){
  if(t==='citations')local(app,'passages',r.getString('passage'),space);
  if(t==='page_links')local(app,'pages',r.getString('target'),space);
 }
-// Root records take their explicit space or the account's project default;
-// children inherit their parent's. Membership is checked before any other detail.
-function scope(app,r,body,actor){
+// Root records take their explicit space or the project's default space;
+// children inherit their parent's. Writes to archived spaces are refused.
+function scope(app,r,body){
  const t=r.collection().name;
  let space;
  if(!r.isNew()){
   space=r.original().getString('space');
   if(r.getString('space')!==space)invalid('space is immutable');
  }else if(ROOTS.includes(t)){
-  space=body.space||(actor?spaces().defaultSpace(app,actor).id:'');
-  if(!space)invalid('space required');
+  space=body.space||spaces().defaultSpace(app).id;
  }else{
   const [field,table]=PARENTS[t];
   let parent;try{parent=app.findRecordById(table,r.getString(field));}catch(_){spaces().missing();}
   space=parent.getString('space');
   if(body.space&&body.space!==space)spaces().missing();
  }
- if(actor)spaces().requireMember(app,space,actor,true);else spaces().requireSpace(app,space);
+ spaces().requireSpace(app,space,true);
  r.set('space',space);
 }
 function write(e){
  const original=e.app,r=e.record,t=r.collection().name,fresh=r.isNew(),body=e.requestInfo().body;
  original.runInTransaction(app=>{e.app=app;try{
   if(!fresh){
-   const actor=e.auth&&e.auth.collection().name==='users'?e.auth.id:'';
-   if(actor)spaces().requireMember(app,r.original().getString('space'),actor,false);
    if(t!=='ingestion_runs')invalid('Immutable record; create a new version');
    const current=app.findRecordById(t,r.id);
    if(!Number.isInteger(body.expected_revision))invalid('expected_revision required');
    if(current.getInt('revision')!==body.expected_revision||current.getInt('revision')!==r.original().getInt('revision'))throw new ApiError(409,'Revision conflict',{});
   }
-  for(const k of ['revision','created_by','updated_by','created','updated','sha256'])if(Object.prototype.hasOwnProperty.call(body,k))invalid(k+' is server managed');
-  const actor=e.auth&&e.auth.collection().name==='users'?e.auth.id:'';
-  scope(app,r,body,actor);
-  r.set('_audit_actor',actor?'user:'+actor:'superuser:'+e.auth.id);
-  r.set('created_by',fresh?actor:r.original().getString('created_by'));r.set('updated_by',actor);r.set('revision',fresh?1:r.original().getInt('revision')+1);
+  for(const k of ['revision','created','updated','sha256'])if(Object.prototype.hasOwnProperty.call(body,k))invalid(k+' is server managed');
+  scope(app,r,body);
+  r.set('_audit_pending',true);
+  r.set('revision',fresh?1:r.original().getInt('revision')+1);
   validate(app,r);
   if(t==='ingestion_runs'&&!fresh&&r.getString('status')==='published')publish(app,r);
   e.next();
  }finally{e.app=original;}});
 }
 function audit(e,action){
- const actor=e.record.getString('_audit_actor');if(!actor)return e.next();
- e.record.set('_audit_actor','');
+ if(!e.record.getBool('_audit_pending'))return e.next();
+ e.record.set('_audit_pending',false);
  e.next();
  if(e.record.collection().name==='sources'&&action==='create'){
   // Stream through PocketBase's storage backend: never assume originals are local.
@@ -207,6 +201,6 @@ function audit(e,action){
  }
  const changes={revision:e.record.getInt('revision'),status:e.record.getString('status')};
  if(e.record.collection().name==='ingestion_runs'){changes.home=e.record.getString('home');changes.home_base=e.record.getString('home_base');changes.clear_home=e.record.getBool('clear_home');}
- const row=new Record(e.app.findCollectionByNameOrId('audit_log'));row.set('space',e.record.getString('space'));row.set('action',action);row.set('collection',e.record.collection().name);row.set('record',e.record.id);row.set('actor',actor.split(':')[1]);row.set('actor_type',actor.split(':')[0]);row.set('changes',changes);e.app.save(row);
+ const row=new Record(e.app.findCollectionByNameOrId('audit_log'));row.set('space',e.record.getString('space'));row.set('action',action);row.set('collection',e.record.collection().name);row.set('record',e.record.id);row.set('changes',changes);e.app.save(row);
 }
 module.exports={write,audit,checkRequest};

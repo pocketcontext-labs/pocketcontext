@@ -8,35 +8,40 @@ The project is the database file (default: pocketcontext.db beside this binary, 
 it. They may live in iCloud Drive, OneDrive, Dropbox or Google Drive.
 
 Setup and server:
-  init --email EMAIL [--name NAME] [--port N] [--password-stdin]
-                       create the project and local account, start the server
+  init [--port N] [--password-stdin]
+                       create the project, its account and a first space
+                       named Default, and start the server
   ensure-running       start the server in the background unless it runs (alias: start)
   serve [--ui-dev URL]  run in the foreground; optionally proxy a loopback Vite UI
   stop                 write back the database and stop the server
   status               show paths, port, lease and whether the server runs
-  open [--email EMAIL] [--no-browser]
-                       open the reader signed in (single-use link, valid for
-                       2 minutes); --email signs in as that account, e.g. to
-                       open the printed link on a computer that uses --url
+  open [--no-browser]  open the reader signed in (single-use link, valid for
+                       2 minutes); --no-browser only prints the link, e.g. to
+                       open it on a computer that uses --url
   password [--password-stdin]
                        change the reader password
-  account --email EMAIL [--name NAME] [--password-stdin]
-                       create another account on this server, e.g. for a
-                       person using it with --url. Without --password-stdin
-                       it never prompts: a new account gets a random password
-                       nobody knows and an existing one keeps its password
-  login-code --email EMAIL [--ttl SECONDS]
-                       print a one-time sign-in code for that account (single
-                       use, kept in server memory only, default 600 seconds,
-                       30-600) for ` + "`login --url URL --code-stdin`" + `
+  login-code [--ttl SECONDS]
+                       print a one-time sign-in code (single use, kept in
+                       server memory only, default 600 seconds, 30-600) for
+                       ` + "`login --url URL --code-stdin`" + `
   flush                write the database back to the synced folder now
   recover --keep local|synced
                        resolve unsaved changes when the synced file also changed
   skill [--agent claude-code|codex|antigravity|all] [--dir DIR]
                        install the agent skill with this computer's paths
 
+Spaces (partitions of the knowledge; there is no delete):
+  whoami                             show the selected space and sign-in
+  spaces                             list spaces (id, name, archived, default)
+  create-space NAME                  create a space, or return the one space
+                                     already named NAME
+  rename-space SPACE NAME            rename a space (SPACE: ID or unique name)
+  archive-space SPACE                make a space read-only (not the default)
+  restore-space SPACE                make an archived space writable again
+  default-space [SPACE]              show or set the default space
+
 Knowledge (reads use SQL, writes use the records API; there is no delete):
-  whoami | spaces | create-personal-space | check | schema
+  check | schema
   query|sql SQL|-                    run one read-only SELECT
   get COLLECTION ID                  read one record
   create COLLECTION JSON|-           create one record
@@ -96,23 +101,24 @@ Remote client (the server runs on another computer, reached through
                        sign in with a one-time code from ` + "`login-code`" + ` on the
                        agent computer, read from standard input; stores only
                        a token in the private cache
-  login --url URL --email EMAIL [--password-stdin]
-                       sign in with a password instead
+  login --url URL [--password-stdin]
+                       sign in with the project password instead
   logout --url URL     forget the stored session
   status --url URL     show whether the server answers and the sign-in
   open --url URL [--no-browser]
-                       open the reader (sign in with email and password, or
-                       open a link from ` + "`open --email EMAIL --no-browser`" + ` run
-                       on the agent computer)
+                       open the reader (sign in with the password, or open a
+                       link from ` + "`open --no-browser`" + ` run on the agent
+                       computer)
   skill --url URL [--agent A] [--dir DIR]
                        install the agent skill for the remote server
   Knowledge commands work with --url. URL must be http://127.0.0.1:PORT or
   http://localhost:PORT. Remote mode never creates a database or starts a
-  server; serve, start, ensure-running, stop, flush, recover, init, password,
-  account and login-code are not available with --url.
+  server; serve, start, ensure-running, stop, flush, recover, init, password
+  and login-code are not available with --url.
 
 Run ` + "`pocketcontext help COMMAND`" + ` or ` + "`pocketcontext COMMAND --help`" + ` for usage, details and an example.
-Options for every command: --db PATH or --url URL, --space ID, --pretty.
+Options for every command: --db PATH or --url URL, --space SPACE (ID or unique
+name; also POCKETCONTEXT_SPACE), --pretty.
 --url and --db exclude each other; --db overrides POCKETCONTEXT_URL.
 Exit codes: 0 ok, 1 HTTP or transport error, 2 usage, 3 check differences, 4 HTTP 409.
 `

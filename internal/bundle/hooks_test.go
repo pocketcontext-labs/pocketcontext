@@ -9,14 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/pocketbase/pocketbase/apis"
-	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/plugins/jsvm"
 
 	assets "github.com/pocketcontext-labs/pocketcontext"
 )
@@ -95,47 +90,8 @@ func TestReaderSHA256MatchesPreviousDigests(t *testing.T) {
 
 // The real hooks hash an uploaded original in-process and store the same digest.
 func TestSourceOriginalHash(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
-	app.Store().Set("pocketcontextNewDatabase", true)
-	jsvm.MustRegister(app, hooksConfig(root, ""))
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
-	if err := app.RunAllMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	router, err := apis.NewRouter(app)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.OnServe().Trigger(&core.ServeEvent{App: app, Router: router}); err != nil {
-		t.Fatal(err)
-	}
-	handler, err := router.BuildMux()
-	if err != nil {
-		t.Fatal(err)
-	}
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	u := core.NewRecord(users)
-	u.SetEmail("alice@example.localhost")
-	u.SetPassword("synthetic-password")
-	u.Set("name", "Alice")
-	u.SetVerified(true)
-	if err := app.Save(u); err != nil {
-		t.Fatal(err)
-	}
-	token, err := u.NewAuthToken()
-	if err != nil {
-		t.Fatal(err)
-	}
+	a := newTestApp(t)
+	app, handler, token := a.app, a.handler, a.token
 
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)

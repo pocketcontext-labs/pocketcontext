@@ -20,10 +20,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix='pocketcontext-source-directory-') as temp:
         pc = Project(binary, Path(temp))
         try:
-            pc.json('init', '--email', 'directory@example.localhost', '--name', 'Directory Test',
-                    '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
+            pc.json('init', '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
             status, raw = pc.http('POST', '/api/collections/users/auth-with-password',
-                                  {'identity': 'directory@example.localhost', 'password': PASSWORD})
+                                  {'identity': 'me@pocketcontext.localhost', 'password': PASSWORD})
             assert status == 200
             headers = {'Authorization': json.loads(raw)['token']}
             space = next(row['id'] for row in pc.json('spaces') if row['selected'])
@@ -59,7 +58,8 @@ def main():
                 assert [row[1] for row in rows] == [f'Original {n:05}' for n in range(offset, offset+len(rows))]
             for order in ['created DESC, id DESC', 'created ASC, id ASC']:
                 assert len(query(f"SELECT id,title,original_name,source_date,created FROM sources WHERE space='{space}' ORDER BY {order} LIMIT 51 OFFSET 1950")) == 51
-            assert query("SELECT count(*) FROM sources WHERE space='companyspace001'") == [[0]]
+            other = pc.json('create-space', 'Other')['id']
+            assert query(f"SELECT count(*) FROM sources WHERE space='{other}'") == [[0]]
             print(f'Directory first/middle/last pages and all sort modes passed; six page queries in {time.monotonic()-started:.2f}s')
         finally:
             subprocess.run([str(binary), '--db', str(pc.db), 'stop'], env=pc.env,

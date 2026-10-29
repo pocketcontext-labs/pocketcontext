@@ -144,7 +144,7 @@ pocketcontext_install() (
     mv -f "$pc_stage" "$pc_destination" || pocketcontext_fail 'could not replace executable'
     pc_stage=
     printf 'Installed PocketContext %s at %s\n' "$pc_version" "$pc_destination"
-    printf 'Next: "%s" init --email you@example.localhost   (the database pocketcontext.db is created beside the binary)\n' "$pc_destination"
+    printf 'Next: "%s" init   (the database pocketcontext.db is created beside the binary)\n' "$pc_destination"
 )
 
 pocketcontext_install "$@"

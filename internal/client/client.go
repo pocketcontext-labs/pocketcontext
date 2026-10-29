@@ -20,9 +20,6 @@ import (
 	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
 )
 
-// CompanySpace is the explicit shared space and the legacy project default.
-const CompanySpace = "companyspace001"
-
 var idPattern = regexp.MustCompile(`^[a-z0-9]{15}$`)
 
 // Fail is a command failure with the documented exit code:
@@ -51,12 +48,10 @@ type Client struct {
 }
 
 func newClient(base, space string) (*Client, error) {
-	if space != "" && !idPattern.MatchString(space) {
-		return nil, fail(2, "--space must be a 15-character space ID")
-	}
 	if space == "" {
 		space = os.Getenv("POCKETCONTEXT_SPACE")
 	}
+	space = strings.TrimSpace(space)
 	return &Client{Base: base, Space: space, http: &http.Client{
 		Timeout: 30 * time.Second,
 		// A followed redirect could send the token elsewhere.
@@ -250,8 +245,8 @@ func (c *Client) Rows(sql string) ([]map[string]any, error) {
 	return rows, nil
 }
 
-// SpaceID resolves the server-authorized project default or verifies an explicit
-// selection through filtered SQL. A missing default never silently falls back.
+// SpaceID returns the selected space: --space or POCKETCONTEXT_SPACE (an ID or
+// a unique name), else the project's default space.
 func (c *Client) SpaceID() (string, error) {
 	if c.spaceOK {
 		return c.Space, nil
@@ -268,16 +263,60 @@ func (c *Client) SpaceID() (string, error) {
 		c.Space, c.spaceOK = id, true
 		return id, nil
 	}
-	sql := fmt.Sprintf("SELECT id FROM spaces WHERE id = %s LIMIT 1", literal(c.Space))
-	rows, err := c.Rows(sql)
+	space, err := c.ResolveSpace(c.Space)
 	if err != nil {
 		return "", err
 	}
-	if len(rows) != 1 {
-		return "", fail(2, "space not found or not accessible to this account; run `pocketcontext spaces`")
-	}
-	c.Space, c.spaceOK = rows[0]["id"].(string), true
+	c.Space, c.spaceOK = space["id"].(string), true
 	return c.Space, nil
+}
+
+// ResolveSpace finds one space by ID, or else by its exact name, and returns
+// its id, name, archived and revision. An unknown or ambiguous name is an error.
+func (c *Client) ResolveSpace(ref string) (map[string]any, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || len(ref) > 200 {
+		return nil, fail(2, "a space is an ID or a name of 1-200 characters")
+	}
+	rows, err := c.Rows("SELECT id, name, archived, revision FROM spaces WHERE id = " + literal(ref) + " OR name = " + literal(ref) + " ORDER BY id LIMIT 100")
+	if err != nil {
+		return nil, err
+	}
+	var named []map[string]any
+	for _, row := range rows {
+		row["archived"] = truthy(row["archived"])
+		if row["id"] == ref {
+			return row, nil
+		}
+		named = append(named, row)
+	}
+	switch len(named) {
+	case 0:
+		return nil, fail(2, "no space with ID or name %q; run `pocketcontext spaces`", ref)
+	case 1:
+		return named[0], nil
+	}
+	return nil, fail(2, "%d spaces are named %q (%s); choose one by ID", len(named), ref, spaceIDs(named))
+}
+
+func spaceIDs(rows []map[string]any) string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, fmt.Sprint(row["id"]))
+	}
+	return strings.Join(ids, ", ")
+}
+
+// truthy reads an SQL boolean, which arrives as a number or a bool.
+func truthy(v any) bool {
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		return b == "1" || b == "true"
+	}
+	n, ok := asInt(v)
+	return ok && n != 0
 }
 
 func literal(value any) string {

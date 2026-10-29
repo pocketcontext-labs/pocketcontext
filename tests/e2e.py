@@ -22,6 +22,10 @@ import urllib.error
 import urllib.request
 
 PASSWORD = 'synthetic test password'
+# The sign-in name of every project's one account (bundle.LocalIdentity).
+IDENTITY = 'me@pocketcontext.localhost'
+# Schema migrations of releases before the single-user schema.
+EARLIER_MIGRATIONS = ['1790300000_users.js', '1790300100_knowledge.js', '1791500000_spaces.js', '1792700100_space_management.js']
 # The retired product name, assembled from parts so this file never contains it.
 RETIRED = 'wi' + 'ki'
 # Inherited variables of this program and of its predecessor must not leak into the test.
@@ -211,6 +215,7 @@ def main():
         pc = Project(binary, Path(temp))
         try:
             scenario(pc)
+            spaces_scenario(pc)
             staging_scenario(pc)
             binary_scenario(pc)
             remote = Remote(binary, Path(temp) / 'other-computer', pc.url)
@@ -221,7 +226,8 @@ def main():
             navigation_scenario(pc)
             pc.json('stop')
             restored_default_scenario(pc)
-            legacy_default_scenario(binary, Path(temp) / 'legacy')
+            empty_database_scenario(binary, Path(temp) / 'empty')
+            earlier_release_scenario(binary, Path(temp) / 'earlier')
             leftovers = retired_names(pc.root)
             check(not leftovers, f'no file or directory name contains the retired product name: {leftovers}')
         finally:
@@ -236,53 +242,54 @@ def restored_default_scenario(pc):
     shutil.copy2(pc.db, restored.db)
     shutil.copytree(pc.project / 'storage', restored.project / 'storage')
     try:
-        result = restored.json('init', '--email', 'tester@example.localhost', '--port', str(restored.port))
+        result = restored.json('init', '--port', str(restored.port))
         original = pc.json('whoami')['space']
         check(not result['accountCreated'] and result['space'] == original,
-              'restored database retains Personal policy and account identity without the old config or cache')
+              'a restored database keeps its account and default space without the old config or cache')
         check([page['slug'] for page in restored.json('search', 'espresso descaled')['pages']] == ['coffee-policy'],
-              'restored Personal default reads the existing published knowledge')
-        spaces = restored.json('spaces')
-        check(len(spaces) == 1 and spaces[0]['id'] == original and spaces[0]['role'] == 'owner',
-              'restore does not recreate Company or change Personal ownership')
+              'the restored default space reads the existing published knowledge')
+        check(restored.json('spaces') == pc.json('spaces'), 'restore keeps every space and the default')
+        status, _ = restored.http('POST', '/api/collections/users/auth-with-password', {'identity': IDENTITY, 'password': PASSWORD})
+        check(status == 200, 'the restored account keeps its password')
     finally:
         restored.run('stop')
         pc.run('stop')
 
 
-def legacy_default_scenario(binary, root):
-    """An existing database, even empty, must not be mistaken for a new project."""
-    legacy = Project(binary, root)
-    # An empty pre-upgrade SQLite database is enough to distinguish existing
-    # projects. Application records are created only via the API below.
-    with closing(sqlite3.connect(legacy.db)) as db:
+def empty_database_scenario(binary, root):
+    """An empty SQLite file is a new project, not a database from an earlier release."""
+    empty = Project(binary, root)
+    with closing(sqlite3.connect(empty.db)) as db:
         db.execute('PRAGMA user_version=0')
-    # SQLite's transaction context does not close the connection. Release the
-    # handle before the server snapshots over this file, including on Windows.
     try:
-        result = legacy.json('init', '--email', 'legacy@example.localhost', '--port', str(legacy.port),
-                             '--password-stdin', stdin=PASSWORD + '\n')
-        check(result['space'] == 'companyspace001', 'existing database initialization preserves the Company default')
-        page = legacy.json('create', 'pages', '{"slug":"legacy-record","kind":"concept"}')
-        personal = legacy.json('create-personal-space')['id']
-        check(personal != 'companyspace001' and legacy.json('whoami')['space'] == 'companyspace001',
-              'explicit Personal creation does not change the legacy Company default')
-        legacy.run('stop')
-        check(legacy.json('whoami')['space'] == 'companyspace001'
-              and legacy.json('get', 'pages', page['id'])['space'] == 'companyspace001',
-              'legacy restart preserves Company policy and existing records')
-        company = next(space for space in legacy.json('spaces') if space['id'] == 'companyspace001')
-        check(company['name'] == 'Company' and company['selected'], 'Company is not silently renamed')
-        remote = Remote(binary, root / 'remote', legacy.url)
-        legacy.json('account', '--email', 'colleague@example.localhost', '--password-stdin', stdin=PASSWORD + '\n')
-        remote.json('login', '--email', 'colleague@example.localhost', '--password-stdin', stdin=PASSWORD + '\n')
-        memberships = remote.json('spaces')
-        check(len(memberships) == 1 and memberships[0]['id'] == 'companyspace001'
-              and memberships[0]['role'] == 'editor', 'legacy accounts retain Company admission')
-        check(remote.json('get', 'pages', page['id'])['id'] == page['id'],
-              'legacy accounts retain access to shared Company records')
+        result = empty.json('init', '--port', str(empty.port), '--password-stdin', stdin=PASSWORD + '\n')
+        spaces = empty.json('spaces')
+        check(result['accountCreated'] and len(spaces) == 1 and spaces[0]['name'] == 'Default' and spaces[0]['id'] == result['space'],
+              'an empty database initializes with the Default space')
     finally:
-        legacy.run('stop')
+        empty.run('stop')
+
+
+def earlier_release_scenario(binary, root):
+    """A database created by an earlier release is refused and never changed."""
+    earlier = Project(binary, root)
+    with closing(sqlite3.connect(earlier.db)) as db:
+        db.execute('CREATE TABLE _migrations (file TEXT PRIMARY KEY NOT NULL, applied INTEGER NOT NULL)')
+        db.executemany('INSERT INTO _migrations VALUES (?, ?)', [('1640988000_init.go', 1)] + [(m, 2) for m in EARLIER_MIGRATIONS])
+        db.execute('CREATE TABLE spaces (id TEXT PRIMARY KEY, kind TEXT, name TEXT)')
+        db.execute("INSERT INTO spaces VALUES ('companyspace001', 'group', 'Company')")
+        db.execute('CREATE TABLE space_members (id TEXT PRIMARY KEY, space TEXT, account TEXT, role TEXT)')
+        db.commit()
+    before = hashlib.sha256(earlier.db.read_bytes()).hexdigest()
+    refused = earlier.run('init', '--port', str(earlier.port), '--password-stdin', stdin=PASSWORD + '\n', expect=1)
+    check('earlier PocketContext release' in refused.stderr and 'does not open databases from earlier releases' in refused.stderr,
+          f'init refuses a database from an earlier release with a clear message: {refused.stderr.strip()}')
+    again = earlier.run('ensure-running', expect=1)
+    check('earlier PocketContext release' in again.stderr, 'starting the server refuses it too')
+    check(not earlier.json('status')['running'], 'no server runs for a refused database')
+    check(hashlib.sha256(earlier.db.read_bytes()).hexdigest() == before, 'the refused database file is unchanged')
+    leftovers = sorted(p.name for p in earlier.project.iterdir() if p.name.startswith('pocketcontext.db') and p.name != 'pocketcontext.db')
+    check(not leftovers, f'no conflict copy, snapshot or lease is left beside a refused database: {leftovers}')
 
 
 def navigation_scenario(pc):
@@ -379,23 +386,30 @@ def scenario(pc):
           'help COMMAND and COMMAND -h print the same help')
     check('unknown command' in pc.run('help', 'no-such-command', expect=2).stderr, 'help refuses an unknown command')
 
-    init = pc.json('init', '--email', 'tester@example.localhost', '--name', 'Tester', '--port', str(pc.port),
-                   '--password-stdin', stdin=PASSWORD + '\n')
-    check(init['accountCreated'] and init['url'] == pc.url, 'init creates the account and starts the server')
+    init = pc.json('init', '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
+    check(init['accountCreated'] and init['url'] == pc.url and 'email' not in init, 'init creates the account and starts the server')
     check(pc.db.exists(), 'init writes the database to the project folder')
+    check('email' not in json.loads((pc.project / 'pocketcontext.json').read_text(encoding='utf-8')), 'the project config names no account')
     me = pc.json('whoami')
     spaces = pc.json('spaces')
-    selected = [space for space in spaces if space['selected']]
-    check(init['space'] == me['space'] and len(spaces) == 1 and len(selected) == 1 and selected[0]['kind'] == 'personal'
-          and selected[0]['name'] == 'Personal' and selected[0]['role'] == 'owner',
-          'new init, CLI and space listing select the account personal space')
-    check(pc.json('create-personal-space')['id'] == me['space'], 'automatic personal space creation is idempotent')
-    check(pc.json('sql', 'SELECT id, kind, created_by FROM spaces')['rows'] == [[me['space'], 'personal', me['id']]],
-          'fresh project exposes only the account-owned Personal space')
-    check(pc.run('whoami', '--space', 'companyspace001', expect=2).returncode == 2,
-          'fresh project cannot select a nonexistent Company space')
+    check(init['space'] == me['space'] and spaces == [{'id': me['space'], 'name': 'Default', 'archived': False, 'default': True, 'selected': True}],
+          f'init creates one space, Default, which is the default and selected: {spaces}')
+    check(me['name'] == 'Default' and me['default'] and not me['archived'] and me['signedIn'] and me['db'] == str(pc.db),
+          f'whoami reports the selected space and the sign-in: {me}')
+    check(pc.json('default-space')['id'] == me['space'], 'default-space shows the default space')
+    check(pc.run('whoami', '--space', 'companyspace001', expect=2).returncode == 2, 'an unknown space cannot be selected')
+    for retired in (['account', '--email', 'x@example.localhost'], ['create-personal-space'], ['init', '--email', 'x@example.localhost'],
+                    ['open', '--email', 'x@example.localhost'], ['login-code', '--email', 'x@example.localhost']):
+        check(pc.run(*retired, expect=2).returncode == 2, f'{" ".join(retired[:2])} is no longer accepted')
     pc.json('stop')
-    check(pc.json('spaces') == spaces, 'restart preserves the sole Personal space and owner membership')
+    check(pc.json('spaces') == spaces, 'restart preserves the Default space')
+    schema = {table['name']: {column['name'] for column in table['columns']} for table in pc.json('schema')['tables']}
+    check(not {'space_members', 'user_directory', 'project_policy', 'users', '_superusers'} & set(schema),
+          'memberships, the account directory and accounts are not SQL-readable')
+    check('actor' not in schema['audit_log'] and 'actor_type' not in schema['audit_log']
+          and not any('created_by' in columns or 'updated_by' in columns for columns in schema.values())
+          and schema['spaces'] == {'id', 'name', 'archived', 'revision', 'created', 'updated'},
+          'no table exposes an actor, a creator or a space kind')
     check('OK:' in pc.run('check').stdout, 'live schema matches the reference schema')
 
     notes = pc.root / 'notes'
@@ -436,16 +450,36 @@ def scenario(pc):
     check(status == 403, 'foreign Host headers are refused')
     status, _ = pc.http('POST', '/api/context/query', {'sql': 'SELECT 1'})
     check(status == 401, 'SQL requires authentication')
+    status, _ = pc.http('POST', '/api/context/query', {'sql': 'SELECT 1'}, {'Authorization': 'forged'})
+    check(status == 401, 'SQL refuses an invalid token')
+    status, _ = pc.http('POST', '/api/context/search', {'index': 'pages', 'query': 'espresso'})
+    check(status == 401, 'search requires authentication')
+    status, _ = pc.http('GET', '/api/spaces/default')
+    check(status == 401, 'the default space requires authentication')
+    status, body = pc.http('GET', '/api/collections/sources/records')
+    check(status == 200 and json.loads(body)['items'] == [], 'REST lists nothing without authentication')
+    status, _ = pc.http('POST', '/api/collections/pages/records', {'slug': 'anonymous', 'kind': 'concept'})
+    check(status in (400, 401, 403), 'REST writes require authentication')
+    stored = pc.json('sql', f"SELECT id, original FROM sources WHERE id = '{first['source']}'")['rows'][0]
+    status, _ = pc.http('GET', f'/api/files/sources/{stored[0]}/{stored[1]}')
+    check(status != 200, 'protected originals require a file token')
     status, _ = pc.http('POST', '/api/bundle/token')
     check(status == 403, 'local tokens require the private key')
     link = pc.json('open', '--no-browser')['signInLink']
     code = link.split('#', 1)[1]
     status, body = pc.http('POST', '/api/bundle/redeem', {'code': code})
-    check(status == 200 and json.loads(body)['record']['email'] == 'tester@example.localhost', 'the sign-in link signs in')
+    check(status == 200 and json.loads(body)['record']['email'] == IDENTITY, 'the sign-in link signs in the project account')
     status, _ = pc.http('POST', '/api/bundle/redeem', {'code': code})
     check(status == 401, 'the sign-in link is single-use')
-    status, _ = pc.http('POST', '/api/collections/users/auth-with-password', {'identity': 'tester@example.localhost', 'password': PASSWORD})
-    check(status == 200, 'the reader password works')
+    status, body = pc.http('POST', '/api/collections/users/auth-with-password', {'identity': IDENTITY, 'password': PASSWORD})
+    check(status == 200, 'the reader password works under the fixed identity')
+    token = {'Authorization': json.loads(body)['token']}
+    status, _ = pc.http('GET', '/api/collections/users/records', headers=token)
+    check(status == 403, 'the account cannot be listed')
+    status, _ = pc.http('POST', '/api/collections/users/records', {'email': 'second@example.localhost', 'password': PASSWORD, 'passwordConfirm': PASSWORD}, token)
+    check(status in (400, 403), 'a second account cannot be created')
+    status, _ = pc.http('POST', '/api/context/search', {'index': 'pages', 'query': 'espresso'}, token)
+    check(status in (200, 400), 'search works with the token')
 
     pc.json('stop')
     names = sorted(p.name for p in pc.project.iterdir())
@@ -694,6 +728,81 @@ def binary_scenario(pc):
     pc.json('update', 'ingestion_runs', run['id'], json.dumps({'status': 'cancelled', 'expected_revision': current['revision']}))
 
 
+def spaces_scenario(pc):
+    """Spaces partition the knowledge: create, rename, archive, restore and the default."""
+    default = pc.json('default-space')
+    research = pc.json('create-space', '  Research  ')
+    check(research['created'] and research['name'] == 'Research' and not research['archived'], 'create-space creates a trimmed name')
+    again = pc.json('create-space', 'Research')
+    check(not again['created'] and again['id'] == research['id'], 'create-space returns the one space with that name')
+    for bad in ('', '   ', 'x' * 201):
+        pc.run('create-space', bad, expect=2)
+    check(True, 'create-space refuses empty and over-long names')
+    status, body = pc.http('POST', '/api/collections/spaces/records', {'name': 'Research'}, token(pc))
+    twin = json.loads(body)['id']
+    check(status == 200 and twin != research['id'], 'the API itself allows two spaces with one name')
+    ambiguous = pc.run('create-space', 'Research', expect=2)
+    check(research['id'] in ambiguous.stderr and twin in ambiguous.stderr, 'create-space lists the IDs of an ambiguous name')
+    check(pc.run('whoami', '--space', 'Research', expect=2).returncode == 2, '--space refuses an ambiguous name')
+    renamed = pc.json('rename-space', twin, 'Reading list')
+    check(renamed['name'] == 'Reading list' and renamed['revision'] == 2, 'rename-space renames by ID at the current revision')
+    check(pc.json('whoami', '--space', 'Research')['space'] == research['id'], '--space selects a space by unique name')
+    env = dict(pc.env)
+    pc.env['POCKETCONTEXT_SPACE'] = 'Reading list'
+    check(pc.json('whoami')['space'] == twin, 'POCKETCONTEXT_SPACE selects a space by name')
+    pc.env = env
+
+    page = pc.json('create', 'pages', '{"slug":"research-notes","kind":"concept"}', '--space', 'Research')
+    check(page['space'] == research['id'], 'root records go to the selected space')
+    pc.json('create', 'pages', '{"slug":"research-notes","kind":"concept"}')
+    check(True, 'page slugs are unique per space, not per project')
+    run = pc.json('create', 'ingestion_runs', '{"key":"cross-space","status":"staging","description":"Synthetic"}')
+    crossed = pc.run('create', 'page_revisions', json.dumps({'run': run['id'], 'page': page['id'], 'title': 'T', 'summary': 'S',
+                     'body': '[needs verification]'}), expect=1)
+    check('404' in crossed.stderr, 'a revision cannot reference a page in another space')
+    check('404' in pc.run('create', 'page_links', json.dumps({'page_revision': 'aaaaaaaaaaaaaaa', 'target': page['id']}), expect=1).stderr,
+          'references to unknown records are refused')
+    pc.json('update', 'ingestion_runs', run['id'], json.dumps({'status': 'cancelled', 'expected_revision': 1}))
+
+    refused = pc.run('archive-space', default['id'], expect=1)
+    check('default space cannot be archived' in refused.stderr, 'the default space cannot be archived')
+    archived = pc.json('archive-space', 'Reading list')
+    check(archived['archived'], 'archive-space archives a space')
+    blocked = pc.run('create', 'pages', '{"slug":"archived-write","kind":"concept"}', '--space', twin, expect=1)
+    check('403' in blocked.stderr and 'Restore this archived space' in blocked.stderr, 'writes to an archived space are refused')
+    note = pc.root / 'archived-note.md'
+    note.write_text('# Archived\n\nA synthetic note.\n', encoding='utf-8')
+    pc.run('ingest', str(note), '--space', twin, expect=1)
+    check(True, 'ingest into an archived space is refused')
+    check(next(s for s in pc.json('spaces') if s['id'] == twin)['archived'], 'spaces reports the archived flag')
+    check(pc.json('whoami', '--space', twin)['archived'], 'an archived space stays readable')
+    refused = pc.run('default-space', twin, expect=1)
+    check('Restore this archived space' in refused.stderr, 'an archived space cannot become the default')
+    restored = pc.json('restore-space', twin)
+    check(not restored['archived'], 'restore-space restores a space')
+    pc.json('create', 'pages', '{"slug":"restored-write","kind":"concept"}', '--space', twin)
+    check(True, 'a restored space accepts writes')
+
+    changed = pc.json('default-space', 'Research')
+    check(changed['id'] == research['id'] and changed['default'], 'default-space sets the default by name')
+    check(pc.json('whoami')['space'] == research['id'] and pc.json('create', 'pages', '{"slug":"default-moved","kind":"concept"}')['space'] == research['id'],
+          'commands and root records follow the new default')
+    check([s['id'] for s in pc.json('spaces') if s['default']] == [research['id']], 'spaces marks the one default')
+    pc.json('archive-space', default['id'])
+    check(True, 'the former default can be archived')
+    pc.json('restore-space', default['id'])
+    pc.json('default-space', default['id'])
+    check(pc.json('default-space')['id'] == default['id'], 'the default returns to the first space')
+    audit = pc.json('sql', f"SELECT action, changes FROM audit_log WHERE collection = 'spaces' AND record = '{twin}' ORDER BY created")['rows']
+    check([row[0] for row in audit] == ['create', 'update', 'update', 'update'], 'space changes are audited')
+
+
+def token(pc):
+    status, body = pc.http('POST', '/api/collections/users/auth-with-password', {'identity': IDENTITY, 'password': PASSWORD})
+    assert status == 200, body
+    return {'Authorization': json.loads(body)['token']}
+
+
 def staging_scenario(pc):
     """stage, check-run and page: a spec in, every problem at once, a page back out."""
     notes = pc.root / 'staging-notes'
@@ -822,53 +931,41 @@ def published_sequence(pc):
 
 def remote_scenario(pc, r):
     instance = json.loads((pc.project / 'pocketcontext.json').read_text(encoding='utf-8'))['instance']
-    user_password = 'synthetic user password'
-    account = pc.json('account', '--email', 'user@example.localhost', '--name', 'User', '--password-stdin', stdin='first password\n')
-    check(account['created'] and account['email'] == 'user@example.localhost', 'account creates another server account')
-    again = pc.json('account', '--email', 'user@example.localhost', '--name', 'User', '--password-stdin', stdin=user_password + '\n')
-    check(not again['created'] and again['id'] == account['id'], 'account resets the password of an existing account')
-
+    local = pc.json('whoami')
     missing = r.run('whoami', expect=2)
     check('pocketcontext login' in missing.stderr, 'remote data commands require login')
     status = r.json('status')
     check(status['url'] == pc.url and status['reachable'] and not status['loggedIn'], 'remote status reports reachable and logged out')
-    r.run('login', '--email', 'user@example.localhost', '--password-stdin', stdin='wrong password\n', expect=1)
-    login = r.json('login', '--email', 'user@example.localhost', '--password-stdin', stdin=user_password + '\n')
-    check(login == {'url': pc.url, 'email': 'user@example.localhost', 'instance': instance}, 'remote login reports the instance')
+    r.run('login', '--password-stdin', stdin='wrong password\n', expect=1)
+    login = r.json('login', '--password-stdin', stdin=PASSWORD + '\n')
+    check(login == {'url': pc.url, 'instance': instance, 'signedIn': True}, 'remote login with the project password reports the instance')
     session = r.session()
     check(session.parent.name == 'remote-' + hashlib.sha256(pc.url.encode()).hexdigest()[:16], 'the session is keyed by the URL')
     if os.name != 'nt':
         check(session.stat().st_mode & 0o777 == 0o600, 'the remote session is private')
     status = r.json('status')
-    check(status['loggedIn'] and status['email'] == 'user@example.localhost' and status['instance'] == instance, 'remote status reports the session')
+    check(status['loggedIn'] and status['instance'] == instance and 'email' not in status, 'remote status reports the session')
     env_status = r.json('status', url=False, env={'POCKETCONTEXT_URL': pc.url})
     check(env_status['url'] == pc.url and env_status['loggedIn'], 'POCKETCONTEXT_URL selects remote mode')
 
     me = r.json('whoami')
-    check(me['email'] == 'user@example.localhost' and me['id'] == account['id'] and me['url'] == pc.url and 'db' not in me,
-          'remote whoami reports the account without a database')
-    check(me['space'] != 'companyspace001' and me['space'] != pc.json('whoami')['space'],
-          'remote defaults resolve the remote account own Personal space')
-    spaces = {s['id']: s for s in r.json('spaces')}
-    check(list(spaces) == [me['space']] and spaces[me['space']]['role'] == 'owner',
-          'new remote accounts see only their own Personal space with owner membership')
-    check(spaces[me['space']]['selected'] and spaces[me['space']]['kind'] == 'personal', 'remote listing selects its own Personal space')
-    own = r.json('create', 'pages', '{"slug":"remote-private","kind":"concept"}')
-    check(own['space'] == me['space'], 'remote omitted root writes use the personal default')
-    # SQL reads are no longer filtered per account (single-user read path), so
-    # another account's SQL visibility of this record is not asserted here.
-    # Additional spaces are explicitly created and owned, never implicit Company spaces.
-    workspace = r.json('create', 'spaces', '{"kind":"group","name":"Remote research"}')['id']
-    r.env['POCKETCONTEXT_SPACE'] = workspace
+    check(me['space'] == local['space'] and me['url'] == pc.url and 'db' not in me and me['signedIn'],
+          'remote whoami reports the same default space without a database')
+    check(r.json('spaces') == pc.json('spaces'), 'the other computer sees the same spaces')
+    own = r.json('create', 'pages', '{"slug":"remote-default","kind":"concept"}')
+    check(own['space'] == me['space'], 'remote omitted root writes use the default space')
+    workspace = r.json('create-space', 'Remote research')['id']
+    r.env['POCKETCONTEXT_SPACE'] = 'Remote research'
     check(r.json('whoami')['space'] == workspace and r.json('whoami', '--space', me['space'])['space'] == me['space'],
-          'explicit --space overrides environment selection, which overrides project default')
+          'explicit --space overrides POCKETCONTEXT_SPACE (by name), which overrides the default')
+    r.env['POCKETCONTEXT_SPACE'] = workspace
 
     # A note only the other computer has, named relative to its working folder.
     (r.work / 'tea.md').write_text('# Tea policy\n\nRooibosquartz tea is restocked every Monday. Thé ✓\n', encoding='utf-8')
     source = r.json('ingest', 'tea.md', '--title', 'Tea policy')
     check(source['status'] == 'extracted' and source['passages'] == 1, 'remote ingest uploads a local note')
-    creator = r.json('query', f"SELECT created_by FROM sources WHERE id = '{source['source']}'")['rows'][0][0]
-    check(creator == account['id'], 'the remote source is attributed to the signed-in account')
+    check(r.json('query', f"SELECT space FROM sources WHERE id = '{source['source']}'")['rows'][0][0] == workspace,
+          'remote ingest writes to the selected space')
     passage = r.json('query', f"SELECT id FROM passages WHERE rendition = '{source['rendition']}' AND body LIKE '%Rooibosquartz%'")['rows'][0][0]
     rows = r.json('query', f"SELECT id, ordinal, locator, body FROM passages WHERE rendition = '{source['rendition']}' ORDER BY ordinal")['rows']
     check(r.run('passages', source['source']).stdout == passages_text(rows) and passage in passages_text(rows), 'remote passages prints the source passages')
@@ -892,11 +989,8 @@ def remote_scenario(pc, r):
     closed = json.loads(r.run('check-run', run['id'], expect=3).stdout)
     check([p['kind'] for p in closed['problems']] == ['run-closed'], 'remote check-run reports a published run as closed')
     check([p['slug'] for p in r.json('search', 'rooibosquartz')['pages']] == ['tea-policy'], 'remote search finds the remote page')
-    # Not asserted: the local account's SQL visibility of the remote account's
-    # group knowledge (SQL reads are no longer filtered per account).
 
-    for args in (['stop'], ['ensure-running'], ['flush'], ['recover'], ['init', '--email', 'x@example.localhost'],
-                 ['password', '--password-stdin'], ['account', '--email', 'x@example.localhost', '--password-stdin']):
+    for args in (['stop'], ['ensure-running'], ['flush'], ['recover'], ['init'], ['password', '--password-stdin'], ['login-code']):
         refused = r.run(*args, expect=2)
         check('not available with --url' in refused.stderr, f'{args[0]} is refused in remote mode')
     check(pc.json('status')['running'], 'the server keeps running after refused remote commands')
@@ -909,7 +1003,7 @@ def remote_scenario(pc, r):
         check(http_status(via + '/api/bundle/instance') == 403, 'a forward on a different port fails the Host check')
         check(not r.json('status', url=via)['reachable'], 'remote status through a wrong-port forward is not reachable')
         check(r.run('whoami', url=via, expect=None).returncode == 1, 'remote whoami through a wrong-port forward fails')
-        login = r.run('login', '--email', 'user@example.localhost', '--password-stdin', stdin=user_password + '\n', url=via, expect=None)
+        login = r.run('login', '--password-stdin', stdin=PASSWORD + '\n', url=via, expect=None)
         check(login.returncode == 1, 'remote login through a wrong-port forward fails')
 
     closed = free_port()
@@ -924,7 +1018,7 @@ def remote_scenario(pc, r):
     other = r.run('whoami', expect=1)
     check('different' in other.stderr and 'sign in again' in other.stderr, 'a session for another instance is refused')
     session.write_text(original, encoding='utf-8')
-    check(r.json('whoami')['id'] == account['id'], 'the restored session works again')
+    check(r.json('whoami')['space'] == workspace, 'the restored session works again')
 
     skills = r.root / 'skill'
     r.json('skill', '--dir', str(skills))
@@ -964,36 +1058,21 @@ def tunnel_scenario(pc, r):
 
 
 def codes_scenario(pc, r):
-    """One-time sign-in codes and accounts without a password."""
+    """One-time sign-in codes for the project's account."""
     # Started first so the 30-second expiry overlaps the other checks.
-    expiring = pc.json('login-code', '--email', 'tester@example.localhost', '--ttl', '30')
+    expiring = pc.json('login-code', '--ttl', '30')
     expiring_at = time.monotonic()
-    check(expiring['email'] == 'tester@example.localhost' and expiring['code'] and expiring['expires'],
+    check(expiring['code'] and expiring['expires'] and 'email' not in expiring,
           'login-code accepts the minimum lifetime of 30 seconds')
 
-    coder = pc.json('account', '--email', 'coder@example.localhost', '--name', 'Coder', stdin='')
-    check(coder['created'] and coder['email'] == 'coder@example.localhost', 'account without a password creates the account')
-    coder_again = pc.json('account', '--email', 'coder@example.localhost', '--name', 'Coder', stdin='')
-    check(not coder_again['created'] and coder_again['id'] == coder['id'], 'account without a password is repeatable')
-    r.run('login', '--email', 'coder@example.localhost', '--password-stdin', stdin='synthetic guess\n', expect=1)
-    check(not r.json('status')['loggedIn'], 'an account created without a password has no known password')
-
-    user = pc.json('account', '--email', 'user@example.localhost', stdin='')
-    check(not user['created'], 'account without a password finds the existing account')
-    login = r.json('login', '--email', 'user@example.localhost', '--password-stdin', stdin='synthetic user password\n')
-    check(login['email'] == 'user@example.localhost', 'account without a password keeps the existing password')
-    r.json('logout')
-
-    issued = pc.json('login-code', '--email', 'coder@example.localhost')
-    check(issued['email'] == 'coder@example.localhost' and issued['code'] and issued['expires'], 'login-code issues a code')
+    issued = pc.json('login-code')
+    check(issued['code'] and issued['expires'], 'login-code issues a code')
     instance = json.loads((pc.project / 'pocketcontext.json').read_text(encoding='utf-8'))['instance']
     login = r.json('login', '--code-stdin', stdin=issued['code'] + '\n')
-    check(login == {'url': pc.url, 'email': 'coder@example.localhost', 'instance': instance}, 'remote login redeems a code')
+    check(login == {'url': pc.url, 'instance': instance, 'signedIn': True}, 'remote login redeems a code')
     me = r.json('whoami')
-    check(me['email'] == 'coder@example.localhost' and me['id'] == coder['id'], 'the code signs in its own account')
-    # Not asserted: per-account SQL visibility of spaces and of another
-    # account's pages (SQL reads are no longer filtered per account).
-    check([me['space'], 'Personal'] in r.json('query', 'SELECT id, name FROM spaces')['rows'], 'a code session reads its own Personal space with SQL')
+    check(me['space'] == pc.json('whoami')['space'], 'the code signs in the project account with its default space')
+    check([me['space'], me['name']] in r.json('query', 'SELECT id, name FROM spaces')['rows'], 'a code session reads spaces with SQL')
     r.json('logout')
     reused = r.run('login', '--code-stdin', stdin=issued['code'] + '\n', expect=1)
     check('used or expired' in reused.stderr, 'a redeemed code cannot be reused')
@@ -1005,26 +1084,22 @@ def codes_scenario(pc, r):
     if log.exists():
         check(issued['code'] not in log.read_text(encoding='utf-8', errors='replace'), 'the server log does not contain the code')
 
-    pc.run('login-code', '--email', 'nobody@example.localhost', expect=1)
-    check(True, 'login-code refuses an unknown email')
     for ttl in ('10', '601'):
-        pc.run('login-code', '--email', 'coder@example.localhost', '--ttl', ttl, expect=2)
+        pc.run('login-code', '--ttl', ttl, expect=2)
         check(True, f'login-code refuses --ttl {ttl}')
 
-    opened = pc.json('open', '--email', 'coder@example.localhost', '--no-browser')
-    check(opened['signInLink'].startswith(pc.url + '/bundle/login#'), 'open --email prints a sign-in link')
+    opened = pc.json('open', '--no-browser')
+    check(opened['signInLink'].startswith(pc.url + '/bundle/login#'), 'open --no-browser prints a sign-in link')
     code = opened['signInLink'].split('#', 1)[1]
     status, body = pc.http('POST', '/api/bundle/redeem', {'code': code})
-    check(status == 200 and json.loads(body)['record']['email'] == 'coder@example.localhost', 'open --email signs in that account')
+    check(status == 200 and json.loads(body)['record']['email'] == IDENTITY, 'the open link signs in the project account')
     status, _ = pc.http('POST', '/api/bundle/redeem', {'code': code})
-    check(status == 401, 'the open --email link is single-use')
+    check(status == 401, 'the open link is single-use')
 
-    refused = r.run('login-code', '--email', 'coder@example.localhost', expect=2)
+    refused = r.run('login-code', expect=2)
     check('not available with --url' in refused.stderr, 'login-code is refused in remote mode')
-    r.run('open', '--email', 'coder@example.localhost', '--no-browser', expect=2)
-    check(True, 'open --email is refused in remote mode')
-    r.run('login', '--code-stdin', '--email', 'coder@example.localhost', stdin=issued['code'] + '\n', expect=2)
-    check(True, 'login refuses --code-stdin with --email')
+    r.run('login', '--code-stdin', '--password-stdin', stdin=issued['code'] + '\n', expect=2)
+    check(True, 'login refuses --code-stdin with --password-stdin')
 
     remaining = 31 - (time.monotonic() - expiring_at)
     if remaining > 0:

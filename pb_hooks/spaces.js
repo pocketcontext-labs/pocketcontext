@@ -1,282 +1,125 @@
-const COMPANY_SPACE = 'companyspace001';
-// Spaces are the access boundary. Absent and foreign records produce the same
-// not-found response so membership checks never confirm another space's contents.
-const ROLES = ['owner', 'editor', 'reader'];
-const WRITE_ROLES = ['owner', 'editor'];
+// Spaces partition knowledge for the project's one account. They are created,
+// renamed, archived and restored here; the settings row names the default
+// space, which cannot be archived. Every change is revision-checked and audited.
+const SETTINGS = 'projectsettings';
 
 function missing() { throw new NotFoundError('The requested resource wasn\'t found.'); }
 function invalid(message) { throw new BadRequestError(message); }
 
-function membership(app, space, account) {
-  const rows = app.findRecordsByFilter('space_members', 'space = {:space} && account = {:account}', '', 1, 0, {space, account});
-  return rows.length ? rows[0] : null;
-}
-
-// Returns the space when the account is an active member; otherwise not found.
-function requireMember(app, space, account, write) {
+// Returns the space; write refuses an archived one.
+function requireSpace(app, space, write) {
   if (typeof space !== 'string' || !/^[a-z0-9]{15}$/.test(space)) missing();
   let record;
   try { record = app.findRecordById('spaces', space); } catch (_) { missing(); }
-  const row = membership(app, record.id, account);
-  if (!row || !row.getBool('active')) missing();
   if (write && record.getBool('archived')) throw new ForbiddenError('Restore this archived space before making changes.');
-  if (write && !WRITE_ROLES.includes(row.getString('role'))) throw new ForbiddenError('This space membership is read-only.');
   return record;
 }
 
-function requireSpace(app, space) {
-  if (typeof space !== 'string' || !/^[a-z0-9]{15}$/.test(space)) missing();
-  try { return app.findRecordById('spaces', space); } catch (_) { missing(); }
-}
+function settings(app) { return app.findRecordById('settings', SETTINGS); }
+function defaultSpace(app) { return app.findRecordById('spaces', settings(app).getString('default_space')); }
 
-function audit(app, record, action, actor, actorType, changes) {
+function audit(app, space, record, action, changes) {
   const row = new Record(app.findCollectionByNameOrId('audit_log'));
-  row.set('space', record.collection().name === 'spaces' ? record.id : record.getString('space'));
+  row.set('space', space);
   row.set('action', action);
   row.set('collection', record.collection().name);
   row.set('record', record.id);
-  row.set('actor', actor || '');
-  row.set('actor_type', actorType);
   row.set('changes', changes);
   app.save(row);
 }
 
-function activeUser(app, account) {
-  let user;
-  try { user = app.findRecordById('users', account); } catch (_) { missing(); }
-  if (user.getBool('disabled')) throw new ForbiddenError('Disabled accounts cannot hold spaces.');
-  return user;
-}
-
-function defaultPolicy(app) {
-  return app.findRecordById('project_policy', 'projectpolicy01').getString('default_space');
-}
-
-// Read-only resolution: never creates a space or repairs revoked membership.
-function defaultSpace(app, account) {
-  activeUser(app, account);
-  const policy = defaultPolicy(app);
-  let id = COMPANY_SPACE;
-  if (policy === 'personal') {
-    const rows = app.findRecordsByFilter('spaces', "kind = 'personal' && created_by = {:account}", '', 1, 0, {account});
-    if (!rows.length) missing();
-    id = rows[0].id;
-  } else if (policy !== 'company') {
-    throw new InternalServerError('Invalid project space policy.');
-  }
-  const space = requireMember(app, id, account, false);
-  return {id: space.id, kind: space.getString('kind'), name: space.getString('name'), policy};
-}
-
-function defaultRequest(e) {
-  e.response.header().set('Cache-Control', 'no-store');
-  return e.json(200, defaultSpace(e.app, e.auth.id));
-}
-
-// Idempotent and transactional. Returns the account's personal space ID, creating
-// the space and its single owner membership when absent. Disabled accounts throw.
-function ensurePersonalSpace(app, accountId) {
-  let id = '';
-  app.runInTransaction(tx => {
-    activeUser(tx, accountId);
-    const existing = tx.findRecordsByFilter('spaces', "kind = 'personal' && created_by = {:account}", '', 1, 0, {account: accountId});
-    if (existing.length) { id = existing[0].id; return; }
-    const space = new Record(tx.findCollectionByNameOrId('spaces'));
-    space.set('kind', 'personal');
-    space.set('name', 'Personal');
-    space.set('created_by', accountId);
-    space.set('updated_by', accountId);
-    space.set('revision', 1);
-    tx.save(space);
-    const owner = new Record(tx.findCollectionByNameOrId('space_members'));
-    owner.set('space', space.id);
-    owner.set('account', accountId);
-    owner.set('role', 'owner');
-    owner.set('active', true);
-    owner.set('created_by', accountId);
-    owner.set('updated_by', accountId);
-    owner.set('revision', 1);
-    tx.save(owner);
-    audit(tx, space, 'create', accountId, 'system', {revision: 1, kind: 'personal'});
-    audit(tx, owner, 'create', accountId, 'system', {revision: 1, role: 'owner', active: true, account: accountId});
-    id = space.id;
-  });
-  return id;
-}
-
 function validName(name) {
-  if (typeof name !== 'string' || !name.trim() || name.length > 200) invalid('Space name must contain 1-200 characters.');
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 200) invalid('Space name must contain 1-200 characters.');
   return name.trim();
 }
 
-function activeOwners(app, space) {
-  return app.findRecordsByFilter('space_members', "space = {:space} && role = 'owner' && active = true", '', 0, 0, {space}).length;
+function only(body, allowed) {
+  for (const k of Object.keys(body)) if (!allowed.includes(k)) invalid(k + ' cannot be set here');
 }
 
-// Creation atomically grants the creator ownership; actor '' means a trusted operator.
-function createGroupSpace(app, actorId, name) {
-  let id = '';
+function revisionCheck(body, record) {
+  if (!Number.isInteger(body.expected_revision)) invalid('expected_revision required');
+  if (record.getInt('revision') !== body.expected_revision) throw new ApiError(409, 'Revision conflict', {});
+}
+
+function createSpace(app, name) {
+  let record;
   app.runInTransaction(tx => {
-    if (actorId) activeUser(tx, actorId);
-    const space = new Record(tx.findCollectionByNameOrId('spaces'));
-    space.set('kind', 'group');
-    space.set('name', validName(name));
-    space.set('created_by', actorId);
-    space.set('updated_by', actorId);
-    space.set('revision', 1);
-    tx.save(space);
-    audit(tx, space, 'create', actorId, actorId ? 'user' : 'superuser', {revision: 1, kind: 'group'});
-    if (actorId) putMembership(tx, actorId, space, actorId, 'owner', true, null, true);
-    id = space.id;
+    record = new Record(tx.findCollectionByNameOrId('spaces'));
+    record.set('name', validName(name));
+    record.set('archived', false);
+    record.set('revision', 1);
+    tx.save(record);
+    audit(tx, record.id, record, 'create', {revision: 1, name: record.getString('name')});
   });
-  return id;
+  return record;
 }
 
-function putMembership(app, actorId, space, accountId, role, active, expectedRevision, bootstrap) {
-  if (space.getString('kind') !== 'group') invalid('Personal space membership is fixed.');
-  if (actorId && !bootstrap) {
-    const own = membership(app, space.id, actorId);
-    if (!own || !own.getBool('active')) missing();
-    if (own.getString('role') !== 'owner') throw new ForbiddenError('Only space owners can change membership.');
-  }
-  if (!ROLES.includes(role)) invalid('Invalid space role.');
-  if (typeof active !== 'boolean') invalid('active must be a boolean.');
-  let row = membership(app, space.id, accountId);
-  if (row) {
-    if (expectedRevision !== row.getInt('revision')) throw new ApiError(409, 'Revision conflict', {});
-  } else {
-    if (expectedRevision != null && expectedRevision !== 0) throw new ApiError(409, 'Revision conflict', {});
-    if (typeof accountId !== 'string' || !/^[a-z0-9]{15}$/.test(accountId)) missing();
-    row = new Record(app.findCollectionByNameOrId('space_members'));
-    row.set('space', space.id);
-    row.set('account', accountId);
-    row.set('created_by', actorId);
-  }
-  if (active) activeUser(app, accountId);
-  const fresh = row.isNew();
-  row.set('role', role);
-  row.set('active', active);
-  row.set('updated_by', actorId);
-  row.set('revision', fresh ? 1 : row.getInt('revision') + 1);
-  app.save(row);
-  if (space.id !== COMPANY_SPACE && !activeOwners(app, space.id) && !bootstrap) invalid('A group space requires an active owner.');
-  audit(app, row, fresh ? 'create' : 'update', actorId, actorId ? 'user' : 'superuser', {revision: row.getInt('revision'), role, active, account: accountId});
-  return row;
-}
-
-function setMembership(app, actorId, spaceId, accountId, role, active, expectedRevision) {
-  let result;
-  app.runInTransaction(tx => {
-    if (actorId) activeUser(tx, actorId);
-    const space = requireSpace(tx, spaceId);
-    if (actorId && !membership(tx, space.id, actorId)) missing();
-    const row = putMembership(tx, actorId, space, accountId, role, active, expectedRevision, false);
-    result = {id: row.id, revision: row.getInt('revision')};
-  });
-  return result;
-}
-
-// Superuser REST fixtures share the same validation as the guarded functions.
-function trusted(e) {
-  if (!e.hasSuperuserAuth()) throw new ForbiddenError('Only superusers can perform this action.');
-}
-
+// POST /api/collections/spaces/records {name}
 function createRequest(e) {
-  if (e.record.collection().name !== 'spaces') trusted(e);
-  if (!e.hasSuperuserAuth()) activeUser(e.app, e.auth.id);
   const body = e.requestInfo().body;
-  const t = e.record.collection().name;
-  for (const k of ['revision', 'created_by', 'updated_by', 'created', 'updated']) {
-    if (Object.prototype.hasOwnProperty.call(body, k)) invalid(k + ' is server managed');
-  }
-  if (t === 'spaces') {
-    for (const k of Object.keys(body)) if (!['name', 'kind'].includes(k)) invalid(k + ' is server managed');
-    if (body.kind !== 'group') invalid('Personal spaces are created by the server.');
-    const id = createGroupSpace(e.app, e.hasSuperuserAuth() ? '' : e.auth.id, body.name);
-    return e.json(200, e.app.findRecordById('spaces', id));
-  }
-  const space = requireSpace(e.app, body.space);
-  if (typeof body.account === 'string' && membership(e.app, space.id, body.account)) invalid('Membership already exists; update it instead.');
-  let row;
-  e.app.runInTransaction(tx => {
-    row = putMembership(tx, '', tx.findRecordById('spaces', space.id), body.account, body.role, body.active === undefined ? true : body.active, null, false);
-  });
-  return e.json(200, e.app.findRecordById('space_members', row.id));
+  only(body, ['name']);
+  const record = createSpace(e.app, body.name);
+  return e.json(200, e.app.findRecordById('spaces', record.id));
 }
 
+// PATCH /api/collections/spaces/records/{id} {name?, archived?, expected_revision}
 function updateRequest(e) {
   const body = e.requestInfo().body;
-  const t = e.record.collection().name;
-  const original = e.record.original();
-  if (!Number.isInteger(body.expected_revision)) invalid('expected_revision required');
-  if (t === 'spaces') {
-    for (const k of Object.keys(body)) if (!['name', 'archived', 'expected_revision'].includes(k)) invalid(k + ' is immutable');
-    const actor = e.hasSuperuserAuth() ? '' : e.auth.id;
-    let record;
-    e.app.runInTransaction(tx => {
-      if (actor) activeUser(tx, actor);
-      record = actor ? requireMember(tx, original.id, actor, false) : requireSpace(tx, original.id);
-      if (actor && membership(tx, record.id, actor).getString('role') !== 'owner') throw new ForbiddenError('Only space owners can manage this space.');
-      if (record.getInt('revision') !== body.expected_revision) throw new ApiError(409, 'Revision conflict', {});
-      const changes = {};
-      if (Object.prototype.hasOwnProperty.call(body, 'name')) {
-        changes.name = validName(body.name);
-        record.set('name', changes.name);
-      }
-      if (Object.prototype.hasOwnProperty.call(body, 'archived')) {
-        if (typeof body.archived !== 'boolean') invalid('archived must be a boolean.');
-        if (record.id === COMPANY_SPACE || record.getString('kind') === 'personal') invalid('Company and Personal spaces cannot be archived.');
-        changes.archived = body.archived;
-        record.set('archived', body.archived);
-      }
-      if (!Object.keys(changes).length) invalid('No space changes supplied.');
-      record.set('updated_by', actor);
-      record.set('revision', record.getInt('revision') + 1);
-      tx.save(record);
-      changes.revision = record.getInt('revision');
-      audit(tx, record, 'update', actor, actor ? 'user' : 'superuser', changes);
-    });
-    return e.json(200, record);
-  }
-  trusted(e);
-  for (const k of Object.keys(body)) if (!['role', 'active', 'expected_revision'].includes(k)) invalid(k + ' is immutable');
-  let row;
+  only(body, ['name', 'archived', 'expected_revision']);
+  let record;
   e.app.runInTransaction(tx => {
-    const current = tx.findRecordById('space_members', original.id);
-    const space = tx.findRecordById('spaces', current.getString('space'));
-    row = putMembership(tx, '', space, current.getString('account'),
-      body.role === undefined ? current.getString('role') : body.role,
-      body.active === undefined ? current.getBool('active') : body.active, body.expected_revision, false);
+    record = requireSpace(tx, e.record.original().id, false);
+    revisionCheck(body, record);
+    const changes = {};
+    if (Object.prototype.hasOwnProperty.call(body, 'name')) {
+      changes.name = validName(body.name);
+      record.set('name', changes.name);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'archived')) {
+      if (typeof body.archived !== 'boolean') invalid('archived must be a boolean.');
+      if (body.archived && settings(tx).getString('default_space') === record.id) invalid('The default space cannot be archived; make another space the default first.');
+      changes.archived = body.archived;
+      record.set('archived', body.archived);
+    }
+    if (!Object.keys(changes).length) invalid('No space changes supplied.');
+    record.set('revision', record.getInt('revision') + 1);
+    tx.save(record);
+    changes.revision = record.getInt('revision');
+    audit(tx, record.id, record, 'update', changes);
   });
-  return e.json(200, e.app.findRecordById('space_members', row.id));
+  return e.json(200, e.app.findRecordById('spaces', record.id));
 }
 
-// Preserve admission to Company in existing projects only. Fresh projects have
-// no Company space. Inactive membership is never reactivated.
-function admitCompany(app, accountId) {
-  app.runInTransaction(tx => {
-    const companies = tx.findRecordsByFilter('spaces', 'id = {:id}', '', 1, 0, {id: COMPANY_SPACE});
-    if (!companies.length) return;
-    const user = tx.findRecordById('users', accountId);
-    if (user.getBool('disabled') || membership(tx, COMPANY_SPACE, accountId)) return;
-    putMembership(tx, '', companies[0], accountId, 'editor', true, null, true);
+// PATCH /api/collections/settings/records/projectsettings {default_space, expected_revision}
+function settingsRequest(e) {
+  const body = e.requestInfo().body;
+  only(body, ['default_space', 'expected_revision']);
+  let record;
+  e.app.runInTransaction(tx => {
+    record = settings(tx);
+    if (e.record.original().id !== record.id) missing();
+    revisionCheck(body, record);
+    const space = requireSpace(tx, body.default_space, false);
+    if (space.getBool('archived')) invalid('Restore this archived space before making it the default.');
+    record.set('default_space', space.id);
+    record.set('revision', record.getInt('revision') + 1);
+    tx.save(record);
+    audit(tx, space.id, record, 'update', {revision: record.getInt('revision'), default_space: space.id});
   });
+  return e.json(200, e.app.findRecordById('settings', record.id));
 }
 
-function admitRequest(e) {
-  const original = e.app;
-  original.runInTransaction(tx => {
-    e.app = tx;
-    try {
-      e.next();
-      admitCompany(tx, e.record.id);
-      if (!e.record.getBool('disabled') && defaultPolicy(tx) === 'personal') ensurePersonalSpace(tx, e.record.id);
-    } finally { e.app = original; }
-  });
+function view(space, settingsRecord) {
+  return {id: space.id, name: space.getString('name'), archived: space.getBool('archived'), revision: space.getInt('revision'),
+    settings_revision: settingsRecord.getInt('revision')};
 }
 
-function personalRequest(e) {
-  return e.json(200, {id: ensurePersonalSpace(e.app, e.auth.id)});
+// GET /api/spaces/default
+function defaultRequest(e) {
+  e.response.header().set('Cache-Control', 'no-store');
+  const record = settings(e.app);
+  return e.json(200, view(e.app.findRecordById('spaces', record.getString('default_space')), record));
 }
 
-module.exports = {COMPANY_SPACE, defaultSpace, defaultRequest, admitCompany, admitRequest, personalRequest, ensurePersonalSpace, requireMember, requireSpace, membership, missing, createGroupSpace, setMembership, createRequest, updateRequest};
+module.exports = {SETTINGS, missing, requireSpace, defaultSpace, createSpace, createRequest, updateRequest, settingsRequest, defaultRequest};

@@ -17,10 +17,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix='pocketcontext-source-search-') as temp:
         pc = Project(binary, Path(temp))
         try:
-            pc.json('init', '--email', 'tester@example.localhost', '--name', 'Tester',
-                    '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
+            pc.json('init', '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
             status, raw = pc.http('POST', '/api/collections/users/auth-with-password',
-                                  {'identity': 'tester@example.localhost', 'password': PASSWORD})
+                                  {'identity': 'me@pocketcontext.localhost', 'password': PASSWORD})
             assert status == 200
             headers = {'Authorization': json.loads(raw)['token']}
             spaces = pc.json('spaces')

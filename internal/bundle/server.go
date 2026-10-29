@@ -138,13 +138,15 @@ func Serve(p *Project, opts ServeOptions) error {
 	if err := store.Open(); err != nil {
 		return err
 	}
-	// Test the working copy before PocketBase creates it. An existing database,
-	// including an empty one restored on another computer, keeps legacy defaults.
-	_, liveErr := os.Stat(store.livePath())
-	if liveErr != nil && !errors.Is(liveErr, os.ErrNotExist) {
-		return liveErr
+	// Refuse a database from an earlier release before PocketBase opens it, so
+	// no migration runs and nothing is written back.
+	if _, err := os.Stat(store.livePath()); err == nil {
+		if err := checkDatabase(store.livePath(), p.DB); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	newDatabase := errors.Is(liveErr, os.ErrNotExist)
 	appDir, err := unpack(p)
 	if err != nil {
 		return fmt.Errorf("unpacking application files: %w", err)
@@ -172,7 +174,6 @@ func Serve(p *Project, opts ServeOptions) error {
 			return controller.Connect(filepath.Join(live, filepath.Base(path)))
 		},
 	})
-	app.Store().Set("pocketcontextNewDatabase", newDatabase)
 	// PocketBase watches DataDir/.notify to coordinate processes that share one
 	// pb_data. Here DataDir is the synced folder and each computer has its own
 	// working copy, so the watcher would only leak events between computers.
