@@ -170,33 +170,11 @@
     "captureSql": true,
     "maxBytes": 16777216
   },
-  "snapshot": {
-    "filters": {
-      "spaces": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = spaces.id AND m.account = :requester AND m.active = 1)",
-      "space_members": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = space_members.space AND m.account = :requester AND m.active = 1)",
-      "sources": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = sources.space AND m.account = :requester AND m.active = 1)",
-      "renditions": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = renditions.space AND m.account = :requester AND m.active = 1)",
-      "passages": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = passages.space AND m.account = :requester AND m.active = 1)",
-      "ingestion_runs": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = ingestion_runs.space AND m.account = :requester AND m.active = 1)",
-      "pages": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = pages.space AND m.account = :requester AND m.active = 1)",
-      "page_revisions": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = page_revisions.space AND m.account = :requester AND m.active = 1)",
-      "citations": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = citations.space AND m.account = :requester AND m.active = 1)",
-      "page_links": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = page_links.space AND m.account = :requester AND m.active = 1)",
-      "user_directory": "user_directory.id = :requester OR EXISTS (SELECT 1 FROM space_members mine JOIN space_members other ON other.space = mine.space WHERE mine.account = :requester AND mine.active = 1 AND other.account = user_directory.id AND other.active = 1)",
-      "publications": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = publications.space AND m.account = :requester AND m.active = 1)",
-      "audit_log": "EXISTS (SELECT 1 FROM space_members m WHERE m.space = audit_log.space AND m.account = :requester AND m.active = 1)"
-    },
-    "timeoutMs": 5000,
-    "maxRows": 100000,
-    "maxBytes": 33554432,
-    "maxConcurrent": 4
-  },
   "search": {
     "maxIndexBytes": 8388608,
     "cacheBytes": 67108864,
     "indexes": {
       "pages": {
-        "isolation": "private",
         "collection": "page_revisions",
         "columns": [
           "title",
@@ -217,7 +195,6 @@
         "where": "archived = 0"
       },
       "sources": {
-        "isolation": "private",
         "sourceContent": true,
         "collection": "sources",
         "columns": [

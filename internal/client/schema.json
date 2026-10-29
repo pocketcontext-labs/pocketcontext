@@ -11,15 +11,7 @@
       "maxScopeMembers": 10000,
       "maxLimit": 100,
       "defaultLimit": 20
-    },
-    "isolation": "private"
-  },
-  "snapshotLimits": {
-    "timeoutMs": 5000,
-    "maxRows": 100000,
-    "maxBytes": 33554432,
-    "maxConcurrent": 4,
-    "maxConcurrentPerRequester": 0
+    }
   },
   "tables": [
     {
@@ -616,7 +608,7 @@
       ]
     }
   ],
-  "permissionModel": "filtered-snapshot",
+  "permissionModel": "shared",
   "limits": {
     "maxRows": 500,
     "maxBytes": 1048576,
