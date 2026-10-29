@@ -79,12 +79,12 @@ try {
     await cp(path.join(root, 'ui', name), path.join(ui, name), { recursive: true });
   }
   await symlink(path.join(root, 'ui/node_modules'), path.join(ui, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
-  await cli(['init', '--email', 'reader@example.localhost', '--name', 'Reader Test', '--port', String(port), '--password-stdin'], 'synthetic reader password\n');
+  await cli(['init', '--port', String(port), '--password-stdin'], 'synthetic reader password\n');
   const initialSpaces = await cli(['spaces']);
-  assert.equal(initialSpaces.length, 1, 'fresh init creates only Personal');
+  assert.equal(initialSpaces.length, 1, 'fresh init creates only the Default space');
   const defaultSpace = initialSpaces.find(space => space.selected);
-  assert.equal(defaultSpace.role, 'owner', 'the initial account owns Personal');
-  assert.equal(defaultSpace.kind, 'personal', 'fresh init defaults CLI to Personal');
+  assert.equal(defaultSpace.name, 'Default', 'fresh init names its first space Default');
+  assert(defaultSpace.default, 'fresh init makes Default the default space');
   await cli(['stop']);
   start(process.execPath, [path.join(root, 'ui/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(vitePort)], {
     cwd: ui, env: { ...process.env, POCKETCONTEXT_DEV_PORT: String(port) },
@@ -153,8 +153,8 @@ try {
   await page.goto(signIn.signInLink);
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
   await assertLight('signed-in reader');
-  assert.equal((await page.locator('.workspace-label').innerText()).trim(), 'Personal');
-  assert.equal(await page.getByRole('combobox', {name: 'Space', exact: true}).count(), 0, 'a sole Personal space needs no selector');
+  assert.equal((await page.locator('.workspace-label').innerText()).trim(), 'Default');
+  assert.equal(await page.getByRole('combobox', {name: 'Space', exact: true}).count(), 0, 'a sole space needs no selector');
   ok('login and reader remain light with a legacy dark preference and dark operating system');
   async function screenshot(name) {
     if (name.startsWith('home-') || name.startsWith('reader-')) {
@@ -484,7 +484,7 @@ try {
   await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'source ingestion refreshes count without publication');
   const unchangedPublication = (await cli(['sql', 'SELECT id FROM publications ORDER BY sequence DESC LIMIT 1'])).rows[0][0];
   assert.equal(unchangedPublication, publications[1]);
-  const separateSpace = await create('spaces', {kind: 'group', name: 'Separate research'});
+  const separateSpace = await create('spaces', {name: 'Separate research'});
   await page.goto(`${origin}/#/pages?space=${separateSpace.id}`);
   await page.getByRole('heading', { name: 'All pages', exact: true }).waitFor();
   await page.getByText('No pages have been published in this space yet.').waitFor();
@@ -495,7 +495,7 @@ try {
   await until(async () => /Sources\s*1$/.test(await sourcesNav.innerText()), 'source count isolates explicitly created space inventory');
   assert.equal(await page.locator('#reader').getByText('Observatory evidence', { exact: true }).count(), 0);
   await page.goto(`${origin}/#/sources/?space=${defaultSpace.id}`);
-  await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'returning to Personal restores its count');
+  await until(async () => /Sources\s*2$/.test(await sourcesNav.innerText()), 'returning to the default space restores its count');
   ok('protected Markdown originals render safely and source counts refresh independently per space');
 
   // A non-text original is stored without a rendition until the agent converts it.
@@ -556,7 +556,7 @@ try {
   await page.goto(`${origin}/#/?space=${defaultSpace.id}`);
   await page.getByRole('button', {name:'Manage spaces',exact:true}).click();
   const manager = page.getByRole('dialog', {name:'Manage spaces'});
-  await manager.getByText('Personal', {exact:true}).waitFor();
+  await manager.getByText('Default', {exact:true}).first().waitFor();
   assert(await manager.getByLabel('New space name').evaluate(el => el === document.activeElement), 'space manager focuses its name field');
   await trapCheck(manager);
   await manager.getByLabel('New space name').fill('Synthetic research');

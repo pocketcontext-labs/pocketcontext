@@ -12,27 +12,17 @@ import SpaceManager from "./SpaceManager";
 const owned: Space = {
   id: "ownedspace00001",
   name: "Research",
-  kind: "group",
-  role: "owner",
   revision: 3,
 };
-const company: Space = {
-  id: "companyspace001",
-  name: "Company",
-  kind: "group",
-  role: "editor",
+const main: Space = {
+  id: "defaultspace001",
+  name: "Notes",
   revision: 1,
-};
-const personal: Space = {
-  id: "personalspace01",
-  name: "Personal",
-  kind: "personal",
-  role: "owner",
-  revision: 1,
+  is_default: true,
 };
 let rows: Space[];
 beforeEach(() => {
-  rows = [company, personal, owned];
+  rows = [main, owned];
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute("open", "");
   };
@@ -49,7 +39,7 @@ async function open() {
   await screen.findByText("Research");
   return changed;
 }
-it("creates a named private space and selects it", async () => {
+it("creates a named space and selects it", async () => {
   const create = vi
     .spyOn(api, "createSpace")
     .mockResolvedValue({ id: "newspace0000001" });
@@ -62,15 +52,14 @@ it("creates a named private space and selects it", async () => {
   expect(create).toHaveBeenCalledWith("Work notes");
   expect(changed).toHaveBeenCalledWith("newspace0000001");
 });
-it("limits controls to owners and protects Personal and Company archival", async () => {
+it("renames any space but never archives the default", async () => {
   await open();
-  const companyRow = screen.getByText("Company").closest("li")!;
+  const defaultRow = screen.getByText("Notes").closest("li")!;
   expect(
-    within(companyRow).queryByRole("button", { name: "Rename" }),
-  ).toBeNull();
-  const personalRow = screen.getByText("Personal").closest("li")!;
+    within(defaultRow).getByRole("button", { name: "Rename" }),
+  ).toBeTruthy();
   expect(
-    within(personalRow).queryByRole("button", { name: "Archive" }),
+    within(defaultRow).queryByRole("button", { name: "Archive" }),
   ).toBeNull();
   expect(screen.getAllByRole("button", { name: "Archive" })).toHaveLength(1);
 });

@@ -264,58 +264,50 @@ export class IncompleteReadError extends Error {
 
 export interface Space {
   id: string;
-  kind: "personal" | "group";
   name: string;
-  role: "owner" | "editor" | "reader";
   revision?: number;
   archived?: boolean;
+  /** The project's default space, which cannot be archived. */
+  is_default?: boolean;
 }
-export const companySpace = "companyspace001";
-/** Active memberships of the signed-in account. */
+/** Every space of the project, with the default first. */
 export async function listSpaces(): Promise<Space[]> {
-  const account = pb.authStore.record?.id;
-  if (!account) throw new Error("Please sign in to continue");
+  if (!pb.authStore.record?.id) throw new Error("Please sign in to continue");
   const rows = await query<Space>(
-    `SELECT s.id, s.kind, s.name, s.revision, s.archived, m.role FROM spaces s JOIN space_members m ON m.space=s.id WHERE m.account=${identity(account)} AND m.active=1 ORDER BY CASE s.id WHEN 'companyspace001' THEN 0 ELSE 1 END, s.name, s.id LIMIT 200`,
+    `SELECT s.id, s.name, s.revision, s.archived, s.id = t.default_space AS is_default FROM spaces s, settings t ORDER BY s.id = t.default_space DESC, s.name, s.id LIMIT 200`,
   );
-  return rows.filter(
-    (row) =>
-      /^[a-z0-9]{15}$/.test(row.id) &&
-      (row.kind === "personal" || row.kind === "group"),
-  );
+  return rows
+    .filter((row) => /^[a-z0-9]{15}$/.test(row.id))
+    .map((row) => ({
+      ...row,
+      archived: Boolean(row.archived),
+      is_default: Boolean(row.is_default),
+    }));
 }
-/** Explicit requests must be memberships. Call defaultSpace for an implicit selection. */
+/** Explicit requests must name an existing space. Call defaultSpace for an implicit selection. */
 export function selectSpace(spaces: Space[], requested: string): Space | null {
   return spaces.find((space) => space.id === requested) ?? null;
 }
 export async function defaultSpace(): Promise<{
   id: string;
-  kind: "personal" | "group";
   name: string;
-  policy: "personal" | "company";
+  archived: boolean;
 }> {
   const generation = sessionGeneration;
   const result = await pb.send<{
     id: string;
-    kind: "personal" | "group";
     name: string;
-    policy: "personal" | "company";
+    archived: boolean;
   }>("/api/spaces/default", { method: "GET" });
   if (generation !== sessionGeneration || !pb.authStore.isValid)
     throw new Error("Session changed");
   identity(result.id);
-  if (
-    !["personal", "group"].includes(result.kind) ||
-    !["personal", "company"].includes(result.policy)
-  )
+  if (typeof result.name !== "string")
     throw new Error("Default space is unavailable");
   return result;
 }
-export async function createPersonalSpace(): Promise<{ id: string }> {
-  return pb.send("/api/spaces/personal", { method: "POST" });
-}
 export async function createSpace(name: string): Promise<{ id: string }> {
-  return pb.collection("spaces").create({ kind: "group", name });
+  return pb.collection("spaces").create({ name });
 }
 export async function updateSpace(
   space: Space,
@@ -348,7 +340,7 @@ export async function listPublications(
   );
 }
 export async function latestPublication(
-  space = companySpace,
+  space: string,
 ): Promise<Publication | null> {
   return (await listPublications(space, 0, 1))[0] ?? null;
 }
@@ -614,6 +606,8 @@ async function readPage(
 }
 
 let pendingSignIn: { cancel: (message?: string) => void } | null = null;
+/** The sign-in name of the project's one account; the password is the secret. */
+export const localIdentity = "me@pocketcontext.localhost";
 async function signIn(email: string, password: string): Promise<void> {
   pendingSignIn?.cancel();
   const generation = sessionGeneration,
@@ -658,11 +652,8 @@ async function signIn(email: string, password: string): Promise<void> {
 export function cancelLogin(): void {
   pendingSignIn?.cancel();
 }
-export async function loginPassword(
-  email: string,
-  password: string,
-): Promise<void> {
-  await signIn(email, password);
+export async function loginPassword(password: string): Promise<void> {
+  await signIn(localIdentity, password);
 }
 let refreshedAt = 0;
 let refreshedToken = "";
@@ -944,7 +935,6 @@ export const api = {
   clearReaderCache,
   listSpaces,
   defaultSpace,
-  createPersonalSpace,
   createSpace,
   updateSpace,
   evidenceSpace,

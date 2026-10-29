@@ -38,8 +38,8 @@ import EvidenceBrowser, {
 } from "./EvidenceBrowser";
 import {
   api,
+  localIdentity,
   pb,
-  companySpace,
   selectSpace,
   sessionGeneration,
   type Space,
@@ -154,12 +154,10 @@ function Reader() {
   const [publications, setPublications] = useState<Publication[]>([]);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [membershipsLoaded, setMembershipsLoaded] = useState(false);
-  const personalCreation = useRef(0);
   const [space, setSpace] = useState<Space | null>(null);
   const selectedSpace = useRef("");
   const sourceCount = useSourceCount(space?.id);
   const [emptySpace, setEmptySpace] = useState(false);
-  const [creatingSpace, setCreatingSpace] = useState(false);
   const [snapshot, setSnapshot] = useState<{
     publication: Publication;
     pages: PageSummary[];
@@ -228,7 +226,6 @@ function Reader() {
   useEffect(
     () => () => {
       generation.current++;
-      personalCreation.current++;
     },
     [],
   );
@@ -241,8 +238,6 @@ function Reader() {
     const handler = () => {
       const next = route();
       const previous = routeSelection.current;
-      personalCreation.current++;
-      setCreatingSpace(false);
       if (
         next.slug !== previous.slug ||
         next.welcome !== previous.welcome ||
@@ -255,7 +250,7 @@ function Reader() {
       ) {
         generation.current++;
       }
-      if ((next.space || companySpace) !== (previous.space || companySpace)) {
+      if ((next.space || "") !== (previous.space || "")) {
         setSnapshot(null);
         setPublications([]);
         setSpace(null);
@@ -954,14 +949,13 @@ function Reader() {
                   <option key={item.id} value={item.id}>
                     {item.name}
                     {item.archived ? " (archived)" : ""}
-                    {item.role === "reader" ? " (read only)" : ""}
                   </option>
                 ))}
             </select>
           </label>
         ) : (
           <div className="workspace-label">
-            <span className="workspace-dot" /> {space?.name || "Company"}
+            <span className="workspace-dot" /> {space?.name || "Default"}
           </div>
         )}
         {membershipsLoaded && (
@@ -975,44 +969,6 @@ function Reader() {
             }}
           />
         )}
-        {membershipsLoaded &&
-          !spaces.some((item) => item.kind === "personal") && (
-            <details className="space-options">
-              <summary>Space options</summary>
-              <button
-                className="secondary-button"
-                disabled={creatingSpace}
-                onClick={() => {
-                  const own = ++personalCreation.current,
-                    identity = sessionGeneration,
-                    destination = location.hash;
-                  const active = () =>
-                    own === personalCreation.current &&
-                    identity === sessionGeneration &&
-                    pb.authStore.isValid &&
-                    destination === location.hash;
-                  setCreatingSpace(true);
-                  setError("");
-                  void api
-                    .createPersonalSpace()
-                    .then((result) => {
-                      if (active())
-                        location.hash = `#/?space=${encodeURIComponent(result.id)}`;
-                    })
-                    .catch((e) => {
-                      if (active()) setError(message(e));
-                    })
-                    .finally(() => {
-                      if (active()) setCreatingSpace(false);
-                    });
-                }}
-              >
-                {creatingSpace
-                  ? "Creating personal space…"
-                  : "Create personal space"}
-              </button>
-            </details>
-          )}
         <nav className="primary-navigation" aria-label="Workspace">
           <a
             href={pageHref("", displayedPinned)}
@@ -1765,12 +1721,7 @@ function Login() {
   const password = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    void login(() =>
-      api.loginPassword(
-        String(form.get("email")),
-        String(form.get("password")),
-      ),
-    );
+    void login(() => api.loginPassword(String(form.get("password"))));
   };
   return (
     <main className="login-shell">
@@ -1786,10 +1737,12 @@ function Login() {
           connections and get back to the source.
         </p>
         <form className="login-form" onSubmit={password}>
-          <label>
-            Email
-            <input required name="email" type="email" autoComplete="username" />
-          </label>
+          <input
+            type="hidden"
+            name="username"
+            autoComplete="username"
+            value={localIdentity}
+          />
           <label>
             Password
             <input

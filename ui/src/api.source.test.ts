@@ -148,12 +148,12 @@ it("counts all sources in only the selected space without publication or search 
   const send = vi
     .spyOn(pb, "send")
     .mockResolvedValue({ columns: ["count"], rows: [[23]], truncated: false });
-  await expect(sourceCount("companyspace001")).resolves.toBe(23);
+  await expect(sourceCount("defaultspace001")).resolves.toBe(23);
   expect(send).toHaveBeenCalledWith(
     "/api/context/query",
     expect.objectContaining({
       body: {
-        sql: "SELECT count(*) AS count FROM sources WHERE space='companyspace001'",
+        sql: "SELECT count(*) AS count FROM sources WHERE space='defaultspace001'",
       },
     }),
   );

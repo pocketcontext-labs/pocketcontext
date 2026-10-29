@@ -37,7 +37,7 @@ it("reads a deep-linked source directly without fetching a sibling list", async 
   const onTitleChange = vi.fn();
   render(
     <EvidenceBrowser
-      space="companyspace001"
+      space="defaultspace001"
       collection="sources"
       id={selected.id}
       term=""
@@ -70,11 +70,11 @@ it("reads a deep-linked source directly without fetching a sibling list", async 
   expect(onTitleChange).toHaveBeenLastCalledWith(selected.title);
   expect(readerAPI.query).toHaveBeenNthCalledWith(
     1,
-    expect.stringContaining("WHERE s.space='companyspace001' AND"),
+    expect.stringContaining("WHERE s.space='defaultspace001' AND"),
   );
   expect(readerAPI.query).toHaveBeenNthCalledWith(
     2,
-    expect.stringContaining("WHERE space='companyspace001' AND"),
+    expect.stringContaining("WHERE space='defaultspace001' AND"),
   );
 });
 
@@ -107,7 +107,7 @@ it("provides a paginated source reading list in the main content even with separ
   try {
     render(
       <EvidenceBrowser
-        space="companyspace001"
+        space="defaultspace001"
         collection="sources"
         id=""
         term=""
@@ -149,7 +149,7 @@ it("renders original Markdown with page typography and keeps metadata tucked awa
   );
   const { container } = render(
     <EvidenceBrowser
-      space="companyspace001"
+      space="defaultspace001"
       collection="sources"
       id={source.id}
       term=""
@@ -181,7 +181,7 @@ it("retains original download and passages when a preview is refused", async () 
   );
   render(
     <EvidenceBrowser
-      space="companyspace001"
+      space="defaultspace001"
       collection="sources"
       id={source.id}
       term=""
@@ -224,7 +224,7 @@ it("aborts an old source preview and never displays its late content after navig
   });
   const rendered = render(
     <EvidenceBrowser
-      space="companyspace001"
+      space="defaultspace001"
       collection="sources"
       id={first.id}
       term=""
@@ -236,7 +236,7 @@ it("aborts an old source preview and never displays its late content after navig
   await waitFor(() => expect(finish).toBeTypeOf("function"));
   rendered.rerender(
     <EvidenceBrowser
-      space="companyspace001"
+      space="defaultspace001"
       collection="sources"
       id={second.id}
       term=""
@@ -272,7 +272,7 @@ it("verifies a deep-linked passage from the selected source and space before hig
   );
   const { container } = render(
     <EvidenceBrowser
-      space="companyspace001"
+      space="defaultspace001"
       collection="sources"
       id={source.id}
       term=""
@@ -289,8 +289,8 @@ it("verifies a deep-linked passage from the selected source and space before hig
     sql.includes("p.ordinal"),
   )?.[0];
   expect(query).toContain("p.id='passage00000001'");
-  expect(query).toContain("p.space='companyspace001'");
-  expect(query).toContain("r.space='companyspace001'");
+  expect(query).toContain("p.space='defaultspace001'");
+  expect(query).toContain("r.space='defaultspace001'");
   expect(query).toContain("r.source='source000000001'");
   expect(readerAPI.api.sourceText).toHaveBeenCalledWith(
     expect.objectContaining({ id: source.id }),
@@ -315,7 +315,7 @@ it("does not apply a stale cited passage after changing source or expose unavail
   });
   vi.spyOn(readerAPI.api, "sourceText").mockResolvedValue("Available original");
   const props = {
-    space: "companyspace001",
+    space: "defaultspace001",
     collection: "sources" as const,
     term: "",
     publication: "",
@@ -385,7 +385,7 @@ const agentRendition = (id: string, version_label: string, tool: string) => ({
   }),
 });
 const binaryProps = {
-  space: "companyspace001",
+  space: "defaultspace001",
   collection: "sources" as const,
   id: "source000000009",
   term: "",
@@ -469,7 +469,7 @@ it("shows a non-text original's facts and its labelled agent-derived passages wi
   );
   for (const value of sql.filter((item) => item.includes("FROM passages p")))
     expect(value).toContain(
-      "p.space='companyspace001' AND r.space='companyspace001' AND r.source='source000000009' AND r.kind='agent-text'",
+      "p.space='defaultspace001' AND r.space='defaultspace001' AND r.source='source000000009' AND r.kind='agent-text'",
     );
 });
 

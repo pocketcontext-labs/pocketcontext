@@ -80,7 +80,7 @@ try {
     await cp(path.join(root, 'ui', name), path.join(ui, name), { recursive: true });
   }
   await symlink(path.join(root, 'ui/node_modules'), path.join(ui, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
-  await cli(['init', '--email', 'browser@example.localhost', '--name', 'Browser Test', '--port', String(port), '--password-stdin'], 'synthetic browser password\n');
+  await cli(['init', '--port', String(port), '--password-stdin'], 'synthetic browser password\n');
   await cli(['stop']);
   const startVite = () => start(process.execPath, [path.join(root, 'ui/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(vitePort)], {
     cwd: ui, env: { ...process.env, POCKETCONTEXT_DEV_PORT: String(port) },

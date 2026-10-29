@@ -79,7 +79,7 @@ it("preserves publication and filter state and clears stale previews on revision
       state={state}
       publication="historic"
       snapshotId="historic"
-      space="companyspace001"
+      space="defaultspace001"
       onNavigate={navigate}
     />,
   );
@@ -96,7 +96,7 @@ it("preserves publication and filter state and clears stale previews on revision
       state={state}
       publication="new"
       snapshotId="new"
-      space="companyspace001"
+      space="defaultspace001"
     />,
   );
   await act(async () => {
@@ -134,7 +134,7 @@ it("previews literal markdown and copies exactly without rendering instructions"
       pages={[prompt]}
       state={state}
       snapshotId="pub"
-      space="companyspace001"
+      space="defaultspace001"
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Preview prompt" }));
@@ -207,7 +207,7 @@ it("refuses changed revisions or a non-prompt subtype before loading originals",
       links: [],
     } as PageDetail);
     await expect(
-      loadPrompt(prompt, "publication0001", "companyspace001"),
+      loadPrompt(prompt, "publication0001", "defaultspace001"),
     ).rejects.toThrow("no longer available");
   }
   expect(original).not.toHaveBeenCalled();
@@ -242,12 +242,12 @@ it("uses same-space SQL and refuses a denied protected original download", async
     .spyOn(globalThis, "fetch")
     .mockResolvedValue({ ok: false, status: 403 } as Response);
   await expect(
-    loadPrompt(exact, "publication0001", "companyspace001"),
+    loadPrompt(exact, "publication0001", "defaultspace001"),
   ).rejects.toThrow("Unable to download");
   expect(send).toHaveBeenCalledWith(
     "/api/context/query",
     expect.objectContaining({
-      body: { sql: expect.stringContaining("AND space='companyspace001'") },
+      body: { sql: expect.stringContaining("AND space='defaultspace001'") },
     }),
   );
   expect(fetchOriginal).toHaveBeenCalledWith(

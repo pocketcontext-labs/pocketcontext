@@ -15,7 +15,7 @@ import SourceDirectory, {
   sourceOrder,
 } from "./SourceDirectory";
 const props = {
-  space: "companyspace001",
+  space: "defaultspace001",
   count: 5000,
   offset: 0,
   order: "newest" as const,
@@ -44,7 +44,7 @@ it("browses 5,000 sources with one metadata page, a stable sort and no original 
   expect(screen.queryByText("Original 50")).toBeNull();
   expect(request).toHaveBeenCalledTimes(1);
   expect(request).toHaveBeenCalledWith(
-    "SELECT s.id,s.title,s.original_name,s.source_date,s.created,(SELECT count(*) FROM renditions r WHERE r.source=s.id) AS renditions FROM sources s WHERE s.space='companyspace001' ORDER BY created DESC, id DESC LIMIT 51 OFFSET 0",
+    "SELECT s.id,s.title,s.original_name,s.source_date,s.created,(SELECT count(*) FROM renditions r WHERE r.source=s.id) AS renditions FROM sources s WHERE s.space='defaultspace001' ORDER BY created DESC, id DESC LIMIT 51 OFFSET 0",
   );
   expect(preview).not.toHaveBeenCalled();
   expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute(
@@ -58,7 +58,7 @@ it("browses 5,000 sources with one metadata page, a stable sort and no original 
   expect(location.hash).toContain("offset=4950");
 });
 it("keeps range, detail and return context on the last page and resets paging when sorting", async () => {
-  location.hash = "#/sources/?space=companyspace001";
+  location.hash = "#/sources/?space=defaultspace001";
   vi.spyOn(api, "query").mockResolvedValue(rows(4950, 50));
   render(
     <SourceDirectory
@@ -72,7 +72,7 @@ it("keeps range, detail and return context on the last page and resets paging wh
   expect(screen.queryByRole("link", { name: "Next →" })).toBeNull();
   expect(screen.getByRole("link", { name: "Original 4950" })).toHaveAttribute(
     "href",
-    "#/sources/source000004950?offset=4950&publication=publication0001&space=companyspace001&order=title",
+    "#/sources/source000004950?offset=4950&publication=publication0001&space=defaultspace001&order=title",
   );
   fireEvent.change(screen.getByRole("combobox", { name: "Sort sources" }), {
     target: { value: "oldest" },
@@ -151,7 +151,7 @@ it.each([
 );
 
 it("badges sources without any rendition and filters to those needing extraction", async () => {
-  location.hash = "#/sources/?space=companyspace001";
+  location.hash = "#/sources/?space=defaultspace001";
   const request = vi
     .spyOn(api, "query")
     .mockImplementation(async (sql) =>
@@ -179,7 +179,7 @@ it("badges sources without any rendition and filters to those needing extraction
   rerender(<SourceDirectory {...props} filter="pending" offset={50} />);
   await screen.findByText("51–100 of 120 sources needing extraction");
   const pending =
-    "s.space='companyspace001' AND NOT EXISTS (SELECT 1 FROM renditions r WHERE r.source=s.id)";
+    "s.space='defaultspace001' AND NOT EXISTS (SELECT 1 FROM renditions r WHERE r.source=s.id)";
   expect(request).toHaveBeenCalledWith(
     `SELECT s.id,s.title,s.original_name,s.source_date,s.created,(SELECT count(*) FROM renditions r WHERE r.source=s.id) AS renditions FROM sources s WHERE ${pending} ORDER BY created DESC, id DESC LIMIT 51 OFFSET 50`,
   );
@@ -191,11 +191,11 @@ it("badges sources without any rendition and filters to those needing extraction
   );
   expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute(
     "href",
-    "#/sources/?offset=100&space=companyspace001&order=newest&filter=pending",
+    "#/sources/?offset=100&space=defaultspace001&order=newest&filter=pending",
   );
   expect(screen.getByRole("link", { name: "Original 1" })).toHaveAttribute(
     "href",
-    "#/sources/source000000001?offset=50&space=companyspace001&order=newest&filter=pending",
+    "#/sources/source000000001?offset=50&space=defaultspace001&order=newest&filter=pending",
   );
   fireEvent.change(screen.getByRole("combobox", { name: "Sort sources" }), {
     target: { value: "title" },
@@ -203,7 +203,7 @@ it("badges sources without any rendition and filters to those needing extraction
   expect(location.hash).toContain("filter=pending");
   expect(sourceFilter("pending' OR 1=1")).toBe("");
   expect(sourceDirectoryHref(0, "newest", "", "", "")).toBe(
-    "#/sources/?space=companyspace001&order=newest",
+    "#/sources/?space=defaultspace001&order=newest",
   );
 });
 it("says when every source has extracted text", async () => {

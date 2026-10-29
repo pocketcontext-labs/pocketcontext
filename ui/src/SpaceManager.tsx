@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, companySpace, sessionGeneration, type Space } from "./api";
+import { api, sessionGeneration, type Space } from "./api";
 import "./spaceManager.css";
 import { trapFocus } from "./readerControls";
 
@@ -206,13 +206,13 @@ function SpaceDialog({
                   <div>
                     <strong>{space.name}</strong>
                     <small>
-                      {space.archived ? "Archived · " : ""}
-                      {space.role === "owner"
-                        ? "Owner"
-                        : space.role === "editor"
-                          ? "Editor"
-                          : "Read only"}
-                      {space.id === selected ? " · Current space" : ""}
+                      {[
+                        space.archived && "Archived",
+                        space.is_default && "Default",
+                        space.id === selected && "Current space",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </small>
                   </div>
                   <div className="space-manager-actions">
@@ -227,7 +227,7 @@ function SpaceDialog({
                     >
                       Open
                     </button>
-                    {space.role === "owner" && (
+                    {
                       <>
                         <button
                           disabled={busy}
@@ -239,30 +239,29 @@ function SpaceDialog({
                         >
                           Rename
                         </button>
-                        {space.kind !== "personal" &&
-                          space.id !== companySpace && (
-                            <button
-                              disabled={busy}
-                              onClick={() => {
-                                if (space.archived)
-                                  void run(
-                                    () =>
-                                      api.updateSpace(space, {
-                                        archived: false,
-                                      }),
-                                    "Space restored.",
-                                  );
-                                else {
-                                  setArchive(space);
-                                  setEditing("");
-                                }
-                              }}
-                            >
-                              {space.archived ? "Restore" : "Archive"}
-                            </button>
-                          )}
+                        {!space.is_default && (
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              if (space.archived)
+                                void run(
+                                  () =>
+                                    api.updateSpace(space, {
+                                      archived: false,
+                                    }),
+                                  "Space restored.",
+                                );
+                              else {
+                                setArchive(space);
+                                setEditing("");
+                              }
+                            }}
+                          >
+                            {space.archived ? "Restore" : "Archive"}
+                          </button>
+                        )}
                       </>
-                    )}
+                    }
                   </div>
                 </div>
                 {editing === space.id && (
@@ -327,8 +326,8 @@ function SpaceDialog({
         </ul>
       )}
       <p className="space-manager-hint">
-        Only owners can rename or archive spaces. Company and Personal spaces
-        are retained. Archiving preserves all sources and history.
+        The default space cannot be archived. Archiving preserves all sources
+        and history.
       </p>
     </dialog>
   );

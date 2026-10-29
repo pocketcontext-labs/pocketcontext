@@ -45,7 +45,7 @@ it("refreshes on source notifications and clears across spaces, logout and pendi
     );
   const { result, rerender } = renderHook(
     ({ space }) => useSourceCount(space),
-    { initialProps: { space: "companyspace001" } },
+    { initialProps: { space: "defaultspace001" } },
   );
   await waitFor(() => expect(result.current).toBe(23));
   act(() => notify());
@@ -68,7 +68,7 @@ it("refreshes on focus and online even when realtime could not subscribe", async
     .mockResolvedValueOnce(1)
     .mockResolvedValueOnce(2)
     .mockResolvedValueOnce(3);
-  const { result } = renderHook(() => useSourceCount("companyspace001"));
+  const { result } = renderHook(() => useSourceCount("defaultspace001"));
   await waitFor(() => expect(result.current).toBe(1));
   fireEvent(window, new Event("focus"));
   await waitFor(() => expect(result.current).toBe(2));

@@ -23,7 +23,7 @@ const page = (
   properties,
 });
 const publication: Publication = {
-  space: "companyspace001",
+  space: "defaultspace001",
   id: "publication0001",
   sequence: 8,
   home: "",
