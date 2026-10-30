@@ -40,7 +40,7 @@ func newUIDevProxy(raw string, p *Project) (*uiDevProxy, error) {
 		local: &localRoutes{p: p},
 		// Vite's reconnect probe uses a blob SharedWorker. This permission and
 		// inline refresh scripts/styles apply only to development UI responses.
-		csp: fmt.Sprintf("default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self' ws://127.0.0.1:%d ws://localhost:%d; img-src 'self'; media-src 'self' blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", p.Config.Port, p.Config.Port),
+		csp: fmt.Sprintf("default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self' ws://127.0.0.1:%d ws://localhost:%d; img-src 'self' blob:; media-src 'self' blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", p.Config.Port, p.Config.Port),
 	}
 	d.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {

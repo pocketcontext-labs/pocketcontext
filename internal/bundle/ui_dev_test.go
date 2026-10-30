@@ -86,6 +86,9 @@ func TestUIDevLiveAssetsAndRouteBoundaries(t *testing.T) {
 				if !strings.Contains(rr.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'") {
 					t.Fatal("missing development CSP")
 				}
+				if !strings.Contains(rr.Header().Get("Content-Security-Policy"), "img-src 'self' blob:;") {
+					t.Fatal("development CSP must allow verified image blobs")
+				}
 				if !strings.Contains(rr.Header().Get("Content-Security-Policy"), "worker-src 'self' blob:") {
 					t.Fatal("development CSP must allow Vite's reconnect worker")
 				}
@@ -288,6 +291,9 @@ func TestEmbeddedReaderKeepsProductionPolicy(t *testing.T) {
 		csp := rr.Header().Get("Content-Security-Policy")
 		if strings.Contains(csp, "'unsafe-inline'") || strings.Contains(csp, "ws://") {
 			t.Errorf("development policy in embedded reader: %s", csp)
+		}
+		if test.status == 200 && !strings.Contains(csp, "img-src 'self' blob:;") {
+			t.Errorf("missing verified image blob policy: %s", csp)
 		}
 		if test.status == 200 && (!strings.Contains(csp, "script-src 'self';") || rr.Header().Get("X-Frame-Options") != "DENY") {
 			t.Errorf("missing production protections: %v", rr.Header())

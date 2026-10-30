@@ -220,3 +220,15 @@ it("reads an original's size from a one-byte ranged request without downloading 
     "access was denied",
   );
 });
+
+it("verifies protected raster images and refuses executable image formats", async () => {
+  const { sourceImage } = await import("./api");
+  const content = new Uint8Array([137, 80, 78, 71]);
+  const fetcher = vi.fn().mockResolvedValue(new Response(content));
+  vi.stubGlobal("fetch", fetcher);
+  const blob = await sourceImage({ ...original(content), media_type: "image/png" });
+  expect(blob.type).toBe("image/png");
+  expect(blob.size).toBe(content.length);
+  await expect(sourceImage({ ...original(content), media_type: "image/svg+xml" })).rejects.toThrow("cannot be displayed");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});

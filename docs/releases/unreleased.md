@@ -1,0 +1,41 @@
+# Unreleased: Obsidian collection imports
+
+Existing authored Markdown collections can be preserved as PocketContext pages,
+with original files and images stored as immutable sources. This adds no database
+schema migration and retains the single-user model and per-space evidence rules.
+
+- The optional repository helper `scripts/import_obsidian.py` audits and imports
+  collections through the authenticated CLI. It preserves prose, provenance,
+  aliases, headings, formatted labels, image sizing, and ordinary footnotes. It
+  resumes interrupted imports and refuses to overwrite subsequent page edits.
+- Local Markdown `page:` links support formatted labels while retaining normal
+  publication validation. `source:` links open protected originals; source image
+  embeds display hash-verified raster files, with enlargement and downloads.
+- Explicit `space:` links navigate to another space's current publication.
+  They do not permit cross-space citations or couple independent publications.
+- Imported footnotes preserve document-level attribution separately from verified
+  passage citations. Imported pages carry a verification notice; they are not
+  automatically rewritten or represented as verified synthesis.
+- The agent skill now includes a preservation workflow: inventory the whole
+  collection, distinguish authored documents from sources/templates, audit
+  unresolved targets, and report migration and extraction separately.
+- The sidebar space selector now fits its row when collections have long names.
+
+## Scope and compatibility
+
+The importer requires Python 3.10+ and a matching source checkout; Python is not
+a dependency of the PocketContext binary. The helper supports local `--db`
+projects and the conventional source/page layout, not remote `--url` or arbitrary
+extra authored directories. Inventory extras such as `specs/` and map them
+explicitly before applying. The skill describes the CLI fallback and coverage
+limits. See [the import guide](../import-obsidian.md).
+
+Missing originals, empty files, and unresolved references are reported. The
+helper preserves a snapshot; it is not continuous synchronization. Non-text
+extraction and claim verification remain separate work. Images need no OCR to
+display. Raw HTML and arbitrary remote images remain disabled.
+
+Use the updated reader and binary for the new reference formats. Existing
+0.11.x projects need no data migration; databases from 0.10.0 and earlier remain
+unsupported. Run `pocketcontext skill` to refresh installed agent guidance after
+updating the binary. Released setup prompts remain unchanged.

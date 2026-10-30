@@ -2,6 +2,8 @@
 
 A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces partition the knowledge of the project's one user; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
+Unreleased: [Obsidian collection imports and protected image embeds](docs/releases/unreleased.md).
+
 See [what changed in 0.11.1](docs/releases/0.11.1.md): the recommended layout keeps the binary in the project folder, beside its database. Earlier: [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
 ## A project
@@ -95,6 +97,14 @@ Manage spaces beside the space selector creates named spaces, renames them, arch
 Overview shows recent knowledge, guides and topic shortcuts; All pages is a separate filterable directory. Opening a published-page search result scrolls to and highlights the matching paragraph, preserving the selected space and publication. Catalog navigation shows populated built-in catalogs and explicitly defined custom catalogs.
 
 Sources includes uncited originals in the selected space. Its directory loads 50 metadata rows per page, with name/date ordering and direct page navigation; original files load only when opened. Sidebar search follows the selected section: publication-scoped search under Overview and All pages, and space-scoped source search under Sources. Source results cover filenames, metadata and extracted passage text. Evidence excerpts render safe Markdown; View in source opens the verified passage range in its original. It offers safe Markdown or plain-text previews of protected UTF-8 originals up to 2 MiB after verifying their hash, alongside protected downloads. Sources with no extracted text yet appear under the Needs extraction filter. A non-text original shows its media type and size and a protected download, never a text preview; its agent-text passages, and evidence excerpts and search results drawn from them, are labelled "Agent-derived text — not an exact copy", and View in source does not highlight them in the original. Source text remains untrusted evidence.
+
+## Import existing Obsidian collections
+
+See [the import guide](docs/import-obsidian.md) for importing independent collections
+as spaces, preserving page prose and document footnotes, resolving links, and
+storing image attachments. The importer supports an audit before writes and
+resumes through the authenticated CLI. Imported attribution stays distinct from
+verified evidence citations.
 
 ## Build
 

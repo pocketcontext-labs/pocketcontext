@@ -1,3 +1,4 @@
+import { SourceImage } from "./SourceImage";
 import { spaceLink } from "./spaceLinks";
 import { memo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
@@ -142,7 +143,7 @@ export const Markdown = memo(function Markdown({
       ]}
       skipHtml
       urlTransform={(url) =>
-        (mode === "source" ? /^(https?:|mailto:|#)/i : /^(page:|citation:|https?:|mailto:|#)/i).test(url) ? url : ""
+        (mode === "source" ? /^(https?:|mailto:|#)/i : /^(page:|citation:|source:|space:|https?:|mailto:|#)/i).test(url) ? url : ""
       }
       components={{
         h1: ({ children, id }) => heading(1, children, id),
@@ -152,6 +153,22 @@ export const Markdown = memo(function Markdown({
         h5: ({ children, id }) => heading(5, children, id),
         h6: ({ children, id }) => heading(6, children, id),
         a: ({ href, children, id, "aria-label": ariaLabel, "aria-describedby": ariaDescription }) => {
+          if (href?.startsWith("source:")) {
+            const id = href.slice(7);
+            return /^[a-z0-9]{15}$/.test(id)
+              ? <a href={spaceLink(`#/sources/${id}`)}>{children}</a>
+              : <span>{children}</span>;
+          }
+          if (href?.startsWith("space:")) {
+            const match = /^space:([a-z0-9]{15})\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:#(.*))?$/.exec(href);
+            if (!match) return <span>{children}</span>;
+            let anchor = "";
+            try { anchor = match[3] ? headingId(decodeURIComponent(match[3])) : ""; }
+            catch { return <span>{children}</span>; }
+            const query = new URLSearchParams({ space: match[1] });
+            if (anchor) query.set("heading", anchor);
+            return <a href={`#/page/${match[2]}?${query}`} title="Open page in another space">{children}</a>;
+          }
           if (href?.startsWith("citation:"))
             return (
               <button
@@ -212,11 +229,9 @@ export const Markdown = memo(function Markdown({
             <span>{children}</span>
           );
         },
-        img: ({ alt }) => (
-          <span className="image-placeholder">
-            Image: {alt || "embedded image"}
-          </span>
-        ),
+        img: ({ src, alt, title }) => mode === "page" && /^source:[a-z0-9]{15}$/.test(src || "")
+          ? <SourceImage id={src!.slice(7)} alt={alt} title={title} />
+          : <span className="image-placeholder">Image: {alt || "embedded image"}</span>,
         blockquote: ({ children, node }) => (
           <blockquote
             className={String(node?.properties.className || "")}

@@ -34,9 +34,11 @@ function checks(app,run,report,guard){
  if(home&&(!manifest[home]||app.findRecordById('page_revisions',manifest[home]).getBool('archived')))report(slug(home),'home','Home page must be published and unarchived; choose a replacement or clear home');
  for(const r of revisions)guard(slug(r.getString('page')),page=>{
   const body=r.getString('body');
-  if(/^\[\^\d+\]:/m.test(body))report(page,'footnote-definition','Footnote definitions are rendered from citations');
+  const references=require(`${__hooks}/references.js`), referenceBody=references.referenceText(body);
+  references.check(app,body,space,(kind,message)=>report(page,kind,message));
+  if(/^\[\^\d+\]:/m.test(referenceBody))report(page,'footnote-definition','Footnote definitions are rendered from citations');
   const citations=rows(app,'citations','page_revision = {:id}',{id:r.id});
-  const bodyMarkers=[...body.matchAll(/\[\^(\d+)\]/g)].map(m=>m[1]);
+  const bodyMarkers=[...referenceBody.matchAll(/\[\^(\d+)\]/g)].map(m=>m[1]);
   const metadata=require(`${__hooks}/properties.js`);
   const {properties,evidence}=metadata.validate(r);
   // An exact copy reproduces original bytes, so only a text source qualifies; agent text is derived.
@@ -53,8 +55,11 @@ function checks(app,run,report,guard){
   const linkedIds=new Set(links.map(l=>l.getString('target')));
   for(const key of metadata.relationships)for(const id of properties[key]||[])if(!linkedIds.has(id))report(page,'missing-link-record','Relationship property needs a page_links record: '+key,'Relationship property needs a page_links record: '+key+' → '+id);
   const linked=new Set(links.map(l=>slug(l.getString('target'))));
-  for(const match of body.matchAll(/\[\[([^\]]+)\]\]/g)){
+  for(const match of referenceBody.matchAll(/\[\[([^\]]+)\]\]/g)){
    const target=match[1].split('|')[0].split('#')[0];
+   if(!linked.has(target))report(page,'missing-link-record','Page link needs a page_links record: '+target);
+  }
+  for(const target of references.pageTargets(body)){
    if(!linked.has(target))report(page,'missing-link-record','Page link needs a page_links record: '+target);
   }
   for(const link of links){

@@ -970,3 +970,11 @@ select {
   font-size: 0.85rem;
   color: var(--muted);
 }
+
+.source-image { display: inline-block; max-width: 100%; }
+.source-image-open { display: inline-block; border: 0; padding: 0; background: none; cursor: zoom-in; max-width: 100%; }
+.source-image-open img { display: block; max-width: 100%; object-fit: contain; }
+.source-image-caption { display: block; color: var(--muted); font-size: .9em; }
+.source-image-dialog { max-width: 95vw; max-height: 95vh; overflow: auto; }
+.source-image-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.source-image-dialog img { display: block; max-width: 100%; height: auto; margin: 1rem 0; }

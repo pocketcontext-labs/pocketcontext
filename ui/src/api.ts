@@ -761,17 +761,18 @@ export async function originalSize(
 }
 export const SOURCE_PREVIEW_BYTES = 2 * 1024 * 1024;
 export class SourcePreviewLimitError extends Error {
-  constructor() {
+  constructor(limit = SOURCE_PREVIEW_BYTES) {
     super(
-      "This original is larger than the 2 MiB reading limit. Download it or read its passages.",
+      `This original is larger than the ${limit / (1024 * 1024)} MiB reading limit. Download it or read its passages.`,
     );
   }
 }
 /** Read the independently authorized original, never an approximation assembled from passages. */
-export async function sourceText(
+async function sourceBytes(
   source: Source,
   signal?: AbortSignal,
-): Promise<string> {
+  limit = SOURCE_PREVIEW_BYTES,
+): Promise<Uint8Array<ArrayBuffer>> {
   identity(source.id);
   const generation = sessionGeneration;
   const token = pb.authStore.token;
@@ -817,9 +818,9 @@ export async function sourceText(
         pb.authStore.clear();
       throw new Error("This original is unavailable or access was denied.");
     }
-    if (Number(response.headers.get("content-length")) > SOURCE_PREVIEW_BYTES) {
+    if (Number(response.headers.get("content-length")) > limit) {
       await response.body?.cancel();
-      throw new SourcePreviewLimitError();
+      throw new SourcePreviewLimitError(limit);
     }
     if (!response.body)
       throw new Error("This original has no readable content.");
@@ -836,7 +837,7 @@ export async function sourceText(
           break;
         }
         size += chunk.value.byteLength;
-        if (size > SOURCE_PREVIEW_BYTES) throw new SourcePreviewLimitError();
+        if (size > limit) throw new SourcePreviewLimitError(limit);
         chunks.push(chunk.value);
       }
     } finally {
@@ -858,16 +859,32 @@ export async function sourceText(
     ).join("");
     if (hash !== source.sha256)
       throw new Error("The original does not match its recorded checksum.");
-    try {
-      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      throw new Error(
-        "This original is not valid UTF-8 text. Download it instead.",
-      );
-    }
+    return bytes;
   } finally {
     unsubscribe();
   }
+}
+
+export async function sourceText(source: Source, signal?: AbortSignal): Promise<string> {
+  const bytes = await sourceBytes(source, signal);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error("This original is not valid UTF-8 text. Download it instead.");
+  }
+}
+
+/** Only locally stored, checksum-verified raster images can be embedded. */
+export async function sourceImage(source: Source, signal?: AbortSignal): Promise<Blob> {
+  if (!/^image\/(png|jpeg|gif|webp|avif)$/.test(source.media_type))
+    throw new Error("This file cannot be displayed as an inline image.");
+  return new Blob([await sourceBytes(source, signal, 50 * 1024 * 1024)], { type: source.media_type });
+}
+
+export async function imageSource(id: string, space: string): Promise<Source> {
+  const rows = await query<Source>(`SELECT id,title,original_name,original,media_type,source_date,sha256 FROM sources WHERE id=${identity(id)} AND space=${identity(space)} LIMIT 1`);
+  if (!rows[0]) throw new Error("This image is unavailable in this space.");
+  return rows[0];
 }
 
 export async function sourceCount(space: string): Promise<number> {

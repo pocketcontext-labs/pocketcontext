@@ -35,6 +35,36 @@ Pages have immutable stable slugs (`^[a-z0-9]+(-[a-z0-9]+)*$`; `index` and `log`
 
 Runs have unique caller-supplied keys and status `staging`, `published` or `cancelled`. Only staging runs change; revisions, citations and links may be added while staging. Correct a mistake by cancelling the run and staging a replacement. A revision is not current merely because it exists.
 
+## Imported documents and navigation references
+
+Imported Obsidian documents use `kind: legacy`, preserve their prose, and carry
+`properties.import_format: "obsidian"` and original-path provenance. They include
+an explicit `[needs verification]` notice. Their ordinary Markdown footnotes use
+nonnumeric `import-` labels and preserve document-level attribution; they are not
+verified passage citations. Numeric markers remain reserved for evidence citations
+and retain all normal publication checks.
+
+Local links with formatted labels can use `[formatted label](page:PAGE_SLUG#Heading)`
+with a percent-encoded heading. Like bracket links, these derive same-space
+`page_links` records and require a published target in the resulting manifest.
+
+Pages can link to same-space originals with `[label](source:SOURCE_ID)` and embed
+raster images with `![alt](source:SOURCE_ID)`. Source references are navigation,
+not citations, and must name an existing source in the page's space. The reader
+loads supported raster images through authenticated, hash-verified access and
+never loads arbitrary remote images. An optional image title `"size=640"` or
+`"size=640x480"` requests display dimensions; another title supplies a caption.
+Images need no text extraction to display.
+
+`[label](space:SPACE_ID/PAGE_SLUG#Heading)` navigates to another space's current
+published page. Percent-encode the optional heading fragment. The space ID and
+immutable page slug identify the destination; the originating publication is
+not carried across. These links are independent navigation references, not
+`page_links`, relationships, or citations. They do not couple publication order
+or prevent another space from archiving a destination. An unavailable destination
+is reported by the reader. Agent maintenance remains scoped by workflow; spaces
+are not access-control boundaries.
+
 ## Publication
 
 A revision-checked update that moves a run to `published` validates every staged revision and writes one immutable publication whose manifest maps each page ID to its selected revision ID. Inside the same transaction the hook compares every staged base revision with the latest manifest of the space; a difference returns 409, and the agent rereads and reassesses in a new run. Publication, run state, manifest and audit entries commit together.

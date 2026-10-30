@@ -147,7 +147,7 @@ func parseSpec(data []byte) (*stageSpec, []problem, error) {
 func bodyMarkers(body string) []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, m := range markerPattern.FindAllStringSubmatch(body, -1) {
+	for _, m := range markerPattern.FindAllStringSubmatch(referenceText(body), -1) {
 		if !seen[m[1]] {
 			seen[m[1]] = true
 			out = append(out, m[1])
@@ -157,16 +157,22 @@ func bodyMarkers(body string) []string {
 }
 
 // bodyLinks returns the distinct [[slug]] targets of a body in order, read as the
-// server reads them: [[slug|label]] and [[slug#heading]] name slug.
+// server reads them: [[slug|label]], [[slug#heading]], and Markdown page: links name slug.
 func bodyLinks(body string) []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, m := range linkPattern.FindAllStringSubmatch(body, -1) {
+	for _, m := range linkPattern.FindAllStringSubmatch(referenceText(body), -1) {
 		target, _, _ := strings.Cut(m[1], "|")
 		target, _, _ = strings.Cut(target, "#")
 		if !seen[target] {
 			seen[target] = true
 			out = append(out, target)
+		}
+	}
+	for _, ref := range bodyReferences(body) {
+		if ref.kind == "page" && ref.valid && !seen[ref.id] {
+			seen[ref.id] = true
+			out = append(out, ref.id)
 		}
 	}
 	return out
@@ -190,13 +196,20 @@ func highestMarker(body string, citations map[string]string) int {
 
 // renumber shifts every [^n] marker of text by offset.
 func renumber(text string, offset int) string {
-	return markerPattern.ReplaceAllStringFunc(text, func(m string) string {
-		n, err := strconv.Atoi(m[2 : len(m)-1])
+	var out strings.Builder
+	last := 0
+	for _, span := range markerPattern.FindAllStringIndex(referenceText(text), -1) {
+		out.WriteString(text[last:span[0]])
+		n, err := strconv.Atoi(text[span[0]+2 : span[1]-1])
 		if err != nil {
-			return m
+			out.WriteString(text[span[0]:span[1]])
+		} else {
+			out.WriteString("[^" + strconv.Itoa(n+offset) + "]")
 		}
-		return "[^" + strconv.Itoa(n+offset) + "]"
-	})
+		last = span[1]
+	}
+	out.WriteString(text[last:])
+	return out.String()
 }
 
 // revisePage applies edits, then appended text, to a published body and its
@@ -574,7 +587,7 @@ func (c *Client) Stage(data []byte, dryRun bool) (map[string]any, error) {
 		s.archived = p.Archived != nil && *p.Archived
 
 		// Markers, citations and evidence, as publication checks them.
-		if footnotePattern.MatchString(s.body) {
+		if footnotePattern.MatchString(referenceText(s.body)) {
 			add(p.Slug, "footnote-definition", "footnote definitions are rendered from citations; remove [^n]: lines")
 		}
 		markers := map[string]bool{}
@@ -712,6 +725,46 @@ func (c *Client) Stage(data []byte, dryRun bool) (map[string]any, error) {
 		for _, m := range numericKeys(s.citations) {
 			if id := s.citations[m]; idPattern.MatchString(id) && !found[id] {
 				add(s.slug, "passage", "citation %s: passage %s not found in this space", m, id)
+			}
+		}
+	}
+	var referenceSources, referenceSpaces []string
+	for _, s := range staged {
+		for _, ref := range bodyReferences(s.body) {
+			if !ref.valid {
+				add(s.slug, ref.kind+"-reference", "invalid navigation reference %q", ref.destination)
+				continue
+			}
+			if ref.kind == "source" {
+				referenceSources = append(referenceSources, ref.id)
+			} else if ref.kind == "space" {
+				referenceSpaces = append(referenceSpaces, ref.id)
+			}
+		}
+	}
+	referenceSourceRows, err := c.existing("sources", space, referenceSources)
+	if err != nil {
+		return nil, err
+	}
+	// Navigation only needs an existing space, not a published destination page.
+	spaceRows, err := inList(referenceSpaces, func(list string) ([]map[string]any, error) {
+		return c.Rows("SELECT id FROM spaces WHERE id IN (" + list + ") LIMIT 1000")
+	})
+	if err != nil {
+		return nil, err
+	}
+	referenceSpaceRows := map[string]bool{}
+	for _, row := range spaceRows {
+		referenceSpaceRows[fmt.Sprint(row["id"])] = true
+	}
+
+	for _, s := range staged {
+		for _, ref := range bodyReferences(s.body) {
+			if ref.valid && ref.kind == "space" && !referenceSpaceRows[ref.id] {
+				add(s.slug, "space-reference", "navigation space %s not found", ref.id)
+			}
+			if ref.valid && ref.kind == "source" && !referenceSourceRows[ref.id] {
+				add(s.slug, "source-reference", "source %s not found in this space", ref.id)
 			}
 		}
 	}

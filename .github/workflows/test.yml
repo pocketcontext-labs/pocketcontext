@@ -34,8 +34,10 @@ jobs:
           pnpm typecheck
           pnpm test
           pnpm build
-      - name: Development launcher tests
-        run: node --test tests/dev_launcher.test.mjs
+      - name: Launcher, reference, and importer tests
+        run: |
+          node --test tests/dev_launcher.test.mjs tests/navigation_references.test.mjs
+          $PY tests/obsidian_import_test.py
       # Windows runners provide MinGW-w64 gcc for CGO. The vendored server's
       # upstream tests assume POSIX permissions, so Windows runs the bundle's own.
       - name: Unit tests
@@ -55,9 +57,13 @@ jobs:
           pnpm --dir ui exec playwright install --with-deps chromium
           node tests/ui_dev_browser.mjs --binary "$EXE"
           node tests/reader_ui_browser.mjs --binary "$EXE"
+          node tests/import_reader_browser.mjs --binary "$EXE"
+          node tests/sidebar_layout_browser.mjs --binary "$EXE"
       - name: Name check of the repository and binary
         run: $PY tests/name_check.py --binary "$EXE"
       - name: End-to-end test with synthetic notes
         run: |
           $PY tests/e2e.py --binary "$EXE"
           $PY tests/source_search.py --binary "$EXE"
+          $PY tests/navigation_references.py --binary "$EXE"
+          $PY tests/obsidian_import_e2e.py --binary "$EXE"

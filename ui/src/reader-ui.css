@@ -104,6 +104,12 @@
   min-height: 40px;
   max-width: 230px;
 }
+/* Native selects otherwise retain the longest option as a flex minimum. */
+.sidebar > .publication-control select {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+}
 .topbar-actions {
   flex-shrink: 0;
 }

@@ -88,3 +88,30 @@ it("renders original Markdown with normal footnotes and anchors but no publicati
   expect(container).toHaveTextContent("Original footnote text.");
   expect(container.querySelector("img, script")).toBeNull();
 });
+
+it("keeps imported footnotes separate from evidence citations and resolves their source links", () => {
+  location.hash = "#/page/example?space=space0000000001";
+  const { container } = render(<Markdown body={"Imported claim[^import-a]. Verified[^1].\n\n[^import-a]: See [original](source:source000000001)."} onCitation={() => {}} />);
+  expect(screen.getByRole("link", { name: "original" })).toHaveAttribute("href", "#/sources/source000000001?space=space0000000001");
+  expect(container.querySelector('a[href="#user-content-fn-import-a"]')).not.toBeNull();
+  expect(container.querySelectorAll(".citation")).toHaveLength(1);
+  location.hash = "";
+});
+
+it("cross-space links select the destination live space without carrying a publication", () => {
+  location.hash = "#/page/example?space=space0000000001&publication=old";
+  render(<Markdown publication="old" body="[Elsewhere](space:space0000000002/overview#Night%20sky) [Invalid](space:bad/overview)" />);
+  expect(screen.getByRole("link", { name: "Elsewhere" })).toHaveAttribute("href", "#/page/overview?space=space0000000002&heading=night-sky");
+  expect(screen.getByText("Invalid").closest("a")).toBeNull();
+  location.hash = "";
+});
+
+it("renders formatted imported labels while preserving page headings and publication", () => {
+  location.hash = "#/page/example?space=space0000000001";
+  render(<Markdown publication="published-version" body={"[BERT's `[CLS]`/`[SEP]` scheme](page:bert-input#Token%20scheme)"} />);
+  const link = screen.getByRole("link", { name: /BERT's \[CLS\]\s*\/\s*\[SEP\] scheme/ });
+  expect(link).toHaveAttribute("href", "#/page/bert-input?publication=published-version&heading=token-scheme&space=space0000000001");
+  expect(link.querySelectorAll("code")).toHaveLength(2);
+  expect(link.querySelector("code")).toHaveTextContent("[CLS]");
+  location.hash = "";
+});
