@@ -2,8 +2,14 @@
 
 Copied from github.com/pocketcontext/pocketcontext at commit
 20843b7c888daaba55f0646dd77455b7b309d4cc, under its MIT license (LICENSE).
-Import paths were rewritten to this module. For the origin of the application
-(hooks, migrations, reader) see [docs/origin.md](../../docs/origin.md).
+Import paths were rewritten to this module. PocketBase was later upgraded from
+v0.40.4 to v0.41.1 to match upstream commit
+279b04b821ec7cbc5c7d2f966f12e1fcfb327a0b: PocketBase moved its Go modules to
+`ganigeorgiev.com/pocketbase/*` (pocketbase v0.41.1, dbx v1.13.0), so only the
+PocketBase and dbx import paths changed. The rest of the vendored code remains
+at 20843b7; later upstream changes (background snapshots, installer) are not
+ported. For the origin of the application (hooks, migrations, reader) see
+[docs/origin.md](../../docs/origin.md).
 
 Local changes:
 

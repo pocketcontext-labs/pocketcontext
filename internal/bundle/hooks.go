@@ -7,8 +7,8 @@ import (
 	"io"
 	"path/filepath"
 
+	"ganigeorgiev.com/pocketbase/pocketbase/plugins/jsvm"
 	"github.com/dop251/goja"
-	"github.com/pocketbase/pocketbase/plugins/jsvm"
 )
 
 // hooksConfig loads pb_hooks and pb_migrations from appDir with PocketContext's

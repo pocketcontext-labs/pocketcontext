@@ -15,8 +15,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/pocketbase/pocketbase/apis"
-	"github.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/apis"
+	"ganigeorgiev.com/pocketbase/pocketbase/core"
 	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/searchread"
 	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqlread"
 	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/tracing"

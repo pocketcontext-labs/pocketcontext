@@ -2,7 +2,7 @@ package server
 
 import (
 	"encoding/json"
-	"github.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/core"
 	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/tracing"
 	"net/http"
 	"net/http/httptest"
