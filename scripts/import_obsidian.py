@@ -142,7 +142,7 @@ class Inventory:
             pages = [e for e in self.entries.values() if e["collection"] == name and e["kind"] == "page"]
             groups = defaultdict(list)
             for entry in pages:
-                relative = PurePosixPath(entry["path"]).relative_to(name, CONTENT_DIR)
+                relative = PurePosixPath(entry["path"]).relative_to(PurePosixPath(name) / CONTENT_DIR)
                 base = {"index.md": "overview", "log.md": "import-history"}.get(str(relative), slugify(str(relative.with_suffix(""))))
                 if base in {"index", "log"}:
                     base = "import-" + base
