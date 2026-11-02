@@ -90,19 +90,21 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
   stage-home RUN_ID --expected-revision N (--home SLUG | --clear-home) [--home-base ID]
   publish RUN_ID --expected-revision N [--home SLUG | --clear-home --home-base ID]
 
-Tunnel (carry the server's port to another computer; foreground, Ctrl-C stops):
+Tunnel (carry the server's port to another computer):
   tunnel serve [--new-address]
-                       on the agent computer: expose only the project's port
-                       through tailcat; reports only safe metadata
-                       (stable across restarts; --new-address replaces it)
-  tunnel invite --out FILE
-                       write a private invitation outside the project folder
-  tunnel join --file FILE
-                       verify identity, sign in, save the forward and keep running
-  tunnel forward [--address-stdin --save] [--url URL]
-                       on the person's computer: listen on the same loopback
-                       port; reuse its saved address or explicitly provide one, and carry it to
-                       the agent computer; never uses a local database
+                       on the server: expose only the project's service;
+                       keep supervised in the foreground (Ctrl-C stops)
+  tunnel invite [--out FILE]
+                       print one complete client setup prompt to share in chat;
+                       --out optionally writes invitation JSON outside the project
+  tunnel join (--stdin | --file FILE) [--no-browser] [--foreground]
+                       verify identity, sign in, save a managed background forward
+                       and open the signed-in reader; --no-browser prints its link
+  tunnel forward [--background | --address-stdin --save] [--url URL]
+                       reuse a saved connection or provide an address through stdin;
+                       --background manages a saved forward without this terminal
+  tunnel status|stop --url URL
+                       inspect or stop this client's managed forward
 
 Remote client (the server runs on another computer, reached through
 ` + "`tunnel forward`" + ` or an SSH forward of the same port; --url URL or POCKETCONTEXT_URL):

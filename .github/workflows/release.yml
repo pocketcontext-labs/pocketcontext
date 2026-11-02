@@ -96,6 +96,7 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then exe=pocketcontext.exe; fi
           "dist/$RELEASE_PLATFORM/$exe" version | grep -F "pocketcontext $RELEASE_VERSION ($RELEASE_COMMIT)"
           "$PY" tests/name_check.py --binary "dist/$RELEASE_PLATFORM/$exe"
+          POCKETCONTEXT_REHEARSAL_BINARY="$PWD/dist/$RELEASE_PLATFORM/$exe" CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" ./internal/client -run TestInvitationCLIRehearsal -count=1 -timeout 4m
           "$PY" tests/e2e.py --binary "dist/$RELEASE_PLATFORM/$exe"
           "$PY" tests/release013.py --binary "dist/$RELEASE_PLATFORM/$exe"
           "$PY" tests/navigation_references.py --binary "dist/$RELEASE_PLATFORM/$exe"

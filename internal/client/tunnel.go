@@ -27,15 +27,21 @@ import (
 // in the synced project folder, which other computers and people may read.
 func identityFile(p *bundle.Project) string { return filepath.Join(p.Cache, "tunnel.json") }
 
-// runTunnel runs `tunnel serve` on the agent computer or `tunnel forward` on
-// the person's computer. Both run in the foreground until interrupted.
+// runTunnel dispatches server tunnels and foreground or managed client forwards.
 func runTunnel(a *args, pretty bool) error {
 	if len(a.pos) == 0 {
-		return fail(2, "usage: pocketcontext tunnel serve|forward|invite|join; run `pocketcontext tunnel --help`")
+		return fail(2, "usage: pocketcontext tunnel serve|forward|invite|join|status|stop; run `pocketcontext tunnel --help`")
+	}
+	if err := validateTunnelOptions(a); err != nil {
+		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	switch a.pos[0] {
+	case "_forward":
+		return managedWorker(ctx)
+	case "stop", "status":
+		return managedCommand(a, pretty)
 	case "serve":
 		return tunnelServe(ctx, a, pretty)
 	case "forward":
@@ -45,7 +51,7 @@ func runTunnel(a *args, pretty bool) error {
 	case "join":
 		return tunnelJoin(ctx, a, pretty)
 	}
-	return fail(2, "usage: pocketcontext tunnel serve|forward|invite|join; run `pocketcontext tunnel --help`")
+	return fail(2, "usage: pocketcontext tunnel serve|forward|invite|join|status|stop; run `pocketcontext tunnel --help`")
 }
 
 func tunnelServe(ctx context.Context, a *args, pretty bool) error {
@@ -93,7 +99,7 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 			fmt.Fprintln(os.Stderr, "could not save private endpoint:", e)
 			return
 		}
-		Print(map[string]any{"port": p.Config.Port, "serverRunning": running, "ready": true, "note": "Create a private invitation with tunnel invite --out FILE. Keep this process supervised."}, pretty)
+		Print(map[string]any{"port": p.Config.Port, "serverRunning": running, "ready": true, "note": "Run tunnel invite to generate one client setup prompt to share in your chat. Keep this server process supervised."}, pretty)
 	}, func() (net.Conn, error) { return dialTunnelBackend(p) })
 	if err != nil {
 		return fail(1, "%v", err)
@@ -148,6 +154,20 @@ func tunnelForward(ctx context.Context, a *args, pretty bool) error {
 	if err != nil {
 		return err
 	}
+	if a.bools["background"] {
+		if a.bools["address-stdin"] || a.bools["save"] || len(a.pos) != 1 {
+			return fail(2, "background forwarding requires a saved connection; use tunnel join first")
+		}
+		c, err := loadConnection(base)
+		if err != nil {
+			return err
+		}
+		if _, err := ensureManagedForward(ctx, c); err != nil {
+			return err
+		}
+		Print(map[string]any{"url": base, "forwarding": true, "background": true}, pretty)
+		return nil
+	}
 	var text string
 	switch {
 	case a.bools["address-stdin"] && len(a.pos) == 1:
@@ -191,6 +211,33 @@ func tunnelForward(ctx context.Context, a *args, pretty bool) error {
 		"note": "the agent computer's PocketContext is reachable at this URL while this runs; sign in with `pocketcontext login --url " + base + " --code-stdin`. Stop with Ctrl-C."}, pretty)
 	if err := tunnel.Forward(ctx, addr, ln, port); err != nil {
 		return fail(1, "the forward stopped: %v", err)
+	}
+	return nil
+}
+
+// Do not silently accept a lifecycle option on the wrong subcommand.
+func validateTunnelOptions(a *args) error {
+	allowed := map[string]string{
+		"serve": "db url new-address", "invite": "db url out", "join": "db url file stdin foreground no-browser",
+		"forward": "db url address-stdin save background", "status": "db url", "stop": "db url", "_forward": "",
+	}
+	options, known := allowed[a.pos[0]]
+	if !known {
+		return nil
+	}
+	permits := func(key string) bool { return strings.Contains(" "+options+" ", " "+key+" ") }
+	for key := range a.flags {
+		if !permits(key) {
+			return fail(2, "--%s is not supported by tunnel %s", key, a.pos[0])
+		}
+	}
+	for key := range a.bools {
+		if key != "pretty" && !permits(key) {
+			return fail(2, "--%s is not supported by tunnel %s", key, a.pos[0])
+		}
+	}
+	if a.pos[0] == "_forward" && len(a.pos) != 1 {
+		return fail(2, "invalid managed worker arguments")
 	}
 	return nil
 }

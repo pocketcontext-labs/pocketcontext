@@ -88,7 +88,7 @@ func (s *codeStore) take(code string) (string, bool) {
 	defer s.mu.Unlock()
 	v, ok := s.codes[code]
 	delete(s.codes, code) // single use
-	if !ok || s.clock().After(v.expires) {
+	if !ok || !s.clock().Before(v.expires) {
 		return "", false
 	}
 	return v.user, true
@@ -275,6 +275,17 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 			"expires": expires.UTC().Format(time.RFC3339),
 		})
 	})
+
+	// An authenticated client can hand its own account to the browser without
+	// disclosing the client's reusable token or requiring the server's local key.
+	e.Router.POST("/api/bundle/reader-code", func(re *core.RequestEvent) error {
+		code, expires := l.codes.issue(re.Auth.Id, DefaultCodeTTL*time.Second)
+		re.Response.Header().Set("Cache-Control", "no-store")
+		return re.JSON(http.StatusOK, map[string]string{
+			"url":     l.p.URL() + "/bundle/login#" + code,
+			"expires": expires.UTC().Format(time.RFC3339),
+		})
+	}).Bind(apis.RequireAuth("users"))
 
 	e.Router.POST("/api/bundle/redeem", func(re *core.RequestEvent) error {
 		var body struct {

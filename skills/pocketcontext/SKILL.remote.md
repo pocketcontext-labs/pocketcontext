@@ -24,11 +24,13 @@ Do not use another `pocketcontext` from PATH.
 
 It reports whether the server is reachable and whether this computer is signed in. Every other command checks the server first.
 
-- Not reachable: do not continue; report it to the user. The server runs on the agent computer; ask the user to check that it runs there and that the port forward is active (`tunnel serve` on the agent computer and `tunnel forward` here, both in the foreground). Never restart a forward on a different local port and never print the tunnel address or store it outside the private connection cache. Never start a server and never create a database on this computer.
-- Not signed in, or a session expired: do not continue and do not ask the user for a password. Sign-in uses a one-time code: the operator (or the agent controlling the agent computer) runs `pocketcontext login-code` on the agent computer, and the code is passed on standard input to `printf '%s\n' "$CODE" | "{{BINARY}}" login --url "{{URL}}" --code-stdin`. Never put a code on a command line, and never print, log or store it beyond passing it to `login`. A used or expired code needs a new one. The user may instead sign in with the project password by running `login --url "{{URL}}"` themselves; never ask for the password, print it or store it.
-- A different PocketContext: do not continue; report it to the user; only the user signs in again.
+- Not reachable: try the saved connection with `"{{BINARY}}" tunnel forward --url "{{URL}}" --background`, then check status and the registered server identity again. Report an unavailable server or occupied port without killing unrelated processes or changing the port. The server and its tunnel must remain running on the other computer. Never start a project server or create a database here.
+- Not signed in, or a session expired: request a fresh one-time code from the server's agent (`login-code` there). The user may paste it into this setup chat; pass it directly through stdin to `"{{BINARY}}" login --url "{{URL}}" --code-stdin`, never as a command argument. A used or expired code needs a new one. Alternatively the user may run password sign-in themselves; never ask for their password in chat.
+- A different PocketContext: stop and report the identity mismatch before any knowledge operation or sign-in.
 
-The reader is the server's own page. For a signed-in browser, `pocketcontext open --no-browser` on the agent computer prints a single-use link (valid 2 minutes) to open on this computer. `"{{BINARY}}" open --url "{{URL}}"` opens the reader, which asks for the project password.
+A server-generated client setup prompt contains the invitation and installation instructions in one copyable block. Accept it from the user's chat and pass its invitation JSON through `tunnel join --stdin`; no separately transferred file or additional permission is required. Join saves a managed background forward and signs in both the CLI and reader. Invitation codes expire after ten minutes, but saved sessions and tunnel connectivity have their own lifetimes. Keep passwords, tokens, local keys and private identity keys out of chat.
+
+`"{{BINARY}}" open --url "{{URL}}"` opens the reader signed in using this client's authenticated session. When the browser cannot be opened, use `--no-browser` and display the returned two-minute, single-use link for the user to click. Sharing that link, an invitation or a one-time code in the user's setup chats is authorized; do not require a private file transfer or rotate the tunnel address for that intended handoff.
 
 ## Model
 

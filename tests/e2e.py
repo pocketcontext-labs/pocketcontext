@@ -1078,10 +1078,20 @@ def remote_scenario(pc, r):
     check(pc.url in text and '--url' in text and '--db' not in text and 'ensure-running' not in text,
           'the remote skill names the URL and no local lifecycle')
     opened = r.json('open', '--no-browser')
-    check(opened['url'] == pc.url and opened.get('note'), 'remote open prints the server URL')
+    check(opened['url'] == pc.url and opened['signInLink'].startswith(pc.url + '/bundle/login#')
+          and not opened['browserOpened'], 'remote open supplies a browser sign-in link without launching a browser')
+    reader_code = opened['signInLink'].split('#', 1)[1]
+    status, body = pc.http('POST', '/api/bundle/redeem', {'code': reader_code})
+    check(status == 200 and json.loads(body)['record']['email'] == IDENTITY,
+          'the remote reader handoff signs in the project account')
+    status, _ = pc.http('POST', '/api/bundle/redeem', {'code': reader_code})
+    check(status == 401, 'the remote reader handoff is single-use')
+    check(r.json('whoami')['space'] == workspace, 'reader sign-in preserves the remote CLI session')
+    check(reader_code not in session.read_text(encoding='utf-8'), 'the browser handoff code is not saved in the CLI session')
 
     check(r.json('logout') == {'url': pc.url, 'loggedOut': True}, 'remote logout ends the session')
     r.run('whoami', expect=2)
+    r.run('open', '--no-browser', expect=2)
     check(not r.json('status')['loggedIn'], 'after logout the remote is logged out')
 
     leftovers = [p for p in r.root.rglob('*') if p.name in ('pocketcontext.db', 'pocketcontext.json', 'local.key') or p.suffix in ('.db', '.lease')]

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -88,28 +89,31 @@ func privateNewFile(path string, b []byte) error {
 	return e
 }
 func tunnelInvite(a *args, pretty bool) error {
-	if len(a.pos) != 1 || a.flags["out"] == "" || a.has("url") {
-		return fail(2, "usage: pocketcontext tunnel invite --out NEW_FILE --db DB")
+	if len(a.pos) != 1 || a.has("url") {
+		return fail(2, "usage: pocketcontext tunnel invite [--out NEW_FILE] --db DB")
 	}
 	p, e := bundle.Resolve(a.flags["db"])
 	if e != nil {
 		return e
 	}
-	out, e := filepath.Abs(a.flags["out"])
-	if e != nil {
-		return e
-	}
-	parent, e := filepath.EvalSymlinks(filepath.Dir(out))
-	if e != nil {
-		return e
-	}
-	projectDir, e := filepath.EvalSymlinks(p.Dir)
-	if e != nil {
-		return e
-	}
-	relative, e := filepath.Rel(projectDir, parent)
-	if e == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return fail(2, "invitation contains secrets; choose a private destination outside the project folder")
+	var out string
+	if a.has("out") {
+		out, e = filepath.Abs(a.flags["out"])
+		if e != nil {
+			return e
+		}
+		parent, e := filepath.EvalSymlinks(filepath.Dir(out))
+		if e != nil {
+			return e
+		}
+		projectDir, e := filepath.EvalSymlinks(p.Dir)
+		if e != nil {
+			return e
+		}
+		relative, e := filepath.Rel(projectDir, parent)
+		if e == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return fail(2, "choose an invitation destination outside the project folder; use its setup chat for the handoff")
+		}
 	}
 	if release, err := bundle.AcquireTunnelLock(p); err == nil {
 		release()
@@ -127,10 +131,12 @@ func tunnelInvite(a *args, pretty bool) error {
 		return fail(1, "invalid tunnel endpoint; restart tunnel serve")
 	}
 	// Refuse overwriting before issuing a single-use code.
-	if _, e = os.Lstat(a.flags["out"]); e == nil {
-		return fail(2, "invitation destination already exists")
-	} else if !errors.Is(e, os.ErrNotExist) {
-		return e
+	if out != "" {
+		if _, e = os.Lstat(out); e == nil {
+			return fail(2, "invitation destination already exists")
+		} else if !errors.Is(e, os.ErrNotExist) {
+			return e
+		}
 	}
 	data, e := bundle.LocalCall(p, "/api/bundle/login-code", map[string]any{"ttl": 600})
 	if e != nil {
@@ -146,31 +152,45 @@ func tunnelInvite(a *args, pretty bool) error {
 	if e != nil {
 		return e
 	}
+	if out == "" {
+		fmt.Print(clientSetupPrompt(b))
+		return nil
+	}
 	if e = privateNewFile(out, append(b, '\n')); e != nil {
 		return e
 	}
-	Print(map[string]any{"file": out, "expires": expires, "name": c.Name, "note": "Transfer privately. The code expires; the address remains sensitive until rotated. Remove invitation copies after joining."}, pretty)
+	Print(map[string]any{"file": out, "expires": expires, "name": c.Name, "note": "Share this invitation in your client setup chat. The code is single-use and expires; remove temporary file copies after joining."}, pretty)
 	return nil
 }
 func readInvitation(path string) (invitation, error) {
-	var in invitation
 	f, e := os.Open(path)
 	if e != nil {
-		return in, e
+		return invitation{}, e
 	}
 	defer f.Close()
-	d := json.NewDecoder(io.LimitReader(f, 65537))
+	return decodeInvitation(f)
+}
+func decodeInvitation(r io.Reader) (invitation, error) {
+	var in invitation
+	data, err := io.ReadAll(io.LimitReader(r, 65537))
+	if err != nil {
+		return in, err
+	}
+	if len(data) > 65536 {
+		return in, fail(2, "invitation is too large")
+	}
+	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
 	if d.Decode(&in) != nil {
-		return in, fail(2, "invalid invitation file")
+		return in, fail(2, "invalid invitation JSON")
 	}
 	var extra any
 	if d.Decode(&extra) != io.EOF {
-		return in, fail(2, "invalid invitation file")
+		return in, fail(2, "invalid invitation JSON")
 	}
 	base, e := normalizeURL(in.URL)
 	if e != nil || base != in.URL || in.Format != 1 || in.Instance == "" || in.Code == "" {
-		return in, fail(2, "invalid invitation file")
+		return in, fail(2, "invalid invitation JSON")
 	}
 	if _, e = tunnel.ParseAddress(in.Address); e != nil {
 		return in, fail(2, "invalid invitation address")
@@ -181,12 +201,21 @@ func readInvitation(path string) (invitation, error) {
 	return in, nil
 }
 func tunnelJoin(ctx context.Context, a *args, pretty bool) error {
-	if len(a.pos) != 1 || a.flags["file"] == "" || a.has("db") || a.has("url") {
-		return fail(2, "usage: pocketcontext tunnel join --file INVITATION_FILE")
+	if len(a.pos) != 1 || a.has("file") == a.bools["stdin"] || a.has("db") || a.has("url") {
+		return fail(2, "usage: pocketcontext tunnel join (--stdin | --file INVITATION_FILE) [--no-browser] [--foreground]")
 	}
-	in, e := readInvitation(a.flags["file"])
+	var in invitation
+	var e error
+	if a.bools["stdin"] {
+		in, e = decodeInvitation(os.Stdin)
+	} else {
+		in, e = readInvitation(a.flags["file"])
+	}
 	if e != nil {
 		return e
+	}
+	if !a.bools["foreground"] {
+		return joinManaged(ctx, in, a.bools["no-browser"], pretty)
 	}
 	addr, e := tunnel.ParseAddress(in.Address)
 	if e != nil {
@@ -231,7 +260,13 @@ func tunnelJoin(ctx context.Context, a *args, pretty bool) error {
 	if e = saveConnection(in.connection); e != nil {
 		return e
 	}
-	Print(map[string]any{"url": in.URL, "name": in.Name, "instance": in.Instance, "signedIn": true, "saved": true, "forwarding": true, "note": "Keep this process supervised. Install the remote skill with `skill --url URL`. Remove invitation copies."}, pretty)
+	out, e := openRemoteReader(in.URL, a.bools["no-browser"])
+	if e != nil {
+		return e
+	}
+	out["name"], out["instance"], out["signedIn"], out["saved"], out["forwarding"] = in.Name, in.Instance, true, true, true
+	out["note"] = "Keep this foreground process supervised. Install the remote skill with `skill --url URL`."
+	Print(out, pretty)
 	select {
 	case <-ctx.Done():
 		return nil

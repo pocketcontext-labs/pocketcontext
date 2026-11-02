@@ -306,7 +306,7 @@ parsed:
 		"login-code":     {{"ttl"}, nil},
 		"login":          {nil, {"password-stdin", "code-stdin"}},
 		"logout":         {nil, nil},
-		"tunnel":         {{"out", "file"}, {"new-address", "address-stdin", "save"}},
+		"tunnel":         {{"out", "file"}, {"new-address", "address-stdin", "save", "stdin", "foreground", "background", "no-browser"}},
 	}
 	s, known := spec[command]
 	if !known {
@@ -516,12 +516,11 @@ func runRemote(base, command string, a *args, pretty bool) error {
 	}
 	switch command {
 	case "open":
-		if !a.bools["no-browser"] {
-			if err := bundle.OpenBrowser(base); err != nil {
-				fmt.Fprintln(os.Stderr, "could not open a browser:", err)
-			}
+		out, err := openRemoteReader(base, a.bools["no-browser"])
+		if err != nil {
+			return err
 		}
-		Print(map[string]any{"url": base, "note": "sign in with the project password, or open a sign-in link from `pocketcontext open --no-browser` on the agent computer"}, pretty)
+		Print(out, pretty)
 		return nil
 	case "skill":
 		return installSkills("", base, a.flags["agent"], a.flags["dir"], pretty)

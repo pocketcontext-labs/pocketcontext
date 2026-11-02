@@ -162,13 +162,58 @@ func TestInvitationCLIRehearsal(t *testing.T) {
 	}
 	stopServer, _ := start(serverEnv, "serve", "tunnel", "serve", "--db", db)
 	defer stopServer()
-	invitationPath := filepath.Join(root, "invitation.json")
-	run(serverEnv, "", "tunnel", "invite", "--db", db, "--out", invitationPath)
-	stopJoin, joined := start(clientEnv, "join", "tunnel", "join", "--file", invitationPath)
-	if joined["signedIn"] != true || joined["saved"] != true {
-		t.Fatal("join did not sign in and persist")
+	// The only handoff is the complete prompt emitted by invite.
+	inviteCmd := exec.Command(binary, "tunnel", "invite", "--db", db)
+	inviteCmd.Env = serverEnv
+	prompt, err := inviteCmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := "Invitation JSON (use the complete object unchanged):\n"
+	_, invitationText, ok := strings.Cut(string(prompt), marker)
+	if !ok {
+		t.Fatal("generated prompt omitted its invitation")
+	}
+	var invitation invitation
+	if err := json.Unmarshal([]byte(invitationText), &invitation); err != nil {
+		t.Fatal(err)
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	t.Cleanup(func() {
+		cmd := exec.Command(binary, "tunnel", "stop", "--url", url)
+		cmd.Env = clientEnv
+		_ = cmd.Run()
+	})
+	joined := run(clientEnv, invitationText, "tunnel", "join", "--stdin", "--no-browser")
+	if joined["signedIn"] != true || joined["saved"] != true || joined["background"] != true {
+		t.Fatal("join did not sign in and persist in background")
+	}
+	if run(clientEnv, "", "tunnel", "status", "--url", url)["running"] != true {
+		t.Fatal("managed forward not running")
+	}
+	link, _ := joined["signInLink"].(string)
+	_, browserCode, ok := strings.Cut(link, "#")
+	if !ok || browserCode == "" {
+		t.Fatal("join omitted reader sign-in link")
+	}
+	response, err := http.Post(url+"/api/bundle/redeem", "application/json", strings.NewReader(fmt.Sprintf(`{"code":%q}`, browserCode)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var browserSession map[string]any
+	err = json.NewDecoder(response.Body).Decode(&browserSession)
+	response.Body.Close()
+	if err != nil || response.StatusCode != 200 || browserSession["token"] == nil {
+		t.Fatal("reader link did not sign in")
+	}
+	response, err = http.Post(url+"/api/bundle/redeem", "application/json", strings.NewReader(fmt.Sprintf(`{"code":%q}`, browserCode)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != 401 {
+		t.Fatal("reader sign-in link reusable")
+	}
 	who := run(clientEnv, "", "whoami", "--url", url)
 	if who["knowledgeBaseName"] != "Pairing rehearsal" {
 		t.Fatalf("wrong project name: %v", who["knowledgeBaseName"])
@@ -179,38 +224,42 @@ func TestInvitationCLIRehearsal(t *testing.T) {
 	if run(serverEnv, "", "status", "--db", db)["headless"] != true {
 		t.Fatal("tunnel enabled server TCP")
 	}
-	stopJoin()
-	stopForward, _ := start(clientEnv, "forward", "tunnel", "forward", "--url", url)
+	run(clientEnv, "", "tunnel", "stop", "--url", url)
+	if run(clientEnv, "", "tunnel", "status", "--url", url)["running"] != false {
+		t.Fatal("managed stop did not stop")
+	}
+	run(clientEnv, "", "tunnel", "forward", "--url", url, "--background")
+	run(clientEnv, "", "tunnel", "forward", "--url", url, "--background") // idempotent
 	run(clientEnv, "", "whoami", "--url", url)
-	stopForward()
-	// Successful join consumes the code: repeating the invitation must fail.
-	cmd := exec.Command(binary, "tunnel", "join", "--file", invitationPath)
+	run(clientEnv, "", "open", "--url", url, "--no-browser")
+	run(clientEnv, "", "tunnel", "stop", "--url", url)
+	// Failed redemption must stop a newly created worker, but not destroy a saved session.
+	cmd := exec.Command(binary, "tunnel", "join", "--stdin", "--no-browser")
 	cmd.Env = clientEnv
+	cmd.Stdin = strings.NewReader(invitationText)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	if err := cmd.Run(); err == nil {
 		t.Fatal("reused one-time invitation")
 	}
-	b, err := os.ReadFile(invitationPath)
+	if strings.Contains(output.String(), invitation.Code) || strings.Contains(output.String(), invitation.Address) {
+		t.Fatal("failed join leaked invitation data")
+	}
+	if run(clientEnv, "", "tunnel", "status", "--url", url)["running"] != false {
+		t.Fatal("failed join left worker running")
+	}
+	// A busy port is never taken over or silently remapped.
+	occupied, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var invitation invitation
-	if err := json.Unmarshal(b, &invitation); err != nil {
-		t.Fatal(err)
+	cmd = exec.Command(binary, "tunnel", "forward", "--url", url, "--background")
+	cmd.Env = clientEnv
+	if err := cmd.Run(); err == nil {
+		occupied.Close()
+		t.Fatal("accepted busy port")
 	}
-	if strings.Contains(output.String(), invitation.Code) || strings.Contains(output.String(), invitation.Address) {
-		t.Fatal("failed join leaked invitation secrets")
-	}
-	for _, suffix := range []string{"*.stdout", "*.stderr"} {
-		paths, _ := filepath.Glob(filepath.Join(root, suffix))
-		for _, p := range paths {
-			logs, _ := os.ReadFile(p)
-			if bytes.Contains(logs, []byte(invitation.Code)) || bytes.Contains(logs, []byte(invitation.Address)) {
-				t.Fatal("process output leaked invitation secrets")
-			}
-		}
-	}
-	t.Log("headless server -> local relay -> invitation join -> authenticated query -> saved forward restart; consumed invitation refused; no secret output")
+	occupied.Close()
+	t.Log("generated prompt -> stdin join -> managed forward -> authenticated reader -> stop/reconnect; used code and busy port refused")
 }

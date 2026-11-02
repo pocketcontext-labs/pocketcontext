@@ -48,8 +48,8 @@ function start(command, argv, options = {}) {
   children.push(child);
   return child;
 }
-async function cli(argv, input) {
-  const child = start(binary, ['--db', db, ...argv], { env, cwd: temporary });
+async function command(argv, input, commandEnv = env) {
+  const child = start(binary, argv, { env: commandEnv, cwd: temporary });
   const ended = once(child, 'exit');
   child.stdin.end(input);
   const timeout = setTimeout(() => child.kill('SIGKILL'), 120_000);
@@ -59,6 +59,7 @@ async function cli(argv, input) {
     return child.output.trim() ? JSON.parse(child.output) : null;
   } finally { clearTimeout(timeout); }
 }
+const cli = (argv, input) => command(['--db', db, ...argv], input);
 async function until(check, description, timeout = 30_000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -149,9 +150,27 @@ try {
   assert(await page.evaluate(() => document.fonts.check('700 20px PocketContextWordmark')), 'local wordmark font must load');
   await assertLight('anonymous login');
   await screenshot('login-desktop-light');
-  const signIn = await cli(['open', '--no-browser']);
+  // Model a separate client machine: no database/local key, only a one-time
+  // invitation sign-in followed by the authenticated browser handoff.
+  const clientHome = path.join(temporary, 'client-home');
+  await mkdir(clientHome);
+  const clientEnv = { ...env, HOME: clientHome, USERPROFILE: clientHome,
+    XDG_CACHE_HOME: path.join(clientHome, 'cache'), LOCALAPPDATA: path.join(clientHome, 'AppData', 'Local') };
+  const remote = (argv, input) => command(['--url', origin, ...argv], input, clientEnv);
+  const code = await cli(['login-code']);
+  await remote(['login', '--code-stdin'], `${code.code}\n`);
+  const signIn = await remote(['open', '--no-browser']);
+  assert.equal(signIn.browserOpened, false);
   await page.goto(signIn.signInLink);
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
+  assert((await remote(['whoami'])).signedIn, 'browser handoff preserves CLI sign-in');
+  const replay = await fetch(`${origin}/api/bundle/redeem`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: new URL(signIn.signInLink).hash.slice(1) }),
+  });
+  assert.equal(replay.status, 401, 'browser consumed its one-time handoff');
+  assert.equal(new URL(page.url()).pathname, '/', 'reader removed the credential-bearing handoff URL');
+  ok('remote CLI opens a signed-in browser with a single-use link and retains its own session');
   await assertLight('signed-in reader');
   assert.equal((await page.locator('.workspace-label').innerText()).trim(), 'Default');
   assert.equal(await page.getByRole('combobox', {name: 'Space', exact: true}).count(), 0, 'a sole space needs no selector');

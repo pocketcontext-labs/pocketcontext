@@ -2,9 +2,9 @@
 
 A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces partition the knowledge of the project's one user; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
-See [what changed in 0.13.0](docs/releases/0.13.0.md): named knowledge bases, a router skill, headless local sockets, private invitation files and an embedded manual.
+See [what changed in 0.14.0](docs/releases/0.14.0.md): one copyable client setup prompt, managed tunnel forwards and automatic reader sign-in on another computer.
 
-Earlier: [0.12.1](docs/releases/0.12.1.md), upgrading the embedded PocketBase to v0.41.1, [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, protected image embeds and cross-space navigation, [0.11.1](docs/releases/0.11.1.md), where the recommended layout keeps the binary in the project folder, beside its database, [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
+Earlier: [0.13.0](docs/releases/0.13.0.md), with named knowledge bases, a router skill, headless local sockets and an embedded manual, [0.12.1](docs/releases/0.12.1.md), upgrading the embedded PocketBase to v0.41.1, [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, protected image embeds and cross-space navigation, [0.11.1](docs/releases/0.11.1.md), where the recommended layout keeps the binary in the project folder, beside its database, [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
 ## A project
 
@@ -99,34 +99,29 @@ Restore the complete folder with its matching binary. Only one computer may run 
 
 One computer holds the knowledge base; your other computer runs a client and a loopback forward. Both use the same binary. Setup asks which role this computer should have, suggests a folder and name for confirmation, and handles registration and checks. Importing the manual is offered afterward. Remote access is configured only when requested.
 
-On the server, start and supervise the tunnel, then create an invitation when the client is ready:
+On the server, start the tunnel, then generate a client setup prompt:
 
 ```sh
 ./pocketcontext tunnel serve
 # In another terminal:
-./pocketcontext tunnel invite --out /private/path/invitation.json
+./pocketcontext tunnel invite
 ```
 
-Choose an existing private directory outside the project folder for the invitation. Transfer the file privately to the client and run:
+Copy the complete generated prompt into the other computer's agent conversation. It contains the release-pinned installation instructions and invitation together. The agent installs or reuses the client, passes the embedded JSON to `tunnel join --stdin`, verifies the server identity, signs in, saves the connection and opens the reader signed in. There is no separate setup prompt, invitation file or login code to copy. The client never creates a database or reads the server's local key.
 
-```sh
-pocketcontext tunnel join --file invitation.json
-# In another terminal, use the URL reported by join:
-pocketcontext skill --url http://127.0.0.1:8096
-pocketcontext search "budget" --url http://127.0.0.1:8096
-```
+`join` starts a managed background forward by default and returns when connected. `--no-browser` returns a clickable single-use reader sign-in link for an agent that cannot open the user's browser. `--foreground` keeps the forward attached to the terminal. The agent registers the remote skill with `skill --url URL` after joining; use the actual reported URL and port, which may differ from 8096.
 
-Use the actual reported port, which may differ from 8096. `join` runs in the foreground: keep it under process supervision. It verifies the expected project identity before redeeming the one-time code, then saves the forward address and token in the client's private cache. It never creates a database or reads the server's local key. Delete invitation copies after joining. Neither `serve`, `invite` nor `join` prints the address, code or token.
+Invitations, one-time codes and reader sign-in links may be displayed in the user's setup chat and copied to their other agent. This intended handoff needs no separate file-transfer step or additional confirmation and is not a reason to rotate the tunnel address. They grant access: an unused invitation signs a client into the project's one account, and its address continues to provide connectivity after the code expires. Keep passwords, session tokens, local keys and private tunnel identity keys out of chat. Do not publish live invitations in public documentation.
 
-The invitation's code expires after 10 minutes and is single use; a server restart invalidates it. The embedded tunnel address does not expire with the code: keep the entire invitation private. If it is exposed, rotate with `tunnel serve --new-address` and re-pair clients. An expired code needs a fresh invitation while the client is ready.
+An invitation code expires after 10 minutes, is single use and is invalidated by a server restart. If installation takes longer, keep the installed client and request a fresh invitation. Expiry limits when the code can be redeemed; it does not end a session already established with it. A fresh standalone `login-code` can also be shared in the setup chat and passed to `login --url URL --code-stdin`.
 
-After restarting the client, supervise `tunnel forward --url URL` to reuse the saved address. `tunnel forward --address-stdin --save --url URL` explicitly saves or replaces an address without putting it in command arguments. `login --url URL --code-stdin` or `--password-stdin` remains available for reauthentication. URL-keyed tokens refresh daily and require renewed sign-in after expiry (7 days).
+For file-based automation, `tunnel invite --out FILE` and `tunnel join --file FILE` remain available. Invitation files must be created outside the project folder; remove temporary copies after use. `tunnel forward --url URL --background` restarts a saved connection without another invitation. URL-keyed tokens refresh daily and require renewed sign-in after expiry (7 days). The server and its supervised tunnel must remain running. Inspect the client worker with `tunnel status --url URL` and stop it with `tunnel stop --url URL`. Managed forwards survive the invoking terminal, but do not install an operating-system login service; after a computer restart, run the saved background forward again.
 
 The tunnel uses tailcat 0.7.0: WireGuard over Tailscale's data plane, without an account or administrator rights, bootstrapped through public best-effort relays. It exposes only the project's one service, forwarding to the private socket without opening server TCP (or verified loopback TCP for older/TCP-only servers). It cannot expose other ports, UDP, shells or files. The client listens only on loopback. Knowing an address provides connectivity, not authentication.
 
 The client's port must equal the server's port because of the Host check. Independently configured servers may select the same port. A busy client port is refused; it is never silently remapped. To change a port, stop the project and its tunnel, edit the project's `port`, restart, create new invitations, and explicitly update affected registry URLs and sign-ins. Local port allocation cannot guarantee availability on another computer.
 
-Remote `--url` accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. Explicit `--db` overrides the URL environment variable. Server commands remain local-only. For the browser, `open --url URL` opens password sign-in; a private single-use reader link can also be issued on the server. Never print that link in an agent's setup report.
+Remote `--url` accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. Explicit `--db` overrides the URL environment variable. Server commands remain local-only. For the browser, `open --url URL` uses the signed-in client session to issue and open a two-minute, single-use reader link. `--no-browser` returns that link for the user to click in the setup chat. No password is needed; an expired client session must sign in again first.
 
 ## Scope
 
