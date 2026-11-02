@@ -101,3 +101,18 @@ Native Windows/macOS runtime tests, actual transfers between separate users'
 terminals, two-network connectivity, and the released installers are not
 claimed by this record. Record subsequent CI, release-artifact and live-site
 checks separately with their actual outcomes.
+
+## Native candidate CI
+
+Commit `069af85f8addaea824bb81f668147528aa6a4390` passed the
+[Test matrix](https://github.com/pocketcontext-labs/pocketcontext/actions/runs/41401947436)
+on Linux amd64/arm64, macOS arm64 and Windows amd64. The separate
+[non-publishing release rehearsal](https://github.com/pocketcontext-labs/pocketcontext/actions/runs/41401964266)
+also built, inspected, tested and assembled all four native release archives.
+This candidate CI does not claim published-installer verification.
+
+The subsequent local follow-up additionally tested occupied-port headless
+startup/restart, refusal to change a running project's port, and a manual-backed
+guide: reading actual passages, staging and checking citations, publishing,
+searching and linting while TCP remained off. Those follow-up changes are
+subject to their own final CI before release.

@@ -214,3 +214,23 @@ func TestSocketDoesNotFallBackToTCP(t *testing.T) {
 		t.Fatalf("stale endpoint fell back: %v %v", running, err)
 	}
 }
+
+func TestEnsureRunningRejectsForeignSocket(t *testing.T) {
+	p := &Project{Cache: t.TempDir(), Key: RandomHex(8), Config: Config{Port: 8096, Instance: "expected"}}
+	if err := os.Chmod(p.Cache, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := listenSocket(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(Instance{App: "pocketcontext", Key: "another", Instance: "another"})
+	})}
+	defer server.Close()
+	go server.Serve(ln)
+	err = EnsureRunning(p, StartOptions{})
+	if err == nil || !strings.Contains(err.Error(), "another PocketContext database") {
+		t.Fatalf("existing socket identity error was suppressed: %v", err)
+	}
+}

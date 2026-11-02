@@ -49,12 +49,31 @@ def main():
             exported = run('manual', '--out', manual)
             run('manual', '--out', manual, expect=1)
             space = run('create-space', 'PocketContext manual', '--db', db)['id']
+            readme = None
             for relative, digest in exported['files'].items():
                 file = manual / relative
                 assert hashlib.sha256(file.read_bytes()).hexdigest() == digest
                 first = run('ingest', file, '--db', db, '--space', space)
                 second = run('ingest', file, '--db', db, '--space', space)
                 assert first['source'] == second['source']
+                if relative == 'README.md':
+                    readme = first
+            passages = run('sql', "SELECT id, body FROM passages WHERE rendition = '" + readme['rendition'] + "' ORDER BY ordinal", '--db', db, '--space', space)['rows']
+            backup = next(row for row in passages if 'For a consistent backup' in row[1])
+            single = next(row for row in passages if 'Only one computer may run a project at a time' in row[1])
+            spec = {'run_key': 'manual-guide-0.13.0', 'sources': [readme['source']], 'pages': [{
+                'slug': 'pocketcontext-guide', 'kind': 'summary', 'title': 'PocketContext 0.13.0 guide',
+                'summary': 'Backups and switching computers.',
+                'body': 'Stop the server successfully, then copy the complete project folder with its matching binary.[^1] Only one computer may run a synced project at a time; stop before switching and wait for sync.[^2]',
+                'citations': {'1': backup[0], '2': single[0]}}]}
+            run('stage', '-', '--dry-run', '--db', db, '--space', space, stdin=json.dumps(spec))
+            staged = run('stage', '-', '--db', db, '--space', space, stdin=json.dumps(spec))
+            assert run('check-run', staged['run'], '--db', db, '--space', space)['ok']
+            run('publish', staged['run'], '--expected-revision', staged['revision'], '--db', db, '--space', space)
+            page = run('page', 'pocketcontext-guide', '--db', db, '--space', space)
+            assert page['citations']
+            assert run('search', 'copy', '--db', db, '--space', space)['pages']
+            run('lint', '--db', db, '--space', space)
             assert not run('status', '--db', db)['tcp']
             run('check', '--db', db)
             run('open', '--no-browser', '--db', db)
@@ -72,7 +91,7 @@ def main():
         finally:
             for db in databases:
                 subprocess.run([binary, 'stop', '--db', str(db)], env=env, capture_output=True, timeout=40)
-    print('0.13.0 rehearsal passed: two headless projects, routing registration, distinct ports, manual reruns, reader activation, rename reconciliation and removal preserving data')
+    print('0.13.0 rehearsal passed: two headless projects, routing registration, distinct ports, manual reruns and cited guide publication, reader activation, rename reconciliation and removal preserving data')
 
 
 if __name__ == '__main__':

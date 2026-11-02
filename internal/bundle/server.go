@@ -37,6 +37,7 @@ type ServeOptions struct {
 	UIDev    string
 	Headless bool
 	TCPOnly  bool
+	Port     int
 }
 
 // unpack writes the embedded application files to a content-addressed cache
@@ -103,14 +104,6 @@ func unpack(p *Project) (string, error) {
 
 // Serve runs the server in the foreground until interrupted or stopped.
 func Serve(p *Project, opts ServeOptions) error {
-	var devUI *uiDevProxy
-	if opts.UIDev != "" {
-		var err error
-		devUI, err = newUIDevProxy(opts.UIDev, p)
-		if err != nil {
-			return err
-		}
-	}
 	if err := os.MkdirAll(p.Cache, 0700); err != nil {
 		return err
 	}
@@ -139,6 +132,25 @@ func Serve(p *Project, opts ServeOptions) error {
 		return err
 	}
 	defer releaseLease(p)
+	if opts.Port != 0 {
+		if opts.Port < 1024 || opts.Port > 65535 {
+			return errors.New("port must be 1024-65535")
+		}
+		p.Config.Port = opts.Port
+	}
+	var devUI *uiDevProxy
+	if opts.UIDev != "" {
+		var err error
+		devUI, err = newUIDevProxy(opts.UIDev, p)
+		if err != nil {
+			return err
+		}
+	}
+	if opts.Port != 0 {
+		if err := p.SaveConfig(); err != nil {
+			return err
+		}
+	}
 	store := &Store{p: p}
 	if err := store.Open(); err != nil {
 		return err

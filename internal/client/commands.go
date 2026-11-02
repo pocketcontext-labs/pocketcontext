@@ -358,17 +358,15 @@ parsed:
 		if a.bools["headless"] && (a.bools["tcp-only"] || a.has("port") || a.has("ui-dev")) {
 			return fail(2, "--headless cannot be combined with TCP or UI development options")
 		}
+		servePort := 0
 		if a.has("port") {
 			n, e := a.intFlag("port", 0)
 			if e != nil || n < 1024 || n > 65535 {
 				return fail(2, "--port must be 1024-65535")
 			}
-			p.Config.Port = n
-			if e = p.SaveConfig(); e != nil {
-				return e
-			}
+			servePort = n
 		}
-		return bundle.Serve(p, bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"]})
+		return bundle.Serve(p, bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort})
 	case "start", "ensure-running":
 		if err := bundle.EnsureRunning(p, bundle.StartOptions{TakeOver: a.bools["take-over"]}); err != nil {
 			return fail(1, "%v", err)

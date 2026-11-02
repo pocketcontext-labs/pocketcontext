@@ -104,7 +104,7 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 	if ok {
 		return nil
 	}
-	if err != nil && opts.TCP {
+	if err != nil && (opts.TCP || !socketAbsent(p)) {
 		return err
 	}
 	if err := os.MkdirAll(p.Cache, 0700); err != nil {
@@ -151,11 +151,22 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 		if ok, err := Running(p); ok {
 			_ = cmd.Process.Release()
 			return nil
-		} else if err != nil && opts.TCP {
+		} else if err != nil && (opts.TCP || !socketAbsent(p)) {
 			return err
 		}
 	}
 	return fmt.Errorf("the PocketContext server did not answer within 60 seconds; see %s", p.LogFile())
+}
+
+// socketAbsent allows headless startup despite an unrelated TCP service, but
+// never suppresses errors from an existing or inaccessible socket endpoint.
+func socketAbsent(p *Project) bool {
+	path, err := p.SocketPath()
+	if err != nil {
+		return false
+	}
+	_, err = os.Lstat(path)
+	return errors.Is(err, os.ErrNotExist)
 }
 
 func lastLines(path string, from int64) string {

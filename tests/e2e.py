@@ -7,6 +7,7 @@ a temporary project folder, home and cache, and a free loopback port.
 import argparse
 from contextlib import closing
 import hashlib
+import http.server
 import json
 import os
 from pathlib import Path
@@ -229,6 +230,7 @@ def main():
             pc.json('stop')
             restored_default_scenario(pc)
             empty_database_scenario(binary, Path(temp) / 'empty')
+            headless_collision_scenario(binary, Path(temp) / 'occupied-port')
             earlier_release_scenario(binary, Path(temp) / 'earlier')
             leftovers = retired_names(pc.root)
             check(not leftovers, f'no file or directory name contains the retired product name: {leftovers}')
@@ -257,6 +259,49 @@ def restored_default_scenario(pc):
     finally:
         restored.run('stop')
         pc.run('stop')
+
+
+def headless_collision_scenario(binary, root):
+    """Headless startup ignores unrelated TCP; failed serve never changes config."""
+    class OtherService(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(404)
+            self.end_headers()
+        def log_message(self, *_):
+            pass
+    service = http.server.ThreadingHTTPServer(('127.0.0.1', 0), OtherService)
+    worker = threading.Thread(target=service.serve_forever, daemon=True)
+    worker.start()
+    pc = Project(binary, root)
+    pc.port = service.server_port
+    pc.url = f'http://127.0.0.1:{pc.port}'
+    try:
+        pc.json('init', '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
+        state = pc.json('status')
+        check(state['running'] and state['headless'] and not state['tcp'], 'init works headless while an unrelated program owns the TCP port')
+        pc.run('open', '--no-browser', expect=1)
+        check(pc.json('status')['running'], 'failed reader activation leaves the headless server running')
+        config = pc.project / 'pocketcontext.json'
+        before = config.read_bytes()
+        pc.run('serve', '--port', str(free_port()), expect=1)
+        check(config.read_bytes() == before, 'serve --port against a running server leaves synced configuration unchanged')
+        check(pc.json('whoami')['signedIn'], 'failed serve --port leaves local client access working')
+        pc.json('stop')
+        pc.json('ensure-running')
+        check(pc.json('status')['headless'], 'ensure-running restarts headless while the TCP port stays occupied')
+        pc.json('stop')
+        lease = pc.db.with_name('pocketcontext.db.lease')
+        lease.write_text(json.dumps({'host': 'other-laptop', 'pid': 1, 'heartbeat': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}))
+        before = config.read_bytes()
+        pc.run('serve', '--port', str(free_port()), expect=1)
+        check(config.read_bytes() == before, 'serve --port refused by another computer lease leaves synced configuration unchanged')
+        lease.unlink()
+        pc.json('ensure-running')
+    finally:
+        pc.run('stop')
+        service.shutdown()
+        service.server_close()
+        worker.join(timeout=5)
 
 
 def empty_database_scenario(binary, root):
