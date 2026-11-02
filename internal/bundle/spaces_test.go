@@ -264,6 +264,9 @@ func TestEarlierReleaseRefused(t *testing.T) {
 		{"old migrations", "CREATE TABLE _migrations (file TEXT PRIMARY KEY, applied INTEGER); INSERT INTO _migrations VALUES ('1640988000_init.go', 1), ('1791500000_spaces.js', 2);", true},
 		{"membership table", "CREATE TABLE space_members (id TEXT PRIMARY KEY);", true},
 		{"unknown migration", "CREATE TABLE _migrations (file TEXT PRIMARY KEY, applied INTEGER); INSERT INTO _migrations VALUES ('1999999999_future.js', 1);", true},
+		{"unknown system migration", "CREATE TABLE _migrations (file TEXT PRIMARY KEY, applied INTEGER); INSERT INTO _migrations VALUES ('1999999999_future.go', 1);", true},
+		{"unknown migration extension", "CREATE TABLE _migrations (file TEXT PRIMARY KEY, applied INTEGER); INSERT INTO _migrations VALUES ('future.sql', 1);", true},
+		{"migration path alias", "CREATE TABLE _migrations (file TEXT PRIMARY KEY, applied INTEGER); INSERT INTO _migrations VALUES ('future/1800000000_initial.js', 1);", true},
 		{"current", "CREATE TABLE _migrations (file TEXT PRIMARY KEY, applied INTEGER); INSERT INTO _migrations VALUES ('1640988000_init.go', 1), ('1800000000_initial.js', 2);", false},
 		{"empty", "", false},
 	} {

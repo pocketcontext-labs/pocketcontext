@@ -17,15 +17,41 @@ import (
 
 // Instance is what /api/bundle/instance reports.
 type Instance struct {
-	App      string `json:"app"`
-	Version  string `json:"version"`
-	Instance string `json:"instance"`
-	Key      string `json:"key"`
-	Name     string `json:"name"`
-	Socket   string `json:"socket,omitempty"`
-	TCP      bool   `json:"tcp"`
-	Headless bool   `json:"headless"`
-	Port     int    `json:"port"`
+	App            string `json:"app"`
+	Version        string `json:"version"`
+	Instance       string `json:"instance"`
+	Key            string `json:"key"`
+	Name           string `json:"name"`
+	Socket         string `json:"socket,omitempty"`
+	TCP            bool   `json:"tcp"`
+	Headless       bool   `json:"headless"`
+	Port           int    `json:"port"`
+	DatabaseFormat int    `json:"databaseFormat,omitempty"`
+}
+
+// CheckServerCompatibility prevents a client from silently adopting a running
+// server from a different release. Health, Running and Stop deliberately remain
+// usable across versions so a mismatch can be diagnosed and shut down cleanly.
+// A zero format is an older server that did not advertise its storage contract.
+func CheckServerCompatibility(i *Instance) error {
+	if i.Version != Version {
+		return fmt.Errorf("running server version %q differs from this binary %q; stop it cleanly with its own binary, then restart with the selected release", i.Version, Version)
+	}
+	if i.DatabaseFormat != 0 && i.DatabaseFormat != DatabaseFormat {
+		return fmt.Errorf("running server database format %d is unsupported; this binary supports format %d", i.DatabaseFormat, DatabaseFormat)
+	}
+	return nil
+}
+
+func compatibleRunning(p *Project) error {
+	i, err := Health(p)
+	if err != nil {
+		return err
+	}
+	if i.Key != p.Key || (p.Config.Instance != "" && i.Instance != p.Config.Instance) {
+		return errors.New("running server identity changed while checking its version; retry after verifying the selected project")
+	}
+	return CheckServerCompatibility(i)
 }
 
 var quick = &http.Client{Timeout: 2 * time.Second}
@@ -102,7 +128,7 @@ type StartOptions struct {
 func EnsureRunning(p *Project, opts StartOptions) error {
 	ok, err := Running(p)
 	if ok {
-		return nil
+		return compatibleRunning(p)
 	}
 	if err != nil && (opts.TCP || !socketAbsent(p)) {
 		return err
@@ -150,7 +176,7 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 		}
 		if ok, err := Running(p); ok {
 			_ = cmd.Process.Release()
-			return nil
+			return compatibleRunning(p)
 		} else if err != nil && (opts.TCP || !socketAbsent(p)) {
 			return err
 		}
@@ -192,6 +218,13 @@ func ReadKey(p *Project) (string, error) {
 
 // LocalCall sends a key-authenticated request to the running server.
 func LocalCall(p *Project, path string, body any) (map[string]any, error) {
+	// Management operations can mutate settings or issue credentials without
+	// going through EnsureRunning. Keep only shutdown available across releases.
+	if path != "/api/bundle/stop" {
+		if err := compatibleRunning(p); err != nil {
+			return nil, err
+		}
+	}
 	key, err := ReadKey(p)
 	if err != nil {
 		return nil, err

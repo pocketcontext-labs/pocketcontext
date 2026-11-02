@@ -388,6 +388,12 @@ parsed:
 		out["port"] = p.Config.Port
 		if info, e := bundle.Health(p); e == nil && running {
 			out["socket"], out["tcp"], out["headless"], out["port"], out["serverVersion"] = info.Socket, info.TCP, info.Headless, info.Port, info.Version
+			out["databaseFormat"] = info.DatabaseFormat
+			compatErr := bundle.CheckServerCompatibility(info)
+			out["compatible"] = compatErr == nil
+			if compatErr != nil {
+				out["compatibilityError"] = compatErr.Error()
+			}
 		}
 		if err != nil {
 			out["error"] = err.Error()
@@ -900,6 +906,18 @@ func initProject(p *bundle.Project, a *args, pretty bool) error {
 	}
 	_, statErr := os.Stat(p.ConfigPath)
 	fresh := errors.Is(statErr, os.ErrNotExist)
+	// Inspect the existing server before changing name or port in its settings.
+	// A foreign TCP listener can coexist with a headless project; EnsureRunning
+	// handles that case later. Only this project's running server is checked here.
+	if running, _ := bundle.Running(p); running {
+		info, err := bundle.Health(p)
+		if err != nil {
+			return err
+		}
+		if err := bundle.CheckServerCompatibility(info); err != nil {
+			return err
+		}
+	}
 	if fresh && !a.has("name") {
 		p.Config.Name = filepath.Base(p.Dir)
 		if err := profiles.ValidateName(p.Config.Name); err != nil {

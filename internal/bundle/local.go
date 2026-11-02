@@ -149,6 +149,7 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		defer l.nameMu.RUnlock()
 		info := map[string]any{
 			"app": "pocketcontext", "version": Version, "instance": l.p.Config.Instance, "key": l.p.Key, "name": l.p.Config.Name, "port": l.p.Config.Port,
+			"databaseFormat": DatabaseFormat,
 		}
 		if l.listeners != nil {
 			socket, tcp := l.listeners.state()

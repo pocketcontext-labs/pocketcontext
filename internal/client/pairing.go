@@ -283,6 +283,9 @@ func dialTunnelBackend(p *bundle.Project) (net.Conn, error) {
 	if i.Instance != p.Config.Instance || i.Key != p.Key {
 		return nil, fmt.Errorf("project identity mismatch")
 	}
+	if err := bundle.CheckServerCompatibility(i); err != nil {
+		return nil, err
+	}
 	if i.Socket != "" {
 		return net.DialTimeout("unix", i.Socket, 10*time.Second)
 	}

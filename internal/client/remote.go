@@ -148,6 +148,9 @@ func checkRemote(base string, s *session) (*bundle.Instance, error) {
 	if s != nil && s.Instance != i.Instance {
 		return nil, fail(1, "%s now serves a different PocketContext than the one you signed in to; sign in again: %s", base, signInHint(base))
 	}
+	if err := bundle.CheckServerCompatibility(i); err != nil {
+		return nil, fmt.Errorf("remote server compatibility: %w; select a matching client release or deliberately upgrade the server and its clients together", err)
+	}
 	return i, nil
 }
 
@@ -286,6 +289,12 @@ func remoteStatus(base string) (map[string]any, error) {
 	if probeErr == nil {
 		out["reachable"], out["instance"] = true, i.Instance
 		out["name"], out["version"] = i.Name, i.Version
+		out["clientVersion"], out["databaseFormat"] = bundle.Version, i.DatabaseFormat
+		err := bundle.CheckServerCompatibility(i)
+		out["compatible"] = err == nil
+		if err != nil {
+			out["compatibilityError"] = err.Error()
+		}
 	} else {
 		out["error"] = probeErr.Error()
 	}

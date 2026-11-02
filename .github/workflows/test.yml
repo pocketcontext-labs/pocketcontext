@@ -64,7 +64,9 @@ jobs:
       - name: End-to-end test with synthetic notes
         run: |
           POCKETCONTEXT_REHEARSAL_BINARY="$PWD/$EXE" CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" ./internal/client -run TestInvitationCLIRehearsal -count=1 -timeout 4m
+          $PY tests/installers.py --binary "$EXE"
           $PY tests/e2e.py --binary "$EXE"
+          $PY tests/upgrades.py --binary "$EXE"
           $PY tests/release013.py --binary "$EXE"
           $PY tests/source_search.py --binary "$EXE"
           $PY tests/navigation_references.py --binary "$EXE"

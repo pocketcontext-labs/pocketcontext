@@ -95,6 +95,9 @@ func newProfile(name, db, url, binary, skill string) (profiles.Entry, error) {
 	} else {
 		e.URL = target
 	}
+	if err := checkProfileServer(e, i); err != nil {
+		return e, err
+	}
 	return e, profiles.Validate(e)
 }
 func checkProfile(e profiles.Entry) error {
@@ -117,6 +120,18 @@ func checkProfile(e profiles.Entry) error {
 	}
 	if i.Name != e.ServerName {
 		return fmt.Errorf("profile %q server name changed; use profile update to reconcile explicitly", e.Name)
+	}
+	return checkProfileServer(e, i)
+}
+
+// checkProfileServer compares the selected profile, not the verifier binary: a
+// current router must still be able to verify a healthy legacy project.
+func checkProfileServer(e profiles.Entry, i *bundle.Instance) error {
+	if i.Version != e.Version {
+		return fmt.Errorf("profile %q binary version %s differs from running server %s; stop and restart with the selected release", e.Name, e.Version, i.Version)
+	}
+	if e.ServerVersion != "" && i.Version != e.ServerVersion {
+		return fmt.Errorf("profile %q server changed from %s to %s; regenerate its skill and reconcile registration", e.Name, e.ServerVersion, i.Version)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +20,7 @@ func TestRemoteReaderUsesOneTimeLinkAndPreservesSession(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/bundle/instance":
-			json.NewEncoder(w).Encode(map[string]string{"app": "pocketcontext", "instance": "project"})
+			json.NewEncoder(w).Encode(map[string]string{"app": "pocketcontext", "version": bundle.Version, "instance": "project"})
 		case "/api/bundle/reader-code":
 			if r.Method != "POST" || r.Header.Get("Authorization") != "CLI-TOKEN" {
 				t.Error("missing authentication")

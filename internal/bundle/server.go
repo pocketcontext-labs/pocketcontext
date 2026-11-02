@@ -216,6 +216,10 @@ func Serve(p *Project, opts ServeOptions) error {
 	app.OnModelAfterUpdateSuccess().BindFunc(changed)
 	app.OnModelAfterDeleteSuccess().BindFunc(changed)
 
+	before, err := databaseMigrationCount(store.livePath())
+	if err != nil {
+		return fmt.Errorf("read migration state before bootstrap: %w", err)
+	}
 	if err := app.Bootstrap(); err != nil {
 		return err
 	}
@@ -227,7 +231,6 @@ func Serve(p *Project, opts ServeOptions) error {
 		_ = app.DB().NewQuery("SELECT count(*) FROM _migrations").Row(&n)
 		return n
 	}
-	before := migrations()
 
 	stop := make(chan struct{}, 1)
 	local := &localRoutes{p: p, store: store, key: key, stop: stop, uiDev: opts.UIDev}

@@ -16,6 +16,24 @@ pocketcontext_cleanup() {
     fi
 }
 
+# Replacement is a separate, explicit action. This checks only the executable:
+# the caller must stop its processes and back up every project using it first.
+pocketcontext_check_destination() {
+    if [ -L "$pc_destination" ] || { [ -e "$pc_destination" ] && [ ! -f "$pc_destination" ]; }; then
+        pocketcontext_fail "destination must be a regular file or absent: $pc_destination"
+    fi
+    if [ -f "$pc_destination" ]; then
+        [ -n "${POCKETCONTEXT_REPLACE_VERSION:-}" ] || pocketcontext_fail "executable already exists: $pc_destination; stop its servers and tunnels, back up the complete projects and matching binary, then set POCKETCONTEXT_REPLACE_VERSION to its inspected --version (or choose a new directory)"
+        pc_observed=$("$pc_destination" --version) || pocketcontext_fail 'could not inspect the existing executable; keep it and choose a new directory'
+        # Word splitting is intentional; pathname expansion is disabled.
+        set -- $pc_observed
+        [ "$#" -ge 2 ] && [ "$1" = pocketcontext ] && [ "$2" = "$POCKETCONTEXT_REPLACE_VERSION" ] || pocketcontext_fail 'existing executable version differs from POCKETCONTEXT_REPLACE_VERSION; nothing replaced'
+        pc_replacing=yes
+    elif [ -n "${POCKETCONTEXT_REPLACE_VERSION:-}" ]; then
+        pocketcontext_fail 'replacement requested but no executable exists in this directory'
+    fi
+}
+
 pocketcontext_install() (
     # Keep every action inside this function. A truncated download cannot run
     # the installer before the shell has received its complete function body.
@@ -73,9 +91,8 @@ pocketcontext_install() (
         *) pocketcontext_fail 'the installation directory must be an absolute path' ;;
     esac
     pc_destination=$pc_bindir/pocketcontext
-    if [ -L "$pc_destination" ] || { [ -e "$pc_destination" ] && [ ! -f "$pc_destination" ]; }; then
-        pocketcontext_fail "destination must be a regular file or absent: $pc_destination"
-    fi
+    pc_replacing=no
+    pocketcontext_check_destination
     pc_archive=pocketcontext_${pc_version}_${pc_platform}.tar.gz
     pc_base=https://github.com/pocketcontext-labs/pocketcontext/releases/download/v${pc_version}
     pc_stage=
@@ -140,13 +157,15 @@ pocketcontext_install() (
     tar -xOzf "$pc_tmp/$pc_archive" pocketcontext > "$pc_stage" || pocketcontext_fail 'archive extraction failed'
     [ -s "$pc_stage" ] || pocketcontext_fail 'archive executable is empty'
     chmod 0755 "$pc_stage" || pocketcontext_fail 'could not set executable permissions'
-    if [ -L "$pc_destination" ] || { [ -e "$pc_destination" ] && [ ! -f "$pc_destination" ]; }; then
-        pocketcontext_fail "destination must be a regular file or absent: $pc_destination"
-    fi
+    pocketcontext_check_destination
     mv -f "$pc_stage" "$pc_destination" || pocketcontext_fail 'could not replace executable'
     pc_stage=
     printf 'Installed PocketContext %s at %s\n' "$pc_version" "$pc_destination"
-    printf 'Next: "%s" init   (the database pocketcontext.db is created beside the binary)\n' "$pc_destination"
+    if [ "$pc_replacing" = yes ] || [ -e "$pc_bindir/pocketcontext.db" ]; then
+        printf 'Next: verify --version, restart the existing project, refresh its skill/profile and check it; do not initialize it again.\n'
+    else
+        printf 'Next: "%s" init   (new local project only; clients use tunnel join)\n' "$pc_destination"
+    fi
 )
 
 pocketcontext_install "$@"

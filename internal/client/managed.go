@@ -24,6 +24,7 @@ import (
 // workers; each stop request names the exact random worker generation.
 type managedState struct {
 	ID          string    `json:"id"`
+	Version     string    `json:"version,omitempty"`
 	Fingerprint string    `json:"fingerprint"`
 	Updated     time.Time `json:"updated"`
 }
@@ -102,7 +103,7 @@ func managedWorker(ctx context.Context) error {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- tunnel.Forward(ctx, addr, ln, n) }()
-	s := managedState{ID: input.ID, Fingerprint: connectionFingerprint(c)}
+	s := managedState{ID: input.ID, Version: bundle.Version, Fingerprint: connectionFingerprint(c)}
 	if e = writeManagedState(statePath, s); e != nil {
 		return e
 	}
@@ -132,6 +133,9 @@ func ensureManagedForward(ctx context.Context, c connection) (string, error) {
 		return "", e
 	}
 	if s, e := readManagedState(statePath); e == nil {
+		if s.Version != bundle.Version {
+			return "", fail(1, "managed forward version %q differs from client %s; run tunnel stop --url %s, then restart the saved forward with this binary", s.Version, bundle.Version, c.URL)
+		}
 		if s.Fingerprint != connectionFingerprint(c) {
 			return "", fail(1, "a different managed connection uses this port; stop it explicitly before pairing")
 		}
@@ -197,7 +201,7 @@ func waitForwardIdentity(ctx context.Context, c connection) error {
 			if c.Instance != "" && i.Instance != c.Instance {
 				return fail(1, "invitation identity mismatch; no code was sent")
 			}
-			return nil
+			return bundle.CheckServerCompatibility(i)
 		}
 		select {
 		case <-ctx.Done():
@@ -290,7 +294,7 @@ func managedCommand(a *args, pretty bool) error {
 	if e != nil {
 		return e
 	}
-	_, e = readManagedState(path)
-	Print(map[string]any{"url": base, "running": e == nil, "background": true}, pretty)
+	state, e := readManagedState(path)
+	Print(map[string]any{"url": base, "running": e == nil, "background": true, "version": state.Version, "clientVersion": bundle.Version, "compatible": e == nil && state.Version == bundle.Version}, pretty)
 	return nil
 }

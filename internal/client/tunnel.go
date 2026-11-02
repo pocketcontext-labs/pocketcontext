@@ -73,12 +73,6 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 		return err
 	}
 	defer release()
-	path := identityFile(p)
-	id, err := tunnel.LoadIdentity(path, a.bools["new-address"])
-	if err != nil {
-		return fail(1, "%v", err)
-	}
-	chosen := id.Region != nil
 	running, runErr := bundle.Running(p)
 	if runErr != nil {
 		return runErr
@@ -86,6 +80,19 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 	if !running {
 		return fail(1, "start the project with ensure-running before tunnel serve")
 	}
+	info, err := bundle.Health(p)
+	if err != nil {
+		return err
+	}
+	if err := bundle.CheckServerCompatibility(info); err != nil {
+		return err
+	}
+	path := identityFile(p)
+	id, err := tunnel.LoadIdentity(path, a.bools["new-address"])
+	if err != nil {
+		return fail(1, "%v", err)
+	}
+	chosen := id.Region != nil
 	endpoint := filepath.Join(p.Cache, "tunnel-endpoint.json")
 	defer os.Remove(endpoint)
 	err = tunnel.ServeBackend(ctx, p.Config.Port, id, func(addr tailcat.Addr) {

@@ -5,12 +5,44 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path"
-	"strings"
+
+	"ganigeorgiev.com/pocketbase/pocketbase/core"
 
 	assets "github.com/pocketcontext-labs/pocketcontext"
 	"github.com/pocketcontext-labs/pocketcontext/internal/pocketcontext/sqliteuri"
 )
+
+// DatabaseFormat identifies the storage contract independently of the executable
+// release. Format 1 is the single-user schema introduced in 0.11.0. Its existing
+// migration ledger identifies it; opening it does not add a format marker or
+// require a data migration. A future format must introduce a new migration so
+// releases that do not know it refuse the database before bootstrap.
+const DatabaseFormat = 1
+
+// databaseMigrationCount reads the private working copy before bootstrap. System
+// migrations run during bootstrap, before the application migration lifecycle.
+func databaseMigrationCount(db string) (int, error) {
+	u := sqliteuri.File(db)
+	conn, err := sql.Open("sqlite3", u.String())
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	conn.SetMaxOpenConns(1)
+	if _, err := conn.Exec("PRAGMA query_only = 1"); err != nil {
+		return 0, err
+	}
+	var exists int
+	if err := conn.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = '_migrations'").Scan(&exists); err != nil {
+		return 0, err
+	}
+	if exists == 0 {
+		return 0, nil
+	}
+	var count int
+	err = conn.QueryRow("SELECT count(*) FROM _migrations").Scan(&count)
+	return count, err
+}
 
 // legacyMigrations are the schema migrations of releases before the
 // single-user schema. A database that recorded any of them, or that holds
@@ -83,6 +115,14 @@ func checkDatabase(db, synced string) error {
 	for _, e := range entries {
 		known[e.Name()] = true
 	}
+	// PocketBase migrations can change the storage contract too. Only checking
+	// JavaScript migrations would allow an older binary to open a database that
+	// a newer PocketBase has changed. Inspect the actual compiled registries.
+	for _, list := range []*core.MigrationsList{&core.SystemMigrations, &core.AppMigrations} {
+		for _, migration := range list.Items() {
+			known[migration.File] = true
+		}
+	}
 	legacy := map[string]bool{}
 	for _, name := range legacyMigrations {
 		legacy[name] = true
@@ -100,7 +140,7 @@ func checkDatabase(db, synced string) error {
 		switch {
 		case legacy[file]:
 			return earlier
-		case strings.HasSuffix(file, ".js") && !known[path.Base(file)]:
+		case !known[file]:
 			return fmt.Errorf("%w: %s was created by a different PocketContext release (unknown schema migration %s); this release leaves the file unchanged. Use the release that created it",
 				ErrEarlierRelease, synced, file)
 		}
