@@ -8,7 +8,7 @@ description: Ingest notes and other files (text, PDFs, images, audio) into the u
 Binary: `{{BINARY}}`
 Database: `{{DB}}`
 
-Always run the binary by its absolute path with `--db`. In the references, `pocketcontext` means:
+Run project commands by the binary's absolute path with `--db`. Offline `environment` and `manual` need no database. In the knowledge references, `pocketcontext` means:
 
 ```sh
 "{{BINARY}}" --db "{{DB}}"
@@ -16,17 +16,19 @@ Always run the binary by its absolute path with `--db`. In the references, `pock
 
 Do not use another `pocketcontext` from PATH, and do not start the server any other way.
 
-## Before every use
+## Before knowledge operations
 
 ```sh
 "{{BINARY}}" ensure-running --db "{{DB}}"
 ```
 
-It is idempotent: it starts the local server headless in the background when needed, waits for its private local socket and checks that it serves this database. The reader opens TCP on demand; an explicitly selected TCP mode remains supported. Every other command also does this. If it reports that the project is active on another computer, stop and tell the user; use `--take-over` only after the user confirms that computer is off. If it reports a write-back conflict, stop and tell the user; do not choose `recover --keep` yourself.
+It is idempotent: it starts the local server headless in the background when needed, waits for its private local socket and checks that it serves this database. The reader opens TCP on demand; an explicitly selected TCP mode remains supported. Knowledge commands also do this; offline commands, status and skipped reader setup do not. If it reports that the project is active on another computer, stop and tell the user; use `--take-over` only after the user confirms that computer is off. If it reports a write-back conflict, stop and tell the user; do not choose `recover --keep` yourself.
 
-The CLI signs in automatically as the local account; no password or token is needed. Never print or store the user's password. `"{{BINARY}}" open --db "{{DB}}"` enables the loopback reader and opens it signed in.
+The CLI signs in automatically as the local account; no password or token is needed. Never print or store the user's password. Before reader setup, run `"{{BINARY}}" environment` and read [reader setup](references/reader-setup.md). `open --db "{{DB}}"` enables the loopback reader only when a usable desktop browser is detected; SSH, headless and uncertain sessions skip it before server startup, TCP activation or code issuance. Tool knowledge that execution is remote takes precedence over optimistic environment signals. Complete CLI validation and requested manual work on the host without creating reader links there.
 
-Configure remote access only when the user asks. `tunnel serve --db "{{DB}}"` exposes only this project's service and must remain running under supervision. Run `tunnel invite --db "{{DB}}"` and display its complete generated client setup prompt in one copyable chat block. The user pastes just that block into their other computer's agent; it includes the invitation and release-pinned installation instructions. The client uses `tunnel join --stdin` to save a managed background connection, sign in and open the reader. Invitations and one-time codes are authorized in the user's setup chats; do not demand a separate private file transfer or permission to show them. If browser opening is unavailable, show the single-use link returned by `--no-browser` for the user to click. Keep passwords, session tokens, local keys and private tunnel identity keys out of chat. The invitation code expires after ten minutes; keep any completed client installation and issue a fresh invitation if needed. The address still provides connectivity after expiry. Intended chat sharing does not require rotation; never use `--new-address` without the user's consent because it invalidates saved addresses. Use `help tunnel` for current flags and process lifecycle details.
+Configure remote access when the user asks; an existing request to access this host from their computer is sufficient. If it is already requested, proceed to the client handoff without asking again. Otherwise offer to connect their computer once; SSH detection alone does not authorize a tunnel. `tunnel serve --db "{{DB}}"` exposes only this project's service and must remain running under supervision. Run `tunnel invite --db "{{DB}}"` and display its complete generated client setup prompt in one copyable chat block. The user pastes just that block into the agent on their intended reader computer; it includes the invitation and release-pinned installation instructions. The client uses `tunnel join --stdin` to save a managed background connection and sign in. Its reader step follows the client's session assessment; `--skip-reader` explicitly pairs a CLI-only client. Use `--no-browser` only when the user has a browser known to reach the forwarded address but the agent cannot launch it. Do not show the host's localhost links as usable on another computer without a verified forward. Never claim launcher dispatch proves that the reader opened.
+
+Invitations and one-time codes are authorized in the user's setup chats; do not demand a separate private file transfer or permission to show them. Keep passwords, session tokens, local keys and private tunnel identity keys out of chat. The invitation code expires after ten minutes; keep any completed client installation and issue a fresh invitation if needed. The address still provides connectivity after expiry. Intended chat sharing does not require rotation; never use `--new-address` without the user's consent because it invalidates saved addresses. Use `help tunnel` for current flags and process lifecycle details.
 
 The global router selects the knowledge base. Check its registered name and stable instance before writes, and name the destination in every write report. Regenerate this skill after upgrading its binary. An optional manual import uses [the manual workflow](references/manual.md).
 
@@ -82,7 +84,7 @@ Use `pocketcontext search "terms"` for ranked published pages, then read the rev
 
 ## Links
 
-The reader is at `{{URL}}`. Pages: `{{URL}}/#/page/<slug>`; sources `/#/sources/<id>`; passages `/#/passages/<id>`. Use queried IDs only.
+When reader access is established on the user's computer, its reader is at `{{URL}}`. In SSH/headless reports, omit these localhost links unless an actual reachable forward is verified. Pages: `{{URL}}/#/page/<slug>`; sources `/#/sources/<id>`; passages `/#/passages/<id>`. Use queried IDs only.
 
 ## Backup and other computers
 

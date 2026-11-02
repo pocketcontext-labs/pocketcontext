@@ -8,7 +8,7 @@ description: Ingest notes and other files (text, PDFs, images, audio) into the u
 Binary: `{{BINARY}}`
 Server: `{{URL}}`
 
-The PocketContext server runs on the agent computer. This computer reaches it through a forward of the same port (`pocketcontext tunnel forward`, or SSH) and runs the binary only as a client. Always run the binary by its absolute path with `--url`. In the references, `pocketcontext` means:
+The PocketContext server runs on the agent computer. This computer reaches it through a forward of the same port (`pocketcontext tunnel forward`, or SSH) and runs the binary only as a client. Run remote project commands by the binary's absolute path with `--url`; offline `environment` and `manual` need no URL. In the knowledge references, `pocketcontext` means:
 
 ```sh
 "{{BINARY}}" --url "{{URL}}"
@@ -16,21 +16,21 @@ The PocketContext server runs on the agent computer. This computer reaches it th
 
 Do not use another `pocketcontext` from PATH.
 
-## Before every use
+## Before knowledge operations
 
 ```sh
 "{{BINARY}}" status --url "{{URL}}"
 ```
 
-It reports whether the server is reachable and whether this computer is signed in. Every other command checks the server first.
+It reports whether the server is reachable and whether this computer is signed in. Knowledge commands check the server first; offline commands and skipped reader setup do not.
 
 - Not reachable: try the saved connection with `"{{BINARY}}" tunnel forward --url "{{URL}}" --background`, then check status and the registered server identity again. Report an unavailable server or occupied port without killing unrelated processes or changing the port. The server and its tunnel must remain running on the other computer. Never start a project server or create a database here.
 - Not signed in, or a session expired: request a fresh one-time code from the server's agent (`login-code` there). The user may paste it into this setup chat; pass it directly through stdin to `"{{BINARY}}" login --url "{{URL}}" --code-stdin`, never as a command argument. A used or expired code needs a new one. Alternatively the user may run password sign-in themselves; never ask for their password in chat.
 - A different PocketContext: stop and report the identity mismatch before any knowledge operation or sign-in.
 
-A server-generated client setup prompt contains the invitation and installation instructions in one copyable block. Accept it from the user's chat and pass its invitation JSON through `tunnel join --stdin`; no separately transferred file or additional permission is required. Join saves a managed background forward and signs in both the CLI and reader. Invitation codes expire after ten minutes, but saved sessions and tunnel connectivity have their own lifetimes. Keep passwords, tokens, local keys and private identity keys out of chat.
+A server-generated client setup prompt contains the invitation and installation instructions in one copyable block. Accept it from the user's chat and pass its invitation JSON through `tunnel join --stdin`; no separately transferred file or additional permission is required. Join saves a managed background forward and signs in the CLI; its reader step follows the current session assessment. Invitation codes expire after ten minutes, but saved sessions and tunnel connectivity have their own lifetimes. Keep passwords, tokens, local keys and private identity keys out of chat.
 
-`"{{BINARY}}" open --url "{{URL}}"` opens the reader signed in using this client's authenticated session. When the browser cannot be opened, use `--no-browser` and display the returned two-minute, single-use link for the user to click. Sharing that link, an invitation or a one-time code in the user's setup chats is authorized; do not require a private file transfer or rotate the tunnel address for that intended handoff.
+Before reader setup, run `"{{BINARY}}" environment` and read [reader setup](references/reader-setup.md). Confirm that execution is on the computer where the person will use the reader, not another SSH host or isolated container. Tool-known remote execution overrides optimistic environment signals. `"{{BINARY}}" open --url "{{URL}}"` uses this client's authenticated session only when reader setup is selected. It normally skips SSH, headless and uncertain sessions without issuing a reader code. Use `--skip-reader` for an explicit CLI-only pairing or reader step; use `--no-browser` only when the person has a browser known to reach this forward but the agent cannot launch it. These options cannot be combined. Never describe an unverified localhost link as usable on the person's computer, or claim launcher dispatch proves a page opened. Sharing an explicitly requested single-use link, invitation or one-time code in the user's setup chats is authorized; do not require a private file transfer or rotate the tunnel address for that intended handoff.
 
 ## Model
 
@@ -84,7 +84,7 @@ Use `pocketcontext search "terms"` for ranked published pages, then read the rev
 
 ## Links
 
-The reader is at `{{URL}}`. Pages: `{{URL}}/#/page/<slug>`; sources `/#/sources/<id>`; passages `/#/passages/<id>`. Use queried IDs only. The links work on computers that forward the same port.
+When this forward is reachable by the user's browser, the reader is at `{{URL}}`. Omit these localhost links in SSH/headless completion reports unless browser reachability is established. Pages: `{{URL}}/#/page/<slug>`; sources `/#/sources/<id>`; passages `/#/passages/<id>`. Use queried IDs only. The links work on computers that forward the same port.
 
 ## Server
 

@@ -11,9 +11,10 @@ type helpEntry struct{ usage, text, example string }
 // commandHelp has one entry for every command in the dispatch table of run
 // and for the commands handled before it (help, version, newid).
 var commandHelp = map[string]helpEntry{
-	"manual":  {"manual --out NEW_DIRECTORY", "Export the embedded versioned user manual and hash manifest without a server. Refuses an existing directory.", "pocketcontext manual --out manual-0.15.0"},
-	"name":    {"name [NAME]", "Show or change the project name. Stable project identity stays unchanged; reconcile profiles explicitly after renaming.", "pocketcontext name Research"},
-	"profile": {"profile add|update|list|remove|default|check|repair [NAME] [--binary PATH] [--skill-dir DIR]", "Manage private named knowledge-base registrations. add/update accept --db or --url. Removing a profile never deletes data. check verifies identity, name, binary and running server versions, and skill before use; repair reinstalls the router.", "pocketcontext profile list"},
+	"environment": {"environment [--pretty]", "Report session and browser capability signals without opening a database, starting a server or browser or issuing credentials. SSH takes precedence over display signals; unknown is not a confirmed desktop. No environment values are exposed.", "pocketcontext environment --pretty"},
+	"manual":      {"manual --out NEW_DIRECTORY", "Export the embedded versioned user manual and hash manifest without a server. Refuses an existing directory.", "pocketcontext manual --out manual-0.16.0"},
+	"name":        {"name [NAME]", "Show or change the project name. Stable project identity stays unchanged; reconcile profiles explicitly after renaming.", "pocketcontext name Research"},
+	"profile":     {"profile add|update|list|remove|default|check|repair [NAME] [--binary PATH] [--skill-dir DIR]", "Manage private named knowledge-base registrations. add/update accept --db or --url. Removing a profile never deletes data. check verifies identity, name, binary and running server versions, and skill before use; repair reinstalls the router.", "pocketcontext profile list"},
 	"help": {"help [COMMAND]",
 		"Print the command overview, or the usage, description and an example of one command. `COMMAND --help` does the same.",
 		"pocketcontext help batch"},
@@ -34,8 +35,8 @@ var commandHelp = map[string]helpEntry{
 	"status": {"status",
 		"Show paths, port, lease, write-back conflicts and whether the server runs. With --url: whether the server answers and who is signed in.",
 		"pocketcontext status"},
-	"open": {"open [--no-browser]",
-		"Open the reader signed in through a single-use link valid for 2 minutes. Remote --url uses the signed-in CLI session, with no separate reader password. With --no-browser it prints the link to click in this computer's setup chat.",
+	"open": {"open [--no-browser | --skip-reader]",
+		"Open the reader only when this session has a confirmed desktop/browser. SSH, headless and unknown sessions skip without enabling TCP or issuing a code. --skip-reader explicitly skips; --no-browser explicitly prints a two-minute link only when the caller has verified browser reachability. Flags are mutually exclusive. Remote --url uses the signed-in CLI session. browserLaunchRequested reports launcher dispatch, never verified browser opening.",
 		"pocketcontext open --no-browser"},
 	"flush": {"flush", "Write the database back to the synced folder now.", "pocketcontext flush"},
 	"recover": {"recover --keep local|synced",
@@ -52,8 +53,8 @@ var commandHelp = map[string]helpEntry{
 		"Sign in to a forwarded server, with a one-time code from `login-code` read from standard input, or with the project password. Only a token is stored, in the private cache.",
 		"printf '%s\\n' \"$CODE\" | pocketcontext login --url http://127.0.0.1:8096 --code-stdin"},
 	"logout": {"logout --url URL", "Forget the stored session for that server.", "pocketcontext logout --url http://127.0.0.1:8096"},
-	"tunnel": {"tunnel serve [--new-address] | tunnel invite [--out FILE] | tunnel join (--stdin | --file FILE) [--no-browser] [--foreground] | tunnel forward [--background | --address-stdin --save] [--url URL] | tunnel status|stop --url URL",
-		"Run a single-service tunnel. Supervise tunnel serve on the server, then tunnel invite prints one complete client setup prompt to share in your setup chat; --out FILE optionally writes invitation JSON instead. tunnel join --stdin (or --file FILE) verifies the server, redeems its single-use ten-minute code, saves the connection, starts a managed background forward and opens the signed-in reader. --no-browser returns its clickable sign-in link; --foreground keeps the forward attached to this terminal. tunnel forward --url URL --background resumes a saved connection; tunnel status/stop --url URL inspect or stop only its managed forward. Without --background, forward stays in the foreground. Invitations, codes and reader links may be shared in your setup chats; passwords, tokens and private identity keys must not be displayed. The address remains usable after code expiry; rotate only for unintended disclosure. Clients never use a database or local key. A busy port is refused.",
+	"tunnel": {"tunnel serve [--new-address] | tunnel invite [--out FILE] | tunnel join (--stdin | --file FILE) [--no-browser | --skip-reader] [--foreground] | tunnel forward [--background | --address-stdin --save] [--url URL] | tunnel status|stop --url URL",
+		"Run a single-service tunnel. Supervise tunnel serve on the server, then tunnel invite prints one complete client setup prompt to share in your setup chat; --out FILE optionally writes invitation JSON instead. tunnel join --stdin (or --file FILE) verifies the server, redeems its single-use ten-minute code, saves the connection, starts a managed background forward and opens the signed-in reader only in a usable desktop session. SSH/headless/unknown sessions pair without a reader code. --skip-reader explicitly skips reader setup; --no-browser explicitly requests a sign-in link for a verified reachable browser (mutually exclusive); --foreground keeps the forward attached to this terminal. tunnel forward --url URL --background resumes a saved connection; tunnel status/stop --url URL inspect or stop only its managed forward. Without --background, forward stays in the foreground. Invitations, codes and reader links may be shared in your setup chats; passwords, tokens and private identity keys must not be displayed. The address remains usable after code expiry; rotate only for unintended disclosure. Clients never use a database or local key. A busy port is refused.",
 		"pocketcontext tunnel invite --db pocketcontext.db"},
 
 	"whoami": {"whoami", "Show the server URL, that you are signed in, and the selected space: its ID, name, and whether it is archived or the default.", "pocketcontext whoami"},

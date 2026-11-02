@@ -225,7 +225,7 @@ func tunnelForward(ctx context.Context, a *args, pretty bool) error {
 // Do not silently accept a lifecycle option on the wrong subcommand.
 func validateTunnelOptions(a *args) error {
 	allowed := map[string]string{
-		"serve": "db url new-address", "invite": "db url out", "join": "db url file stdin foreground no-browser",
+		"serve": "db url new-address", "invite": "db url out", "join": "db url file stdin foreground no-browser skip-reader",
 		"forward": "db url address-stdin save background", "status": "db url", "stop": "db url", "_forward": "",
 	}
 	options, known := allowed[a.pos[0]]

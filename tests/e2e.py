@@ -434,6 +434,18 @@ def scenario(pc):
           'help COMMAND and COMMAND -h print the same help')
     check('unknown command' in pc.run('help', 'no-such-command', expect=2).stderr, 'help refuses an unknown command')
 
+    saved_env = pc.env
+    pc.env = {**saved_env, 'SSH_CONNECTION': 'synthetic-ssh-session'}
+    try:
+        environment = subprocess.run([str(pc.binary), 'environment'], env=pc.env,
+                                     capture_output=True, text=True, encoding='utf-8', timeout=10, check=True)
+        check(json.loads(environment.stdout)['session'] == 'ssh', 'environment detects SSH without a project')
+        skipped = pc.json('open')
+        check(skipped['readerSkipped'] and 'signInLink' not in skipped and not pc.db.exists(),
+              'SSH reader setup skips without creating a database or sign-in link')
+    finally:
+        pc.env = saved_env
+
     init = pc.json('init', '--name', 'synthetic', '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
     check(init['accountCreated'] and init['url'] == pc.url and 'email' not in init, 'init creates the account and starts the server')
     check(pc.db.exists(), 'init writes the database to the project folder')
@@ -489,6 +501,16 @@ def scenario(pc):
 
     transport = pc.json('status')
     check(transport['headless'] and not transport['tcp'] and transport['socket'], 'the full local skill workflow runs with TCP off')
+    saved_env = pc.env
+    pc.env = {**saved_env, 'SSH_CONNECTION': 'synthetic-ssh-session'}
+    try:
+        for options in ((), ('--skip-reader',)):
+            skipped = pc.json('open', *options)
+            check(skipped['readerSkipped'] and 'signInLink' not in skipped and not pc.json('status')['tcp'],
+                  'SSH or explicit reader skip leaves the active server headless')
+    finally:
+        pc.env = saved_env
+
     pc.json('open', '--no-browser')
     check(pc.json('status')['tcp'], 'open enables TCP on the running server')
     status, _ = pc.http('GET', '/')
@@ -1079,7 +1101,7 @@ def remote_scenario(pc, r):
           'the remote skill names the URL and no local lifecycle')
     opened = r.json('open', '--no-browser')
     check(opened['url'] == pc.url and opened['signInLink'].startswith(pc.url + '/bundle/login#')
-          and not opened['browserOpened'], 'remote open supplies a browser sign-in link without launching a browser')
+          and not opened['browserLaunchRequested'], 'remote open supplies a browser sign-in link without launching a browser')
     reader_code = opened['signInLink'].split('#', 1)[1]
     status, body = pc.http('POST', '/api/bundle/redeem', {'code': reader_code})
     check(status == 200 and json.loads(body)['record']['email'] == IDENTITY,

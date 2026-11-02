@@ -16,9 +16,11 @@ Setup and server:
                        run in the foreground; plain serve enables socket and TCP
   stop                 write back the database and stop the server
   status               show paths, port, lease and whether the server runs
-  open [--no-browser]  open the reader signed in (single-use link, valid for
-                       2 minutes); --no-browser only prints the link, e.g. to
-                       open it on a computer that uses --url
+  environment          report session/browser signals offline (no project needed)
+  open [--no-browser | --skip-reader]
+                       open in a confirmed desktop session; otherwise skip
+                       --no-browser requests a link for a known reachable browser
+                       --skip-reader issues no link and enables no reader TCP
   password [--password-stdin]
                        change the reader password
   login-code [--ttl SECONDS]
@@ -97,9 +99,10 @@ Tunnel (carry the server's port to another computer):
   tunnel invite [--out FILE]
                        print one complete client setup prompt to share in chat;
                        --out optionally writes invitation JSON outside the project
-  tunnel join (--stdin | --file FILE) [--no-browser] [--foreground]
+  tunnel join (--stdin | --file FILE) [--no-browser | --skip-reader] [--foreground]
                        verify identity, sign in, save a managed background forward
-                       and open the signed-in reader; --no-browser prints its link
+                       and open the reader when usable; --skip-reader skips it,
+                       --no-browser requests a link for a reachable browser
   tunnel forward [--background | --address-stdin --save] [--url URL]
                        reuse a saved connection or provide an address through stdin;
                        --background manages a saved forward without this terminal
@@ -116,10 +119,9 @@ Remote client (the server runs on another computer, reached through
                        sign in with the project password instead
   logout --url URL     forget the stored session
   status --url URL     show whether the server answers and the sign-in
-  open --url URL [--no-browser]
-                       open the reader (sign in with the password, or open a
-                       link from ` + "`open --no-browser`" + ` run on the agent
-                       computer)
+  open --url URL [--no-browser | --skip-reader]
+                       use the signed-in client session for the reader;
+                       skip by default on SSH/headless/unknown sessions
   skill --url URL [--agent A] [--dir DIR]
                        install the agent skill for the remote server
   Knowledge commands work with --url. URL must be http://127.0.0.1:PORT or

@@ -160,7 +160,7 @@ try {
   const code = await cli(['login-code']);
   await remote(['login', '--code-stdin'], `${code.code}\n`);
   const signIn = await remote(['open', '--no-browser']);
-  assert.equal(signIn.browserOpened, false);
+  assert.equal(signIn.browserLaunchRequested, false);
   await page.goto(signIn.signInLink);
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
   assert((await remote(['whoami'])).signedIn, 'browser handoff preserves CLI sign-in');

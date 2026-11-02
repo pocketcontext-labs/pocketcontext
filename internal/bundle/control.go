@@ -277,15 +277,15 @@ func Stop(p *Project) error {
 	return errors.New("the server did not stop within 30 seconds")
 }
 
-// OpenBrowser opens url with the platform's default browser.
+// OpenBrowser requests browser dispatch. Success does not prove a browser opened.
 func OpenBrowser(url string) error {
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.Command("open", url).Start()
+		return dispatchBrowser(exec.Command("open", url), 750*time.Millisecond)
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		return dispatchBrowser(exec.Command("rundll32", "url.dll,FileProtocolHandler", url), 750*time.Millisecond)
 	default:
-		return exec.Command("xdg-open", url).Start()
+		return dispatchBrowser(exec.Command("xdg-open", url), 750*time.Millisecond)
 	}
 }
 

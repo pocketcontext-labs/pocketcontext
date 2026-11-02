@@ -2,7 +2,7 @@
 """Rehearse coexistence, upgrade and full-backup rollback with synthetic projects.
 
 Runs on Linux, macOS and Windows using only the standard library. By default it
-fetches the pinned 0.14.0 executable and verifies the release archive checksum.
+fetches the pinned 0.15.0 executable and verifies the release archive checksum.
 Pass --previous-binary to use an already verified local release instead.
 """
 import argparse
@@ -22,7 +22,7 @@ import zipfile
 
 from e2e import isolated_env, free_port, PASSWORD
 
-PREVIOUS = '0.14.0'
+PREVIOUS = '0.15.0'
 
 
 def download_previous(destination):

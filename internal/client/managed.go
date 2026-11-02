@@ -249,7 +249,7 @@ func stopManagedGeneration(base, expectedID string) error {
 	}
 	return fail(1, "managed forward did not stop; no unrelated process was terminated")
 }
-func joinManaged(ctx context.Context, in invitation, noBrowser, pretty bool) error {
+func joinManaged(ctx context.Context, in invitation, noBrowser, skipReader, pretty bool) error {
 	started, e := ensureManagedForward(ctx, in.connection)
 	if e != nil {
 		return e
@@ -267,10 +267,11 @@ func joinManaged(ctx context.Context, in invitation, noBrowser, pretty bool) err
 		return e
 	}
 	keep = true // A browser failure must not undo a successful CLI connection.
-	out, e := openRemoteReader(in.URL, noBrowser)
+	out, e := openRemoteReader(in.URL, noBrowser, skipReader)
 	if e != nil {
 		return fmt.Errorf("CLI connected and tunnel saved; open the reader with `open --url %s`: %w", in.URL, e)
 	}
+	out["url"] = in.URL // Saved CLI endpoint; readerSkipped means no browser handoff was issued.
 	out["name"], out["instance"], out["signedIn"], out["saved"], out["forwarding"], out["background"] = in.Name, in.Instance, true, true, true, true
 	Print(out, pretty)
 	return nil

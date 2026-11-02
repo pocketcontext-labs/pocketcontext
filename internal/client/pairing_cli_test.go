@@ -249,6 +249,36 @@ func TestInvitationCLIRehearsal(t *testing.T) {
 	if run(clientEnv, "", "tunnel", "status", "--url", url)["running"] != false {
 		t.Fatal("failed join left worker running")
 	}
+	// Both automatic SSH detection and explicit CLI-only pairing avoid reader
+	// handoffs while preserving the authenticated CLI and managed forward.
+	for _, mode := range []string{"ssh", "explicit"} {
+		inviteCmd := exec.Command(binary, "tunnel", "invite", "--db", db)
+		inviteCmd.Env = serverEnv
+		prompt, err := inviteCmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, payload, ok := strings.Cut(string(prompt), marker)
+		if !ok {
+			t.Fatal("fresh invitation missing")
+		}
+		env := append([]string{}, clientEnv...)
+		options := []string{"tunnel", "join", "--stdin"}
+		if mode == "ssh" {
+			env = append(env, "SSH_CONNECTION=synthetic-test-session")
+		} else {
+			options = append(options, "--skip-reader")
+		}
+		joined := run(env, payload, options...)
+		if joined["readerSkipped"] != true || joined["signedIn"] != true || joined["forwarding"] != true {
+			t.Fatalf("CLI-only join failed: %v", joined)
+		}
+		if _, exists := joined["signInLink"]; exists {
+			t.Fatal("CLI-only join issued a reader link")
+		}
+		run(env, "", "whoami", "--url", url)
+		run(env, "", "tunnel", "stop", "--url", url)
+	}
 	// A busy port is never taken over or silently remapped.
 	occupied, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {

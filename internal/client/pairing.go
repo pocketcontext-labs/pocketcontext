@@ -201,8 +201,11 @@ func decodeInvitation(r io.Reader) (invitation, error) {
 	return in, nil
 }
 func tunnelJoin(ctx context.Context, a *args, pretty bool) error {
+	if a.bools["no-browser"] && a.bools["skip-reader"] {
+		return fail(2, "choose --no-browser or --skip-reader, not both")
+	}
 	if len(a.pos) != 1 || a.has("file") == a.bools["stdin"] || a.has("db") || a.has("url") {
-		return fail(2, "usage: pocketcontext tunnel join (--stdin | --file INVITATION_FILE) [--no-browser] [--foreground]")
+		return fail(2, "usage: pocketcontext tunnel join (--stdin | --file INVITATION_FILE) [--no-browser | --skip-reader] [--foreground]")
 	}
 	var in invitation
 	var e error
@@ -215,7 +218,7 @@ func tunnelJoin(ctx context.Context, a *args, pretty bool) error {
 		return e
 	}
 	if !a.bools["foreground"] {
-		return joinManaged(ctx, in, a.bools["no-browser"], pretty)
+		return joinManaged(ctx, in, a.bools["no-browser"], a.bools["skip-reader"], pretty)
 	}
 	addr, e := tunnel.ParseAddress(in.Address)
 	if e != nil {
@@ -260,12 +263,13 @@ func tunnelJoin(ctx context.Context, a *args, pretty bool) error {
 	if e = saveConnection(in.connection); e != nil {
 		return e
 	}
-	out, e := openRemoteReader(in.URL, a.bools["no-browser"])
+	out, e := openRemoteReader(in.URL, a.bools["no-browser"], a.bools["skip-reader"])
 	if e != nil {
 		return e
 	}
+	out["url"] = in.URL
 	out["name"], out["instance"], out["signedIn"], out["saved"], out["forwarding"] = in.Name, in.Instance, true, true, true
-	out["note"] = "Keep this foreground process supervised. Install the remote skill with `skill --url URL`."
+	out["supervisionNote"] = "Keep this foreground process supervised. Install the remote skill with `skill --url URL`."
 	Print(out, pretty)
 	select {
 	case <-ctx.Done():

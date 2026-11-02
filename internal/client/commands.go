@@ -267,7 +267,8 @@ parsed:
 		"ensure-running": {nil, {"take-over"}},
 		"stop":           {nil, nil},
 		"status":         {nil, nil},
-		"open":           {nil, {"no-browser"}},
+		"open":           {nil, {"no-browser", "skip-reader"}},
+		"environment":    {nil, nil},
 		"flush":          {nil, nil},
 		"recover":        {{"keep"}, nil},
 		"init":           {{"port", "name"}, {"password-stdin"}},
@@ -306,7 +307,7 @@ parsed:
 		"login-code":     {{"ttl"}, nil},
 		"login":          {nil, {"password-stdin", "code-stdin"}},
 		"logout":         {nil, nil},
-		"tunnel":         {{"out", "file"}, {"new-address", "address-stdin", "save", "stdin", "foreground", "background", "no-browser"}},
+		"tunnel":         {{"out", "file"}, {"new-address", "address-stdin", "save", "stdin", "foreground", "background", "no-browser", "skip-reader"}},
 	}
 	s, known := spec[command]
 	if !known {
@@ -317,6 +318,22 @@ parsed:
 		return err
 	}
 	pretty := a.bools["pretty"]
+	if command == "environment" {
+		if len(a.pos) != 0 || len(a.flags) != 0 {
+			return fail(2, "usage: pocketcontext environment [--pretty]")
+		}
+		Print(bundle.ReaderEnvironment(), pretty)
+		return nil
+	}
+	if command == "open" {
+		if err := a.need(0, "open [--no-browser | --skip-reader]"); err != nil {
+			return err
+		}
+		if a.bools["no-browser"] && a.bools["skip-reader"] {
+			return fail(2, "choose --no-browser or --skip-reader, not both")
+		}
+	}
+
 	if command == "manual" {
 		return exportManual(a, pretty)
 	}
@@ -345,6 +362,12 @@ parsed:
 	}
 	if command == "login" || command == "logout" {
 		return fail(2, "usage: pocketcontext %s --url http://127.0.0.1:PORT", command)
+	}
+	if command == "open" {
+		if out := skippedReader(a.bools["no-browser"], a.bools["skip-reader"]); out != nil {
+			Print(out, pretty)
+			return nil
+		}
 	}
 	p, err := bundle.Resolve(a.flags["db"])
 	if err != nil {
@@ -439,23 +462,11 @@ parsed:
 		Print(map[string]any{"password": "changed", "accountCreated": result["created"]}, pretty)
 		return nil
 	case "open":
-		if err := bundle.EnsureRunning(p, bundle.StartOptions{}); err != nil {
-			return fail(1, "%v", err)
-		}
-		if err := bundle.EnableTCP(p); err != nil {
-			return fail(1, "opening reader: %v", err)
-		}
-		data, err := bundle.LocalCall(p, "/api/bundle/login-code", map[string]any{})
+		out, err := openLocalReader(p, a.bools["no-browser"])
 		if err != nil {
-			return fail(1, "%v", err)
+			return err
 		}
-		link, _ := data["url"].(string)
-		if !a.bools["no-browser"] {
-			if err := bundle.OpenBrowser(link); err != nil {
-				fmt.Fprintln(os.Stderr, "could not open a browser:", err)
-			}
-		}
-		Print(map[string]any{"url": p.URL(), "signInLink": link, "note": "single-use link, valid for 2 minutes"}, pretty)
+		Print(out, pretty)
 		return nil
 	case "login-code":
 		return loginCode(p, a, pretty)
@@ -479,6 +490,15 @@ var localOnly = map[string]bool{"serve": true, "start": true, "ensure-running": 
 // runRemote runs a command against a forwarded server. It never resolves a
 // database or starts a server.
 func runRemote(base, command string, a *args, pretty bool) error {
+	if command == "open" {
+		out, err := openRemoteReader(base, a.bools["no-browser"], a.bools["skip-reader"])
+		if err != nil {
+			return err
+		}
+		Print(out, pretty)
+		return nil
+	}
+
 	if localOnly[command] {
 		return fail(2, "%s is not available with --url: the server and its database live on the agent computer; run it there", command)
 	}
@@ -521,13 +541,6 @@ func runRemote(base, command string, a *args, pretty bool) error {
 		return err
 	}
 	switch command {
-	case "open":
-		out, err := openRemoteReader(base, a.bools["no-browser"])
-		if err != nil {
-			return err
-		}
-		Print(out, pretty)
-		return nil
 	case "skill":
 		return installSkills("", base, a.flags["agent"], a.flags["dir"], pretty)
 	}
