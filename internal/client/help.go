@@ -11,6 +11,9 @@ type helpEntry struct{ usage, text, example string }
 // commandHelp has one entry for every command in the dispatch table of run
 // and for the commands handled before it (help, version, newid).
 var commandHelp = map[string]helpEntry{
+	"manual":  {"manual --out NEW_DIRECTORY", "Export the embedded versioned user manual and hash manifest without a server. Refuses an existing directory.", "pocketcontext manual --out manual-0.13.0"},
+	"name":    {"name [NAME]", "Show or change the project name. Stable project identity stays unchanged; reconcile profiles explicitly after renaming.", "pocketcontext name Research"},
+	"profile": {"profile add|update|list|remove|default|check|repair [NAME] [--binary PATH] [--skill-dir DIR]", "Manage private named knowledge-base registrations. add/update accept --db or --url. Removing a profile never deletes data. check verifies identity, name, binary version and skill before use; repair reinstalls the router.", "pocketcontext profile list"},
 	"help": {"help [COMMAND]",
 		"Print the command overview, or the usage, description and an example of one command. `COMMAND --help` does the same.",
 		"pocketcontext help batch"},
@@ -19,14 +22,14 @@ var commandHelp = map[string]helpEntry{
 		"Print a new random 15-character record ID. Use it to choose IDs before a `batch`, so later entries can refer to earlier ones.",
 		"pocketcontext newid"},
 
-	"init": {"init [--port N] [--password-stdin]",
+	"init": {"init [--name NAME] [--port N] [--password-stdin]",
 		"Create the project (database with a first space named Default, storage/ and pocketcontext.json) and its one account, then start the server. The account has no email to choose: the reader asks only for its password. An existing account keeps its password unless --password-stdin is given.",
 		"printf '%s\\n' \"$PASSWORD\" | pocketcontext init --password-stdin"},
 	"ensure-running": {"ensure-running [--take-over]",
 		"Start the server in the background unless it already runs for this database (alias: start). --take-over ignores a lease from another computer; use it only when that computer is off.",
 		"pocketcontext ensure-running"},
 	"start": {"start [--take-over]", "Alias of ensure-running.", "pocketcontext start"},
-	"serve": {"serve [--take-over] [--ui-dev URL]", "Run the server in the foreground until interrupted. --ui-dev http://127.0.0.1:5173 serves the reader through a loopback Vite development server; APIs and sign-in remain on this server. Start Vite separately or use the repository development launcher. This option is foreground-only and is not saved in project configuration.", "pocketcontext serve"},
+	"serve": {"serve [--headless | --tcp-only] [--port N] [--take-over] [--ui-dev URL]", "Run the server in the foreground until interrupted. --ui-dev http://127.0.0.1:5173 serves the reader through a loopback Vite development server; APIs and sign-in remain on this server. Start Vite separately or use the repository development launcher. This option is foreground-only and is not saved in project configuration.", "pocketcontext serve"},
 	"stop":  {"stop", "Write the database back to the synced folder and stop the server. Run it before switching computers.", "pocketcontext stop"},
 	"status": {"status",
 		"Show paths, port, lease, write-back conflicts and whether the server runs. With --url: whether the server answers and who is signed in.",
@@ -49,9 +52,9 @@ var commandHelp = map[string]helpEntry{
 		"Sign in to a forwarded server, with a one-time code from `login-code` read from standard input, or with the project password. Only a token is stored, in the private cache.",
 		"printf '%s\\n' \"$CODE\" | pocketcontext login --url http://127.0.0.1:8096 --code-stdin"},
 	"logout": {"logout --url URL", "Forget the stored session for that server.", "pocketcontext logout --url http://127.0.0.1:8096"},
-	"tunnel": {"tunnel serve [--new-address] | tunnel forward (ADDRESS | --address-stdin) [--url URL]",
-		"Carry the server's port between two computers through a private tailcat tunnel (WireGuard, bootstrapped through a public tailcat relay; no account, no administrator rights, nothing else to install). On the agent computer, `tunnel serve` exposes only the project's port, proxied to the server on 127.0.0.1, and prints the tunnel address. The address stays the same across restarts (its identity is kept in the private cache), and a running forward reconnects on its own; --new-address replaces it, after which the old address stops working. Anyone with the address can reach the port, so share it privately; PocketContext still requires sign-in. On the person's computer, `tunnel forward` reads the address (preferably from standard input) and listens on the same loopback port as --url or POCKETCONTEXT_URL (default http://127.0.0.1:8096); a busy port is an error, never replaced by another. Both run in the foreground until interrupted; the forward never uses a local database.",
-		"printf '%s\\n' \"$ADDRESS\" | pocketcontext tunnel forward --address-stdin"},
+	"tunnel": {"tunnel serve [--new-address] | tunnel invite --out FILE | tunnel join --file FILE | tunnel forward [--address-stdin --save] [--url URL]",
+		"Run a private single-service tunnel under supervision. tunnel serve reports no secret address; tunnel invite writes a new private file with the address, project identity and a single-use code valid for 10 minutes. Transfer it privately; tunnel join starts a forward, verifies identity before redeeming the code, saves address/token and remains in the foreground. The code expires but the address stays sensitive until --new-address rotation. Delete invitation copies after joining. tunnel forward --url URL reuses the saved address; --address-stdin --save explicitly replaces it. Client commands never use a database or local key. A busy port is refused, never silently changed.",
+		"pocketcontext tunnel invite --out invitation.json"},
 
 	"whoami": {"whoami", "Show the server URL, that you are signed in, and the selected space: its ID, name, and whether it is archived or the default.", "pocketcontext whoami"},
 	"spaces": {"spaces", "List every space with its ID, name, archived flag, whether it is the default and whether it is selected (--space SPACE or POCKETCONTEXT_SPACE selects another; without either, the default is selected).", "pocketcontext spaces"},

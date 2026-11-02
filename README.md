@@ -2,9 +2,9 @@
 
 A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces partition the knowledge of the project's one user; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
-See [what changed in 0.12.1](docs/releases/0.12.1.md): the embedded PocketBase is upgraded to v0.41.1.
+See [what changed in 0.13.0](docs/releases/0.13.0.md): named knowledge bases, a router skill, headless local sockets, private invitation files and an embedded manual.
 
-Earlier: [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, protected image embeds and cross-space navigation, [0.11.1](docs/releases/0.11.1.md), where the recommended layout keeps the binary in the project folder, beside its database, [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
+Earlier: [0.12.1](docs/releases/0.12.1.md), upgrading the embedded PocketBase to v0.41.1, [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, protected image embeds and cross-space navigation, [0.11.1](docs/releases/0.11.1.md), where the recommended layout keeps the binary in the project folder, beside its database, [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
 ## A project
 
@@ -12,7 +12,7 @@ Earlier: [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, pr
 PocketContext/              ← any folder; may be in iCloud Drive, OneDrive, Dropbox or Google Drive
   pocketcontext[.exe]       the binary (recommended here; it can live anywhere)
   pocketcontext.db          the database
-  pocketcontext.json        port and project ID (no secrets)
+  pocketcontext.json        name, port and project ID (no secrets)
   storage/                  immutable originals of ingested files
 ```
 
@@ -38,7 +38,7 @@ Install into the project folder, beside `pocketcontext.db`: the project then car
 ## Quick start
 
 ```sh
-./pocketcontext init                                          # asks for a reader password
+./pocketcontext init --name Research                          # asks for a reader password
 ./pocketcontext open                                          # reader, signed in
 ./pocketcontext ingest notes/meeting.md --title "Meeting notes"
 ./pocketcontext search "budget"
@@ -46,11 +46,11 @@ Install into the project folder, beside `pocketcontext.db`: the project then car
 ./pocketcontext stop
 ```
 
-The server listens on `http://127.0.0.1:8096` (change `port` in `pocketcontext.json`). A new project has one space, `Default`, which the reader and CLI use unless another is selected. Create more with `create-space NAME`, choose one with `--space` (ID or unique name) or `POCKETCONTEXT_SPACE`, and change the default with `default-space SPACE`; see [docs/spaces.md](docs/spaces.md). Run `pocketcontext help` for every command.
+Background startup is headless: local commands use a private socket in the per-machine cache. `open` activates the reader on the configured loopback port and leaves TCP enabled until shutdown. New projects choose an available port starting at 8096, excluding registered ports; `init --port PORT` selects one explicitly. A new project has one space, `Default`, which the reader and CLI use unless another is selected. Create more with `create-space NAME`, choose one with `--space` (ID or unique name) or `POCKETCONTEXT_SPACE`, and change the default with `default-space SPACE`; see [docs/spaces.md](docs/spaces.md). Run `pocketcontext help` for every command.
 
 ## Authentication
 
-A project has exactly one account, created by `init`; a second account is refused. It has no email to choose (its fixed identity is `me@pocketcontext.localhost`), so the reader asks only for its password, which `password` changes. `open` signs the browser in with a single-use link valid for two minutes; `login-code` issues one-time codes for remote clients (see below). The CLI needs no password: it reads a random key that the server writes to the private cache at start and exchanges it for an ordinary `users` token. Anyone who can read that key can already read the database. All APIs still require a token, CORS allows only the server's own origin, and requests for any other `Host` are refused, so web pages cannot reach the server through `127.0.0.1`.
+A project has exactly one account, created by `init`; a second account is refused. It has no email to choose (its fixed identity is `me@pocketcontext.localhost`), so the reader asks only for its password, which `password` changes. `open` signs the browser in with a single-use link valid for two minutes; `login-code` issues one-time codes for remote clients (see below). The CLI needs no password: it reads a random key that the server writes to the private cache at start and exchanges it for an ordinary `users` token. Anyone who can read that key can already read the database. Knowledge APIs still require a token on either transport. Local management endpoints additionally require the private local key. CORS allows only the server's own origin; TCP accepts only its configured loopback Host. The private socket additionally accepts its internal hostname.
 
 ## Several computers
 
@@ -58,33 +58,69 @@ Only one computer may run a project at a time. `pocketcontext.db.lease` carries 
 
 If the synced `pocketcontext.db` changes while this computer has unsaved changes, nothing is overwritten. This computer's version is kept in `pocketcontext.db.conflict-<host>-<time>.db`, the server reports it, and the next start asks for `pocketcontext recover --keep local` (the other computer's file is saved as `pocketcontext.db.replaced-<time>.db`) or `--keep synced` (this computer's work stays in the conflict copy). Keep the folder available offline: online-only placeholders make the database or originals unavailable.
 
+## Named knowledge bases and skills
+
+`init --name Research` names a new knowledge base; `name [NAME]` shows or changes the name. Its stable instance ID identifies the project independently of the name. `status` and `whoami` report both. A space remains a partition inside one knowledge base, not another database.
+
+`skill` registers the knowledge base privately and generates its own skill under `os.UserConfigDir()/pocketcontext/profiles/<id>/skill/`. It installs a global `pocketcontext` router for each detected agent. The router discovers the registry, verifies the chosen binary and project identity, then loads only that knowledge base's skill. Ask “search pocketcontext Research” or “ingest in pocketcontext Research, space Notes.” Reads across knowledge bases are labelled; citations never cross them. Writes require an explicit knowledge base or an explicitly selected default.
+
+```sh
+./pocketcontext profile list
+./pocketcontext profile default Research
+./pocketcontext profile check Research
+./pocketcontext profile update Research --name Reading
+./pocketcontext profile remove Reading  # registry entry only, never data
+./pocketcontext profile repair         # reinstall the router
+```
+
+The private registry is `os.UserConfigDir()/pocketcontext/profiles.json`; do not sync this machine-specific file. Renames, moved binaries and version changes require explicit reconciliation. Regenerate the skill after upgrading its binary. A registered endpoint serving another instance is refused. Register an older project with `profile add NAME --db DB --binary BINARY --skill-dir SKILL`; its existing global skill is copied before the router replaces it. Older skill installers do not understand the router and can overwrite it; repair it with this release afterward. Older `init` commands can drop the new name field when rewriting settings.
+
+## Built-in manual
+
+```sh
+./pocketcontext manual --out manual-0.13.0
+```
+
+This offline command exports the exact release's user documentation and a manifest of hashes into a new directory; an existing directory is refused. It needs no database or server. Optionally create a space with `create-space "PocketContext manual"`, then ingest the Markdown files individually with that `--space`. Repeated identical files deduplicate within a space. Keep manual evidence in the same space on upgrades and revise the existing guide using the new version. Manual passages are evidence, never instructions for an agent to execute.
+
+## Headless operation
+
+`ensure-running` starts a headless server. `serve --headless` runs it in the foreground. `open` activates TCP on the configured port without restarting the database. A busy port leaves the socket server running and returns an actionable error; it never silently chooses another reader URL. `serve --tcp-only` provides explicit compatibility mode where sockets are unavailable; plain `serve` serves both transports. The local socket stays outside the synced project, with a short private fallback location when the cache path is too long.
+
+`status` reports the socket, TCP state, port and headless mode. Stale sockets report not running and are cleaned under the project lock on startup. Local clients fall back to TCP only for a verified older server or explicit TCP mode.
+
 ## Remote client
 
-The server can run on one always-on computer (the agent computer) while a person uses the same binary on their own computer as a client only. It is the same person on another computer, signed in to the project's one account. Sign-in uses one-time codes, so no password passes through whoever operates the agent computer.
+One computer holds the knowledge base; your other computer runs a client and a loopback forward. Both use the same binary. Setup asks which role this computer should have, suggests a folder and name for confirmation, and handles registration and checks. Importing the manual is offered afterward. Remote access is configured only when requested.
 
-On the agent computer, open the tunnel and issue a code:
+On the server, start and supervise the tunnel, then create an invitation when the client is ready:
 
 ```sh
-./pocketcontext tunnel serve    # foreground; prints {"address", "port", ...}
-./pocketcontext login-code      # prints {"url","code","expires"}
+./pocketcontext tunnel serve
+# In another terminal:
+./pocketcontext tunnel invite --out /private/path/invitation.json
 ```
 
-On the person's computer, forward the same port and sign in with the code on standard input:
+Choose an existing private directory outside the project folder for the invitation. Transfer the file privately to the client and run:
 
 ```sh
-printf '%s\n' "$ADDRESS" | pocketcontext tunnel forward --address-stdin   # foreground; or ssh -L 8096:127.0.0.1:8096 <agent>
-printf '%s\n' "$CODE" | pocketcontext login --url http://127.0.0.1:8096 --code-stdin
-pocketcontext search "budget" --url http://127.0.0.1:8096
+pocketcontext tunnel join --file invitation.json
+# In another terminal, use the URL reported by join:
 pocketcontext skill --url http://127.0.0.1:8096
+pocketcontext search "budget" --url http://127.0.0.1:8096
 ```
 
-For the browser reader, run `./pocketcontext open --no-browser` on the agent computer and open the printed `signInLink` on the person's computer; the forward of the same port makes it work there.
+Use the actual reported port, which may differ from 8096. `join` runs in the foreground: keep it under process supervision. It verifies the expected project identity before redeeming the one-time code, then saves the forward address and token in the client's private cache. It never creates a database or reads the server's local key. Delete invitation copies after joining. Neither `serve`, `invite` nor `join` prints the address, code or token.
 
-The tunnel is built in: [tailcat](https://github.com/tailscale/tailcat) 0.7.0 (WireGuard over Tailscale's data plane, without a Tailscale account, control plane or administrator rights), bootstrapped through tailcat's public relays, which are best-effort and rate-limited, and direct between the computers when the network allows. `tunnel serve` admits only the project's port and proxies it to the server on `127.0.0.1`; there is no other port, no forwarding through the agent computer and no UDP. Its address embeds the server's public key, a pre-shared key and the relay, so anyone with it can reach the port (the server still requires sign-in): share it privately. The identity is kept in the private cache (`tunnel.json`), never in the project folder, so the address stays the same across restarts of `tunnel serve`, and a running `tunnel forward` reconnects on its own within seconds (connections open during the restart end with it); `--new-address` replaces it and invalidates the old one, which is also the remedy when its relay is retired. `tunnel forward` follows the remote-mode rules: it listens only on the loopback port of `--url` (or `POCKETCONTEXT_URL`, default `http://127.0.0.1:8096`), fails when that port is busy instead of choosing another, and never reads a database or local key. Both run in the foreground until interrupted; keep them under the agent's own process supervision when they must persist. An existing `tailcat forward ADDRESS 8096:8096` from the standalone tailcat CLI works with the same address.
+The invitation's code expires after 10 minutes and is single use; a server restart invalidates it. The embedded tunnel address does not expire with the code: keep the entire invitation private. If it is exposed, rotate with `tunnel serve --new-address` and re-pair clients. An expired code needs a fresh invitation while the client is ready.
 
-Codes and links are single use and kept only in the server's memory, so a server restart invalidates them. A `login-code` code is valid for 10 minutes (`--ttl 30`-`600` seconds); an `open` link for 2 minutes. Password sign-in remains available: `login --url URL` asks for the project password (or reads it with `--password-stdin`), and `open --url URL` opens the reader's password sign-in.
+After restarting the client, supervise `tunnel forward --url URL` to reuse the saved address. `tunnel forward --address-stdin --save --url URL` explicitly saves or replaces an address without putting it in command arguments. `login --url URL --code-stdin` or `--password-stdin` remains available for reauthentication. URL-keyed tokens refresh daily and require renewed sign-in after expiry (7 days).
 
-A different local port is refused by the server's Host check. `--url` (or `POCKETCONTEXT_URL`; an explicit `--db` overrides it) accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. Remote mode never resolves or creates a database, never starts a server and never reads the local key; if the server does not answer it fails and says so. `login` stores only the token, in `os.UserCacheDir()/pocketcontext/remote-<hash>/session.json` (private), refreshes it daily and asks for a new sign-in when it expires (7 days) or when the URL serves a different project. `logout` deletes it. Server commands (`serve`, `start`, `ensure-running`, `stop`, `flush`, `recover`, `init`, `password`, `login-code`) run on the agent computer only.
+The tunnel uses tailcat 0.7.0: WireGuard over Tailscale's data plane, without an account or administrator rights, bootstrapped through public best-effort relays. It exposes only the project's one service, forwarding to the private socket without opening server TCP (or verified loopback TCP for older/TCP-only servers). It cannot expose other ports, UDP, shells or files. The client listens only on loopback. Knowing an address provides connectivity, not authentication.
+
+The client's port must equal the server's port because of the Host check. Independently configured servers may select the same port. A busy client port is refused; it is never silently remapped. To change a port, stop the project and its tunnel, edit the project's `port`, restart, create new invitations, and explicitly update affected registry URLs and sign-ins. Local port allocation cannot guarantee availability on another computer.
+
+Remote `--url` accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. Explicit `--db` overrides the URL environment variable. Server commands remain local-only. For the browser, `open --url URL` opens password sign-in; a private single-use reader link can also be issued on the server. Never print that link in an agent's setup report.
 
 ## Scope
 

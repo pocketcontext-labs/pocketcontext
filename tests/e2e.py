@@ -35,7 +35,8 @@ SCRUBBED_PREFIXES = ('POCKETCONTEXT_', RETIRED.upper() + 'CONTEXT_')
 def isolated_env(home):
     """The inherited environment with a private home and cache and no product variables."""
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith(SCRUBBED_PREFIXES)}
-    env.update(HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / 'cache'),
+    env.update(HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / 'cache'), XDG_CONFIG_HOME=str(home / 'config'),
+               APPDATA=str(home / 'AppData' / 'Roaming'),
                LOCALAPPDATA=str(home / 'AppData' / 'Local'))
     return env
 
@@ -215,6 +216,7 @@ def main():
         pc = Project(binary, Path(temp))
         try:
             scenario(pc)
+            pc.json('open', '--no-browser')
             spaces_scenario(pc)
             staging_scenario(pc)
             binary_scenario(pc)
@@ -249,6 +251,7 @@ def restored_default_scenario(pc):
         check([page['slug'] for page in restored.json('search', 'espresso descaled')['pages']] == ['coffee-policy'],
               'the restored default space reads the existing published knowledge')
         check(restored.json('spaces') == pc.json('spaces'), 'restore keeps every space and the default')
+        restored.json('open', '--no-browser')
         status, _ = restored.http('POST', '/api/collections/users/auth-with-password', {'identity': IDENTITY, 'password': PASSWORD})
         check(status == 200, 'the restored account keeps its password')
     finally:
@@ -386,7 +389,7 @@ def scenario(pc):
           'help COMMAND and COMMAND -h print the same help')
     check('unknown command' in pc.run('help', 'no-such-command', expect=2).stderr, 'help refuses an unknown command')
 
-    init = pc.json('init', '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
+    init = pc.json('init', '--name', 'synthetic', '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
     check(init['accountCreated'] and init['url'] == pc.url and 'email' not in init, 'init creates the account and starts the server')
     check(pc.db.exists(), 'init writes the database to the project folder')
     check('email' not in json.loads((pc.project / 'pocketcontext.json').read_text(encoding='utf-8')), 'the project config names no account')
@@ -439,6 +442,10 @@ def scenario(pc):
     check({(f['kind'], f['page']) for f in lint['findings']} == {('orphan', 'coffee-policy'), ('stub', 'coffee-policy')},
           'lint reports the orphan and the stub only')
 
+    transport = pc.json('status')
+    check(transport['headless'] and not transport['tcp'] and transport['socket'], 'the full local skill workflow runs with TCP off')
+    pc.json('open', '--no-browser')
+    check(pc.json('status')['tcp'], 'open enables TCP on the running server')
     status, _ = pc.http('GET', '/')
     check(status == 200, 'the reader is served')
     status, body = pc.http('GET', '/api/bundle/instance')
@@ -511,7 +518,7 @@ def scenario(pc):
     agent = pc.json('skill', '--agent', 'claude-code')
     target = pc.home / '.claude' / 'skills' / 'pocketcontext'
     check(agent['installed'].get('claude-code') == str(target) and (target / 'SKILL.md').is_file()
-          and (target / '.pocketcontext').is_file(), 'the Claude Code skill is installed as pocketcontext')
+          and (target / '.pocketcontext-router').is_file(), 'the Claude Code router is installed as pocketcontext')
 
 
 def structured_ingest(pc, notes):

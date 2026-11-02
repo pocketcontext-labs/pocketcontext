@@ -80,11 +80,17 @@ func quiet(string, ...any) {}
 // receives the address once the server is up. A new identity gets the nearest
 // public relay, recorded in id.Region for the caller to save.
 func Serve(ctx context.Context, port int, id *Identity, ready func(tailcat.Addr)) error {
+	return ServeBackend(ctx, port, id, ready, func() (net.Conn, error) {
+		return net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 10*time.Second)
+	})
+}
+
+// ServeBackend exposes only the selected service using a private local dialer.
+func ServeBackend(ctx context.Context, port int, id *Identity, ready func(tailcat.Addr), dial func() (net.Conn, error)) error {
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("port %d is out of range", port)
 	}
 	served := uint16(port)
-	target := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	s := &tailcat.Server{
 		Key:            id.Key,
 		PresharedKey:   id.PresharedKey,
@@ -96,7 +102,7 @@ func Serve(ctx context.Context, port int, id *Identity, ready func(tailcat.Addr)
 				return nil
 			}
 			return func(c net.Conn) {
-				local, err := net.DialTimeout("tcp", target, 10*time.Second)
+				local, err := dial()
 				if err != nil {
 					c.Close()
 					return

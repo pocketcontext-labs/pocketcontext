@@ -8,11 +8,12 @@ The project is the database file (default: pocketcontext.db beside this binary, 
 it. They may live in iCloud Drive, OneDrive, Dropbox or Google Drive.
 
 Setup and server:
-  init [--port N] [--password-stdin]
+  init [--name NAME] [--port N] [--password-stdin]
                        create the project, its account and a first space
                        named Default, and start the server
   ensure-running       start the server in the background unless it runs (alias: start)
-  serve [--ui-dev URL]  run in the foreground; optionally proxy a loopback Vite UI
+  serve [--headless | --tcp-only] [--port N] [--ui-dev URL]
+                       run in the foreground; plain serve enables socket and TCP
   stop                 write back the database and stop the server
   status               show paths, port, lease and whether the server runs
   open [--no-browser]  open the reader signed in (single-use link, valid for
@@ -28,7 +29,11 @@ Setup and server:
   recover --keep local|synced
                        resolve unsaved changes when the synced file also changed
   skill [--agent claude-code|codex|antigravity|all] [--dir DIR]
-                       install the agent skill with this computer's paths
+                       register this knowledge base, install its skill and the global router
+  name [NAME]          show or change the knowledge-base name
+  profile add|update|list|remove|default|check|repair [NAME]
+                       manage private registrations; never delete project data
+  manual --out NEW_DIR  export the embedded user manual offline
 
 Spaces (partitions of the knowledge; there is no delete):
   whoami                             show the selected space and sign-in
@@ -88,11 +93,15 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
 Tunnel (carry the server's port to another computer; foreground, Ctrl-C stops):
   tunnel serve [--new-address]
                        on the agent computer: expose only the project's port
-                       through tailcat and print the private tunnel address
+                       through tailcat; reports only safe metadata
                        (stable across restarts; --new-address replaces it)
-  tunnel forward (ADDRESS | --address-stdin) [--url URL]
+  tunnel invite --out FILE
+                       write a private invitation outside the project folder
+  tunnel join --file FILE
+                       verify identity, sign in, save the forward and keep running
+  tunnel forward [--address-stdin --save] [--url URL]
                        on the person's computer: listen on the same loopback
-                       port (default http://127.0.0.1:8096) and carry it to
+                       port; reuse its saved address or explicitly provide one, and carry it to
                        the agent computer; never uses a local database
 
 Remote client (the server runs on another computer, reached through

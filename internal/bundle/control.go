@@ -21,6 +21,11 @@ type Instance struct {
 	Version  string `json:"version"`
 	Instance string `json:"instance"`
 	Key      string `json:"key"`
+	Name     string `json:"name"`
+	Socket   string `json:"socket,omitempty"`
+	TCP      bool   `json:"tcp"`
+	Headless bool   `json:"headless"`
+	Port     int    `json:"port"`
 }
 
 var quick = &http.Client{Timeout: 2 * time.Second}
@@ -30,6 +35,29 @@ var errNotRunning = errors.New("not running")
 
 // Health asks the project's port which server answers.
 func Health(p *Project) (*Instance, error) {
+	path, err := p.SocketPath()
+	if err == nil {
+		if _, statErr := os.Lstat(path); statErr == nil {
+			client := socketHTTPClient(path, 2*time.Second)
+			defer client.CloseIdleConnections()
+			resp, err := client.Get(p.URL() + "/api/bundle/instance")
+			if err != nil {
+				return nil, errNotRunning
+			}
+			defer resp.Body.Close()
+			var i Instance
+			if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&i) != nil || i.App != "pocketcontext" {
+				return nil, errors.New("unexpected local socket server")
+			}
+			return &i, nil
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return nil, statErr
+		}
+	}
+	return tcpHealth(p)
+}
+
+func tcpHealth(p *Project) (*Instance, error) {
 	resp, err := quick.Get(p.URL() + "/api/bundle/instance")
 	if err != nil {
 		return nil, errNotRunning
@@ -38,6 +66,12 @@ func Health(p *Project) (*Instance, error) {
 	var i Instance
 	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&i) != nil || i.App != "pocketcontext" {
 		return nil, fmt.Errorf("port %d is used by another program; set a different \"port\" in %s", p.Config.Port, p.ConfigPath)
+	}
+	// Legacy servers have no transport fields but answered this TCP request.
+	if i.Socket == "" {
+		i.TCP = true
+		i.Headless = false
+		i.Port = p.Config.Port
 	}
 	return &i, nil
 }
@@ -60,13 +94,17 @@ func Running(p *Project) (bool, error) {
 // StartOptions control EnsureRunning.
 type StartOptions struct {
 	TakeOver bool
+	TCP      bool
 }
 
 // EnsureRunning starts the server in the background unless it already runs,
 // then waits until it answers. It is safe to call before every command.
 func EnsureRunning(p *Project, opts StartOptions) error {
 	ok, err := Running(p)
-	if err != nil || ok {
+	if ok {
+		return nil
+	}
+	if err != nil && opts.TCP {
 		return err
 	}
 	if err := os.MkdirAll(p.Cache, 0700); err != nil {
@@ -83,6 +121,11 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 	defer logFile.Close()
 	start, _ := logFile.Seek(0, io.SeekEnd)
 	args := []string{"serve", "--db", p.DB}
+	if opts.TCP {
+		args = append(args, "--tcp-only")
+	} else {
+		args = append(args, "--headless")
+	}
 	if opts.TakeOver {
 		args = append(args, "--take-over")
 	}
@@ -105,10 +148,10 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 		if err := p.loadConfig(); err != nil { // serve may have just created the instance ID
 			return err
 		}
-		if ok, err := Running(p); err != nil || ok {
-			if ok {
-				_ = cmd.Process.Release()
-			}
+		if ok, err := Running(p); ok {
+			_ = cmd.Process.Release()
+			return nil
+		} else if err != nil && opts.TCP {
 			return err
 		}
 	}
@@ -149,7 +192,12 @@ func LocalCall(p *Project, path string, body any) (map[string]any, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(keyHeader, key)
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	client, err := LocalHTTPClient(p, 5*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	defer client.CloseIdleConnections()
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

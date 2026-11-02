@@ -243,9 +243,16 @@ func loginWithCode(base string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	return redeemCode(base, code, "")
+}
+
+func redeemCode(base, code, expected string) (map[string]any, error) {
 	i, err := checkRemote(base, nil)
 	if err != nil {
 		return nil, err
+	}
+	if expected != "" && i.Instance != expected {
+		return nil, fail(1, "invitation identity mismatch; no code was sent")
 	}
 	c, err := newClient(base, "")
 	if err != nil {
@@ -257,7 +264,10 @@ func loginWithCode(base string) (map[string]any, error) {
 	}
 	token, _ := dig(data, "token").(string)
 	if status != 200 || token == "" {
-		return nil, fail(1, "sign-in to %s failed (HTTP %d): %s Ask for a new code: `pocketcontext login-code` on the agent computer.", base, status, message(data))
+		if status == 401 {
+			return nil, fail(1, "sign-in code is used or expired; request a fresh invitation or one-time code on the server")
+		}
+		return nil, fail(1, "sign-in to %s failed (HTTP %d); request a fresh invitation or one-time code on the server", base, status)
 	}
 	if err := saveSession(&session{URL: base, Instance: i.Instance, Token: token, Refreshed: time.Now().UTC()}); err != nil {
 		return nil, err
@@ -275,6 +285,7 @@ func remoteStatus(base string) (map[string]any, error) {
 	i, probeErr := probe(base)
 	if probeErr == nil {
 		out["reachable"], out["instance"] = true, i.Instance
+		out["name"], out["version"] = i.Name, i.Version
 	} else {
 		out["error"] = probeErr.Error()
 	}

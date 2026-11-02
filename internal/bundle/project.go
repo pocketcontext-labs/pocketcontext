@@ -26,6 +26,7 @@ const DefaultDatabase = "pocketcontext.db"
 // Config is the optional pocketcontext.json beside the database. It is synced
 // with the project, so it never contains credentials or machine-specific paths.
 type Config struct {
+	Name     string `json:"name,omitempty"`
 	Port     int    `json:"port"`
 	Instance string `json:"instance,omitempty"`
 }

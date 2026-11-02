@@ -11,6 +11,7 @@ import subprocess
 import sys
 import os
 import tempfile
+from e2e import isolated_env
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("obsidian_import", ROOT / "scripts/import_obsidian.py")
@@ -25,6 +26,11 @@ def main():
     binary = args.binary.resolve()
     with tempfile.TemporaryDirectory(prefix="obsidian-import-") as temporary:
         root = Path(temporary).resolve()
+        home = root / "home"
+        home.mkdir()
+        env = isolated_env(home)
+        os.environ.clear()
+        os.environ.update(env)
         db = root / "project/pocketcontext.db"
         vault = root / "vault"
         for name in ("alpha", "beta"):

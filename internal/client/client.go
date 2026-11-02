@@ -69,6 +69,10 @@ func New(p *bundle.Project, space string) (*Client, error) {
 	if err := bundle.EnsureRunning(p, bundle.StartOptions{}); err != nil {
 		return nil, fail(1, "%v", err)
 	}
+	c.http, err = bundle.LocalHTTPClient(p, 30*time.Second)
+	if err != nil {
+		return nil, fail(1, "%v", err)
+	}
 	key, err := bundle.ReadKey(p)
 	if err != nil {
 		return nil, fail(1, "%v", err)

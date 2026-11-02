@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
+	"github.com/pocketcontext-labs/pocketcontext/internal/profiles"
 )
 
 //go:embed schema.json
@@ -260,7 +262,7 @@ parsed:
 		return nil
 	}
 	spec := map[string][2][]string{
-		"serve":          {{"ui-dev"}, {"take-over"}},
+		"serve":          {{"ui-dev", "port"}, {"take-over", "headless", "tcp-only"}},
 		"start":          {nil, {"take-over"}},
 		"ensure-running": {nil, {"take-over"}},
 		"stop":           {nil, nil},
@@ -268,7 +270,10 @@ parsed:
 		"open":           {nil, {"no-browser"}},
 		"flush":          {nil, nil},
 		"recover":        {{"keep"}, nil},
-		"init":           {{"port"}, {"password-stdin"}},
+		"init":           {{"port", "name"}, {"password-stdin"}},
+		"name":           {nil, nil},
+		"manual":         {{"out"}, nil},
+		"profile":        {{"name", "binary", "skill-dir", "agent"}, nil},
 		"password":       {nil, {"password-stdin"}},
 		"skill":          {{"agent", "dir"}, nil},
 		"whoami":         {nil, nil},
@@ -301,7 +306,7 @@ parsed:
 		"login-code":     {{"ttl"}, nil},
 		"login":          {nil, {"password-stdin", "code-stdin"}},
 		"logout":         {nil, nil},
-		"tunnel":         {nil, {"new-address", "address-stdin"}},
+		"tunnel":         {{"out", "file"}, {"new-address", "address-stdin", "save"}},
 	}
 	s, known := spec[command]
 	if !known {
@@ -312,6 +317,12 @@ parsed:
 		return err
 	}
 	pretty := a.bools["pretty"]
+	if command == "manual" {
+		return exportManual(a, pretty)
+	}
+	if command == "profile" {
+		return runProfile(a, pretty)
+	}
 	// The tunnel carries the port between computers; it is neither a server
 	// nor a knowledge command, so it chooses its own side below.
 	if command == "tunnel" {
@@ -344,7 +355,20 @@ parsed:
 		if a.has("ui-dev") && a.flags["ui-dev"] == "" {
 			return fail(2, "--ui-dev needs a loopback Vite URL")
 		}
-		return bundle.Serve(p, bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"]})
+		if a.bools["headless"] && (a.bools["tcp-only"] || a.has("port") || a.has("ui-dev")) {
+			return fail(2, "--headless cannot be combined with TCP or UI development options")
+		}
+		if a.has("port") {
+			n, e := a.intFlag("port", 0)
+			if e != nil || n < 1024 || n > 65535 {
+				return fail(2, "--port must be 1024-65535")
+			}
+			p.Config.Port = n
+			if e = p.SaveConfig(); e != nil {
+				return e
+			}
+		}
+		return bundle.Serve(p, bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"]})
 	case "start", "ensure-running":
 		if err := bundle.EnsureRunning(p, bundle.StartOptions{TakeOver: a.bools["take-over"]}); err != nil {
 			return fail(1, "%v", err)
@@ -361,7 +385,12 @@ parsed:
 		running, err := bundle.Running(p)
 		lease, _ := bundle.ReadLease(p)
 		out := map[string]any{"db": p.DB, "url": p.URL(), "running": running, "config": p.ConfigPath, "storage": p.StorageDir(),
-			"cache": p.Cache, "log": p.LogFile(), "lease": lease, "conflicts": bundle.Conflicts(p), "version": bundle.Version}
+			"cache": p.Cache, "log": p.LogFile(), "lease": lease, "conflicts": bundle.Conflicts(p), "version": bundle.Version, "name": p.Config.Name, "instance": p.Config.Instance, "tcp": false, "headless": false}
+		out["socket"], _ = p.SocketPath()
+		out["port"] = p.Config.Port
+		if info, e := bundle.Health(p); e == nil && running {
+			out["socket"], out["tcp"], out["headless"], out["port"], out["serverVersion"] = info.Socket, info.TCP, info.Headless, info.Port, info.Version
+		}
 		if err != nil {
 			out["error"] = err.Error()
 		}
@@ -387,6 +416,8 @@ parsed:
 		}
 		Print(map[string]any{"recovered": keep, "db": p.DB}, pretty)
 		return nil
+	case "name":
+		return projectName(p, a, pretty)
 	case "init":
 		return initProject(p, a, pretty)
 	case "password":
@@ -406,6 +437,9 @@ parsed:
 	case "open":
 		if err := bundle.EnsureRunning(p, bundle.StartOptions{}); err != nil {
 			return fail(1, "%v", err)
+		}
+		if err := bundle.EnableTCP(p); err != nil {
+			return fail(1, "opening reader: %v", err)
 		}
 		data, err := bundle.LocalCall(p, "/api/bundle/login-code", map[string]any{})
 		if err != nil {
@@ -428,12 +462,15 @@ parsed:
 	if err != nil {
 		return err
 	}
+	if err := checkRegisteredTarget(p.DB, ""); err != nil {
+		return err
+	}
 	return runData(c, command, a, pretty)
 }
 
 // localOnly are the server and project commands that need the local database.
 var localOnly = map[string]bool{"serve": true, "start": true, "ensure-running": true, "stop": true, "flush": true,
-	"recover": true, "init": true, "password": true, "login-code": true}
+	"recover": true, "init": true, "name": true, "password": true, "login-code": true}
 
 // runRemote runs a command against a forwarded server. It never resolves a
 // database or starts a server.
@@ -491,6 +528,9 @@ func runRemote(base, command string, a *args, pretty bool) error {
 	case "skill":
 		return installSkills("", base, a.flags["agent"], a.flags["dir"], pretty)
 	}
+	if err := checkRegisteredTarget("", base); err != nil {
+		return err
+	}
 	c, err := NewRemote(base, a.flags["space"])
 	if err != nil {
 		return err
@@ -516,6 +556,9 @@ func runData(c *Client, command string, a *args, pretty bool) error {
 			return err
 		}
 		out := map[string]any{"url": c.Base, "signedIn": true, "space": id}
+		if raw, e := c.Must("GET", "/api/bundle/instance", nil); e == nil {
+			out["knowledgeBaseName"], out["instance"], out["version"] = dig(raw, "name"), dig(raw, "instance"), dig(raw, "version")
+		}
 		for _, row := range spaces {
 			if row["id"] == id {
 				out["name"], out["archived"], out["default"] = row["name"], row["archived"], row["default"]
@@ -855,11 +898,31 @@ func loginCode(p *bundle.Project, a *args, pretty bool) error {
 // storage/, pocketcontext.json and the one account, which signs in with a
 // password (or a local key or one-time code) under a fixed identity.
 func initProject(p *bundle.Project, a *args, pretty bool) error {
-	if err := a.need(0, "init [--port N] [--password-stdin]"); err != nil {
+	if err := a.need(0, "init [--name NAME] [--port N] [--password-stdin]"); err != nil {
 		return err
 	}
 	_, statErr := os.Stat(p.ConfigPath)
 	fresh := errors.Is(statErr, os.ErrNotExist)
+	if fresh && !a.has("name") {
+		p.Config.Name = filepath.Base(p.Dir)
+		if err := profiles.ValidateName(p.Config.Name); err != nil {
+			return fail(2, "choose a knowledge-base name with --name")
+		}
+	}
+	if a.has("name") {
+		name := strings.TrimSpace(a.flags["name"])
+		if err := profiles.ValidateName(name); err != nil {
+			return fail(2, "%v", err)
+		}
+		p.Config.Name = name
+	}
+	if fresh && !a.has("port") {
+		n, e := availablePort()
+		if e != nil {
+			return e
+		}
+		p.Config.Port = n
+	}
 	if a.has("port") {
 		port, err := a.intFlag("port", 0)
 		if err != nil || port < 1024 || port > 65535 {

@@ -43,7 +43,7 @@ jobs:
       - name: Unit tests
         run: |
           packages=./...
-          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client ./internal/tunnel"; fi
+          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client ./internal/tunnel ./internal/profiles"; fi
           CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" $packages
       - name: Build the binary
         run: |
@@ -64,6 +64,7 @@ jobs:
       - name: End-to-end test with synthetic notes
         run: |
           $PY tests/e2e.py --binary "$EXE"
+          $PY tests/release013.py --binary "$EXE"
           $PY tests/source_search.py --binary "$EXE"
           $PY tests/navigation_references.py --binary "$EXE"
           $PY tests/obsidian_import_e2e.py --binary "$EXE"

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	"ganigeorgiev.com/pocketbase/dbx"
-	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
 	_ "ganigeorgiev.com/pocketbase/pocketbase/migrations" // system migrations
 	"ganigeorgiev.com/pocketbase/pocketbase/plugins/jsvm"
@@ -37,6 +35,8 @@ var (
 type ServeOptions struct {
 	TakeOver bool
 	UIDev    string
+	Headless bool
+	TCPOnly  bool
 }
 
 // unpack writes the embedded application files to a content-addressed cache
@@ -121,6 +121,11 @@ func Serve(p *Project, opts ServeOptions) error {
 	defer lock.Close()
 	if err := lockFile(lock); err != nil {
 		return errors.New("a PocketContext server for this database is already running on this computer")
+	}
+	if opts.TCPOnly {
+		if err := removeStaleSocket(p); err != nil {
+			return err
+		}
 	}
 	if _, err := os.Stat(p.ConfigPath); errors.Is(err, os.ErrNotExist) {
 		if err := p.SaveConfig(); err != nil {
@@ -212,12 +217,10 @@ func Serve(p *Project, opts ServeOptions) error {
 	}
 	before := migrations()
 
-	var httpServer *http.Server
 	stop := make(chan struct{}, 1)
 	local := &localRoutes{p: p, store: store, key: key, stop: stop, uiDev: opts.UIDev}
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.InstallerFunc = nil // accounts are created by `pocketcontext init`
-		httpServer = e.Server
 		if migrations() != before {
 			store.Changed()
 		}
@@ -252,31 +255,20 @@ func Serve(p *Project, opts ServeOptions) error {
 	}()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
 	go func() {
 		select {
 		case <-signals:
-		case <-stop:
-		}
-		if httpServer != nil {
-			shutdown, done := context.WithTimeout(context.Background(), 10*time.Second)
-			defer done()
-			_ = httpServer.Shutdown(shutdown)
+			select {
+			case stop <- struct{}{}:
+			default:
+			}
+		case <-ctx.Done():
 		}
 	}()
-
-	addr := fmt.Sprintf("127.0.0.1:%d", p.Config.Port)
-	log.Printf("pocketcontext %s serving %s at http://%s", Version, p.DB, addr)
-	if devUI != nil {
-		log.Printf("UI development mode: serving the reader through %s", opts.UIDev)
-	}
-	serveErr := apis.Serve(app, apis.ServeConfig{
-		HttpAddr:       addr,
-		AllowedOrigins: []string{p.URL(), fmt.Sprintf("http://localhost:%d", p.Config.Port)},
-	})
+	log.Printf("pocketcontext %s serving %s", Version, p.DB)
+	serveErr := serveHTTP(app, p, opts, stop, local)
 	cancel()
-	if errors.Is(serveErr, http.ErrServerClosed) {
-		serveErr = nil
-	}
 	closeErr := app.ResetBootstrapState()
 	if err := store.Close(); err != nil {
 		log.Printf("final write-back failed: %v", err)

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
@@ -22,12 +24,14 @@ import (
 const keyHeader = "X-PocketContext-Local-Key"
 
 type localRoutes struct {
-	p     *Project
-	store *Store
-	key   string
-	stop  chan struct{}
-	codes codeStore
-	uiDev string
+	p         *Project
+	store     *Store
+	key       string
+	stop      chan struct{}
+	codes     codeStore
+	uiDev     string
+	listeners *listenerSet
+	nameMu    sync.RWMutex
 }
 
 // Sign-in code lifetimes in seconds. Codes live only in server memory.
@@ -106,7 +110,7 @@ func (l *localRoutes) allowedHost(host string) bool {
 
 func (l *localRoutes) requireKey(e *core.RequestEvent) error {
 	given := e.Request.Header.Get(keyHeader)
-	if !loopback(e.Request) || subtle.ConstantTimeCompare([]byte(given), []byte(l.key)) != 1 {
+	if (!loopback(e.Request) && !socketRequest(e.Request)) || subtle.ConstantTimeCompare([]byte(given), []byte(l.key)) != 1 {
 		return e.ForbiddenError("A local key is required.", nil)
 	}
 	return nil
@@ -133,7 +137,7 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 	e.Router.Bind(&hook.Handler[*core.RequestEvent]{
 		Id: "pocketcontextLocalHost", Priority: -99999,
 		Func: func(re *core.RequestEvent) error {
-			if !l.allowedHost(re.Request.Host) {
+			if !l.allowedHost(re.Request.Host) && !(socketRequest(re.Request) && re.Request.Host == SocketHost) {
 				return re.ForbiddenError("Unexpected host.", nil)
 			}
 			return re.Next()
@@ -141,8 +145,14 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 	})
 
 	e.Router.GET("/api/bundle/instance", func(re *core.RequestEvent) error {
+		l.nameMu.RLock()
+		defer l.nameMu.RUnlock()
 		info := map[string]any{
-			"app": "pocketcontext", "version": Version, "instance": l.p.Config.Instance, "key": l.p.Key,
+			"app": "pocketcontext", "version": Version, "instance": l.p.Config.Instance, "key": l.p.Key, "name": l.p.Config.Name, "port": l.p.Config.Port,
+		}
+		if l.listeners != nil {
+			socket, tcp := l.listeners.state()
+			info["socket"], info["tcp"], info["headless"] = socket, tcp, !tcp
 		}
 		if l.uiDev != "" {
 			// The repository launcher verifies the exact child before it may
@@ -150,6 +160,44 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 			info["uiDev"], info["pid"] = l.uiDev, os.Getpid()
 		}
 		return re.JSON(http.StatusOK, info)
+	})
+
+	e.Router.POST("/api/bundle/name", func(re *core.RequestEvent) error {
+		if err := l.requireKey(re); err != nil {
+			return err
+		}
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := re.BindBody(&body); err != nil {
+			return re.BadRequestError("Invalid name.", nil)
+		}
+		name := strings.TrimSpace(body.Name)
+		if name == "" || !utf8.ValidString(name) || utf8.RuneCountInString(name) > 80 || strings.ContainsAny(name, "/\\") || strings.IndexFunc(name, unicode.IsControl) >= 0 {
+			return re.BadRequestError("Name must be 1-80 characters without slashes or control characters.", nil)
+		}
+		l.nameMu.Lock()
+		defer l.nameMu.Unlock()
+		old := l.p.Config.Name
+		l.p.Config.Name = name
+		if err := l.p.SaveConfig(); err != nil {
+			l.p.Config.Name = old
+			return re.InternalServerError("Could not save name.", err)
+		}
+		return re.JSON(http.StatusOK, map[string]any{"name": name, "instance": l.p.Config.Instance})
+	})
+
+	e.Router.POST("/api/bundle/enable-tcp", func(re *core.RequestEvent) error {
+		if err := l.requireKey(re); err != nil {
+			return err
+		}
+		if l.listeners == nil {
+			return re.InternalServerError("listener manager unavailable", nil)
+		}
+		if err := l.listeners.enableTCP(); err != nil {
+			return re.BadRequestError(err.Error(), nil)
+		}
+		return re.JSON(http.StatusOK, map[string]any{"tcp": true, "port": l.p.Config.Port, "url": l.p.URL()})
 	})
 
 	e.Router.POST("/api/bundle/token", func(re *core.RequestEvent) error {

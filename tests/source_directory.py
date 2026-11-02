@@ -21,6 +21,7 @@ def main():
         pc = Project(binary, Path(temp))
         try:
             pc.json('init', '--port', str(pc.port), '--password-stdin', stdin=PASSWORD + '\n')
+            pc.json('open', '--no-browser')
             status, raw = pc.http('POST', '/api/collections/users/auth-with-password',
                                   {'identity': 'me@pocketcontext.localhost', 'password': PASSWORD})
             assert status == 200
