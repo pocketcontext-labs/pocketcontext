@@ -26,7 +26,7 @@ def main():
 
         def run(*argv, expect=0, stdin=None):
             result = subprocess.run([binary, *map(str, argv)], env=env, input=stdin,
-                                    capture_output=True, text=True, timeout=120)
+                                    capture_output=True, text=True, encoding="utf-8", timeout=120)
             assert result.returncode == expect, (argv, result.returncode, result.stderr)
             return json.loads(result.stdout) if result.stdout.lstrip().startswith(('{', '[')) else result.stdout
 
