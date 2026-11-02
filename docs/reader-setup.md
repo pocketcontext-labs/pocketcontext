@@ -55,6 +55,22 @@ skipped.” Then provide the authorized client handoff or offer it. Mention pend
 reader access separately from completed knowledge work. Do not create a short-lived
 reader code while the user is still installing the other computer's client.
 
+After displaying the complete client prompt, say: "Paste this prompt into the
+coding agent on your desktop. When it finishes, come back here and tell me whether
+the reader opened and you could access your knowledge base. If it failed, paste
+its error or completion report." Keep desktop reader access pending until that
+confirmation. The handoff contains the invitation and instructions, not a
+pre-generated reader link: the desktop client creates its two-minute link after
+its connection is ready. Do not wait for the user to return before allowing the
+desktop agent to complete sign-in.
+
+When the user returns, distinguish reader success from CLI/tunnel success. If the
+reader works, mark desktop access complete. If the tunnel and CLI work but the
+reader does not, direct the desktop agent to run `open --url URL --no-browser`
+and immediately display its fresh `signInLink`. Diagnose pairing failures from
+the reported error; issue a fresh invitation only when client authentication
+still needs one. Preserve completed installation and saved connections.
+
 ## On the reader computer
 
 Make sure command execution is on the intended computer, not another SSH host or
@@ -71,3 +87,11 @@ signed in. Report only the command's actual launch result. The user can still us
 an explicitly requested manual link if their browser reaches the verified local
 forward. Keep reusable session tokens, passwords and private keys out of chat;
 the existing invitation and single-use link handoffs remain supported.
+
+On a reachable desktop, if the reader result has `readerSkipped: false` and
+`browserLaunchRequested: false`, immediately display its returned `signInLink`.
+If the user reports that launch or sign-in did not work, create a fresh link with
+`open --url URL --no-browser` and display it immediately. Do not make the user
+repeat pairing while CLI authentication works. Ask the user to confirm reader
+access and return that outcome to the server agent; launcher success alone leaves
+reader access pending verification.

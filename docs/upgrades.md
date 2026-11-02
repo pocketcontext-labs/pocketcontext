@@ -7,9 +7,9 @@ Only one server may open a given project at a time.
 
 ## Compatibility
 
-Application version and database format are separate. PocketContext 0.16.0 uses
-logical database format 1, the single-user format used by 0.11.x–0.15.x. Upgrading
-those projects to 0.16.0 requires no data conversion. The startup guard checks the
+Application version and database format are separate. PocketContext 0.16.1 uses
+logical database format 1, the single-user format used by 0.11.x–0.16.0. Upgrading
+those projects to 0.16.1 requires no data conversion. The startup guard checks the
 recorded application and PocketBase system migrations on the private working copy
 before PocketBase bootstrap; unknown migrations and unsupported formats are
 refused. Databases from
@@ -100,7 +100,7 @@ Restore the complete stopped backup together with its matching binary. Regenerat
 its profile and skill and verify its identity before writes. Restoring the backup
 returns knowledge to the backup time: preserve any later work separately before
 restoring. Binary-only downgrades are supported only when that exact path has
-been tested and documented; no blanket downgrade guarantee is made for 0.16.0.
+been tested and documented; no blanket downgrade guarantee is made for 0.16.1.
 Never force an older release past an unsupported-format or migration error.
 
 ## Several versions and computers

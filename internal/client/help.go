@@ -12,7 +12,7 @@ type helpEntry struct{ usage, text, example string }
 // and for the commands handled before it (help, version, newid).
 var commandHelp = map[string]helpEntry{
 	"environment": {"environment [--pretty]", "Report session and browser capability signals without opening a database, starting a server or browser or issuing credentials. SSH takes precedence over display signals; unknown is not a confirmed desktop. No environment values are exposed.", "pocketcontext environment --pretty"},
-	"manual":      {"manual --out NEW_DIRECTORY", "Export the embedded versioned user manual and hash manifest without a server. Refuses an existing directory.", "pocketcontext manual --out manual-0.16.0"},
+	"manual":      {"manual --out NEW_DIRECTORY", "Export the embedded versioned user manual and hash manifest without a server. Refuses an existing directory.", "pocketcontext manual --out manual-0.16.1"},
 	"name":        {"name [NAME]", "Show or change the project name. Stable project identity stays unchanged; reconcile profiles explicitly after renaming.", "pocketcontext name Research"},
 	"profile":     {"profile add|update|list|remove|default|check|repair [NAME] [--binary PATH] [--skill-dir DIR]", "Manage private named knowledge-base registrations. add/update accept --db or --url. Removing a profile never deletes data. check verifies identity, name, binary and running server versions, and skill before use; repair reinstalls the router.", "pocketcontext profile list"},
 	"help": {"help [COMMAND]",

@@ -14,9 +14,9 @@ import (
 	assets "github.com/pocketcontext-labs/pocketcontext"
 )
 
-const manualVersion = "0.16.0"
+const manualVersion = "0.16.1"
 
-var manualFiles = []string{"README.md", "docs/spaces.md", "docs/import-obsidian.md", "docs/upgrades.md", "docs/reader-setup.md", "docs/releases/0.16.0.md"}
+var manualFiles = []string{"README.md", "docs/spaces.md", "docs/import-obsidian.md", "docs/upgrades.md", "docs/reader-setup.md", "docs/releases/0.16.1.md"}
 var markdownLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
 
 func manualContent(name string) ([]byte, error) {

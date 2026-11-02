@@ -23,7 +23,7 @@ func TestInvitationStdinAndGeneratedPrompt(t *testing.T) {
 	if err != nil || decoded.Code != in.Code || decoded.Instance != in.Instance {
 		t.Fatalf("prompt invitation round trip: %v", err)
 	}
-	if !strings.Contains(prompt, "tunnel join --stdin") || !strings.Contains(prompt, "/blob/v0.16.0/README.md") || !strings.Contains(prompt, "--no-browser") {
+	if !strings.Contains(prompt, "tunnel join --stdin") || !strings.Contains(prompt, "/blob/v0.16.1/README.md") || !strings.Contains(prompt, "--no-browser") {
 		t.Fatal("incomplete client setup instructions")
 	}
 	for _, bad := range []string{string(data) + ` {}`, strings.Replace(string(data), `"format":1`, `"format":1,"unexpected":true`, 1), string(data) + strings.Repeat(" ", 65537)} {
