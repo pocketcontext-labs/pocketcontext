@@ -62,8 +62,7 @@ adapter alone is not evidence that a model response succeeded.
 
 ## Permissions and knowledge changes
 
-Sessions start in read-only mode with on-request approvals. There is no phone
-control for switching to full access or changing models. Read each permission
+By default sessions use read-only mode. On the host, set `POCKETCONTEXT_CHAT_ALLOW_WORKSPACE=1` before starting the server to also allow workspace access with on-request approvals. In the composer, the shield selects the current conversation’s permissions. An idle chat can switch between allowed modes. During a running turn you can switch to Full access; stop the turn before switching to a more restrictive mode. To offer Full access (YOLO), explicitly set `POCKETCONTEXT_CHAT_ALLOW_FULL_ACCESS=1` on the host. Selecting Full access in the shield applies immediately to the open conversation, including pending one-time approvals. That conversation can run commands without approvals and access files and networks available to the host account. New chats use the ordinary default. Disabling the host option prevents starting or restoring full-access conversations after restart. The composer lists the models and reasoning levels offered by the adapter. Your selection takes effect on the next message. Read each permission
 request and select among the adapter's actual choices; do not enable automatic
 approval to fix a failed task. Cancel a task when you no longer want it to run.
 An approval may allow a command to change knowledge through the authenticated
@@ -96,8 +95,7 @@ a command may have completed before the interruption was recorded.
 
 The host retains at most 64 saved conversations, with up to 4 active. Each
 conversation is limited to 256 prompts and 4,096 events or 8 MiB of transcript.
-Reaching a limit stops further work. End an active conversation to free an active
-slot; start a new conversation when a conversation reaches its own limit.
+When a new or reopened chat needs an active slot, the host closes the least recently updated idle conversation that supports restoration. Opening that conversation restores its session automatically. Running turns and pending approvals keep their slots. Start a new chat when an individual conversation reaches its history limit.
 
 At the saved-history limit, ask your setup agent to identify this project's private
 machine-local `chat/history` directory, cleanly stop its service, and remove only
@@ -109,8 +107,10 @@ storage or unrelated cache state to make room for chat.
 
 ## Scope
 
-This release provides text chat, streamed agent updates, permission decisions and
+When the host adapter supports image prompts, attach up to three PNG or JPEG images (384 KiB each) with the plus button. Sent images are kept in the private transcript and sent to the selected provider. The microphone uses browser speech recognition, which may use a browser-provided online service. Dictation inserts editable text into the draft.
+
+This release provides text and image chat, streamed agent updates, permission decisions and
 cancellation for the configured adapter. It does not promise every ACP extension,
-all model providers, mobile file uploads, unattended schedules, or an operating-system
+all model providers, arbitrary file uploads, unattended schedules, or an operating-system
 sandbox around arbitrary agents. Existing external agent interfaces and the
 installed PocketContext skill remain available independently.

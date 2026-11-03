@@ -46,14 +46,17 @@ func TestACPProcess(t *testing.T) {
 					time.Sleep(time.Millisecond)
 				}
 			}
-			reply(w.ID, map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]bool{"loadSession": true}})
+			reply(w.ID, map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true, "promptCapabilities": map[string]bool{"image": true}}})
 		case "session/new", "session/load":
 			if os.Getenv("CHAT_TEST_AUTH_FAIL") == "1" {
 				send(wire{JSONRPC: "2.0", ID: w.ID, Error: &rpcError{Code: -32000, Message: "authentication required"}})
 				continue
 			}
-			reply(w.ID, map[string]any{"sessionId": "fake-session", "modes": map[string]any{"currentModeId": "agent-full-access", "availableModes": []any{map[string]string{"id": "read-only"}}}})
-		case "session/set_mode":
+			reply(w.ID, map[string]any{"sessionId": "fake-session", "models": ModelState{Current: "first", Options: []ChatModel{{ID: "first", Name: "First"}, {ID: "second", Name: "Second"}}}, "modes": map[string]any{"currentModeId": "agent-full-access", "availableModes": []any{map[string]string{"id": "read-only"}, map[string]string{"id": "workspace-write"}, map[string]string{"id": "agent-full-access"}}}})
+		case "session/set_mode", "session/set_model":
+			if os.Getenv("INITIAL_AGENT_MODE") == "agent-full-access" && os.Getenv("CODEX_CONFIG") != `{"approval_policy":"never","sandbox_mode":"danger-full-access"}` {
+				os.Exit(4)
+			}
 			reply(w.ID, map[string]any{})
 		case "session/prompt":
 			var p struct {
@@ -266,11 +269,11 @@ func TestActiveLimitAndImmediateResume(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = m.Create(context.Background(), "two", "space"); e != ErrLimit {
+	if _, e = m.Create(context.Background(), "two", "space"); e != nil {
 		t.Fatal(e)
 	}
-	if e = m.CloseSession(s.ID); e != nil {
-		t.Fatal(e)
+	if parked, _ := m.Snapshot(s.ID, 0); parked.Status != "closed" {
+		t.Fatal(parked.Status)
 	}
 	if e = m.Resume(context.Background(), s.ID); e != nil {
 		t.Fatal(e)
@@ -372,4 +375,76 @@ func TestCloseDuringInitializeAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	await(t, m, snap.ID, func(s Snapshot) bool { return s.Status == "idle" })
+}
+
+func TestHostBoundsConversationMode(t *testing.T) {
+	m := testManager(t)
+	ctx := context.Background()
+	if _, err := m.CreateWithMode(ctx, "create", "space", "workspace-write"); err != ErrInvalid {
+		t.Fatalf("disabled workspace mode: %v", err)
+	}
+	m.c.AllowWorkspace = true
+	if _, err := m.CreateWithMode(ctx, "create", "space", "agent-full-access"); err != ErrInvalid {
+		t.Fatalf("full access: %v", err)
+	}
+	m.c.AllowFullAccess = true
+	full, err := m.CreateWithMode(ctx, "explicit-full", "space", "agent-full-access")
+	if err != nil || full.Mode != "agent-full-access" {
+		t.Fatalf("explicit full access: %v", err)
+	}
+	snap, err := m.CreateWithMode(ctx, "create", "space", "workspace-write")
+	if err != nil || snap.Mode != "workspace-write" {
+		t.Fatalf("workspace creation: %v, %q", err, snap.Mode)
+	}
+	if _, err := m.Create(ctx, "create", "space"); err != ErrConflict {
+		t.Fatalf("retry with changed mode: %v", err)
+	}
+}
+
+func TestOrganizeChat(t *testing.T) {
+	m := testManager(t)
+	s, err := m.Create(context.Background(), "organize", "space")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		action           string
+		pinned, archived bool
+	}{
+		{"pin", true, false}, {"unpin", false, false}, {"pin", true, false}, {"archive", false, true}, {"restore", false, false},
+	} {
+		if err := m.Organize(s.ID, step.action); err != nil {
+			t.Fatal(err)
+		}
+		row := m.List()[0]
+		if row.Pinned != step.pinned || row.Archived != step.archived || row.Status != s.Status {
+			t.Fatalf("%s: %+v", step.action, row)
+		}
+	}
+}
+
+func TestLiveModeResolvesPendingApproval(t *testing.T) {
+	m := testManager(t)
+	ctx := context.Background()
+	s, err := m.Create(ctx, "live", "space")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.SetMode(ctx, s.ID, "agent-full-access"); err != ErrInvalid {
+		t.Fatal(err)
+	}
+	m.c.AllowFullAccess = true
+	if err = m.Prompt(s.ID, "one", "permission"); err != nil {
+		t.Fatal(err)
+	}
+	await(t, m, s.ID, func(s Snapshot) bool { return len(s.Permissions) == 1 })
+	if err = m.SetMode(ctx, s.ID, "agent-full-access"); err != nil {
+		t.Fatal(err)
+	}
+	await(t, m, s.ID, func(s Snapshot) bool {
+		return s.Status == "idle" && s.Mode == "agent-full-access" && len(s.Permissions) == 0
+	})
+	if err = m.SetMode(ctx, s.ID, "read-only"); err != nil {
+		t.Fatal(err)
+	}
 }

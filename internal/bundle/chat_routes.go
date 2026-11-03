@@ -37,14 +37,18 @@ func chatPublicRoute(method, path string) bool {
 		return false
 	}
 	switch parts[1] {
-	case "prompt", "permission", "cancel", "resume", "close":
+	case "mode", "organize", "prompt", "permission", "cancel", "resume", "close":
 		return true
 	}
 	return false
 }
 
 func chatJSON(re *core.RequestEvent, out any) error {
-	re.Request.Body = http.MaxBytesReader(re.Response, re.Request.Body, 64<<10)
+	limit := int64(64 << 10)
+	if strings.HasSuffix(re.Request.URL.Path, "/prompt") {
+		limit = 2 << 20
+	}
+	re.Request.Body = http.MaxBytesReader(re.Response, re.Request.Body, limit)
 	data, err := io.ReadAll(re.Request.Body)
 	if err != nil || len(bytes.TrimSpace(data)) == 0 || bytes.TrimSpace(data)[0] != '{' {
 		return re.BadRequestError("Invalid chat request body.", nil)
@@ -66,7 +70,7 @@ func chatError(re *core.RequestEvent, err error) error {
 	case errors.Is(err, chat.ErrInvalid):
 		return re.BadRequestError("Invalid chat request.", nil)
 	case errors.Is(err, chat.ErrLimit):
-		return apis.NewApiError(http.StatusConflict, "Chat limit reached. End an active conversation, or ask your setup agent to clear old local chat history on the host.", nil)
+		return apis.NewApiError(http.StatusConflict, "Chat limit reached. If all agents are busy, try again when a turn finishes. For a full transcript, start a new chat.", nil)
 	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrConflict):
 		return apis.NewApiError(http.StatusConflict, "Conversation is busy or the request conflicts with its current state.", nil)
 	default:
@@ -107,6 +111,7 @@ func registerChat(e *core.ServeEvent, manager *chat.Manager) {
 			var body struct {
 				RequestID string `json:"requestId"`
 				Space     string `json:"space"`
+				Mode      string `json:"mode"`
 			}
 			if err := chatJSON(re, &body); err != nil {
 				return err
@@ -114,7 +119,7 @@ func registerChat(e *core.ServeEvent, manager *chat.Manager) {
 			if _, err := re.App.FindRecordById("spaces", body.Space); err != nil {
 				return re.BadRequestError("Choose an existing space.", nil)
 			}
-			snapshot, err := manager.Create(re.Request.Context(), body.RequestID, body.Space)
+			snapshot, err := manager.CreateWithMode(re.Request.Context(), body.RequestID, body.Space, body.Mode)
 			if err != nil {
 				return chatError(re, err)
 			}
@@ -124,15 +129,33 @@ func registerChat(e *core.ServeEvent, manager *chat.Manager) {
 		if re.Request.Method == http.MethodPost {
 			var err error
 			switch {
-			case strings.HasSuffix(path, "/prompt"):
+			case strings.HasSuffix(path, "/mode"):
 				var body struct {
-					RequestID string `json:"requestId"`
-					Text      string `json:"text"`
+					Mode string `json:"mode"`
 				}
 				if err := chatJSON(re, &body); err != nil {
 					return err
 				}
-				err = manager.Prompt(id, body.RequestID, body.Text)
+				err = manager.SetMode(re.Request.Context(), id, body.Mode)
+			case strings.HasSuffix(path, "/organize"):
+				var body struct {
+					Action string `json:"action"`
+				}
+				if err := chatJSON(re, &body); err != nil {
+					return err
+				}
+				err = manager.Organize(id, body.Action)
+			case strings.HasSuffix(path, "/prompt"):
+				var body struct {
+					RequestID string             `json:"requestId"`
+					Text      string             `json:"text"`
+					Images    []chat.PromptImage `json:"images"`
+					Model     string             `json:"model"`
+				}
+				if err := chatJSON(re, &body); err != nil {
+					return err
+				}
+				err = manager.PromptWithOptions(id, body.RequestID, body.Text, body.Model, body.Images)
 			case strings.HasSuffix(path, "/permission"):
 				var body struct {
 					RequestID string `json:"requestId"`
@@ -168,7 +191,7 @@ func registerChat(e *core.ServeEvent, manager *chat.Manager) {
 	for _, path := range []string{"/api/chat/status", "/api/chat/sessions", "/api/chat/sessions/{id}"} {
 		e.Router.GET(path, handler).Bind(apis.RequireAuth("users"))
 	}
-	for _, path := range []string{"/api/chat/sessions", "/api/chat/sessions/{id}/prompt", "/api/chat/sessions/{id}/permission", "/api/chat/sessions/{id}/cancel", "/api/chat/sessions/{id}/resume", "/api/chat/sessions/{id}/close"} {
+	for _, path := range []string{"/api/chat/sessions", "/api/chat/sessions/{id}/mode", "/api/chat/sessions/{id}/organize", "/api/chat/sessions/{id}/prompt", "/api/chat/sessions/{id}/permission", "/api/chat/sessions/{id}/cancel", "/api/chat/sessions/{id}/resume", "/api/chat/sessions/{id}/close"} {
 		e.Router.POST(path, handler).Bind(apis.RequireAuth("users"))
 	}
 }

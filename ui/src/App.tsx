@@ -903,6 +903,14 @@ function Reader() {
       >
         Skip to page
       </a>
+      <AgentChat
+        space={space?.id}
+        spaces={spaces}
+        onSpaceChange={(id) => {
+          setSpace(spaces.find((item) => item.id === id) || null);
+          location.hash = `#/?space=${encodeURIComponent(id)}`;
+        }}
+      />
       <aside
         ref={sidebar}
         id="reader-navigation"
@@ -930,7 +938,7 @@ function Reader() {
         </button>
         <Brand href={pageHref("")} />
         {spaces.length > 0 && (spaces.length > 1 || !space) ? (
-          <label className="publication-control">
+          <label className="publication-control nav-space-picker">
             Space
             <select
               aria-label="Space"
@@ -1263,7 +1271,6 @@ function Reader() {
               </label>
             )}
           </div>
-          <AgentChat space={space?.id} />
         </header>
         {error && (
           <div className="error-banner" role="alert">

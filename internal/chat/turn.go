@@ -1,17 +1,44 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"slices"
 	"time"
 )
 
 func (m *Manager) Prompt(id, requestID, text string) error {
-	if !validKey(requestID) || len(text) == 0 || len(text) > 65536 {
+	return m.PromptWithOptions(id, requestID, text, "", nil)
+}
+func (m *Manager) PromptWithOptions(id, requestID, text, model string, images []PromptImage) error {
+	if !validKey(requestID) || (len(text) == 0 && len(images) == 0) || len(text) > 65536 || len(images) > 3 {
 		return ErrInvalid
+	}
+	blocks := []map[string]string{}
+	if text != "" {
+		blocks = append(blocks, map[string]string{"type": "text", "text": text})
+	}
+	for _, img := range images {
+		if len(img.Data) > 512<<10 {
+			return ErrInvalid
+		}
+		raw, err := base64.StdEncoding.DecodeString(img.Data)
+		if err != nil {
+			return ErrInvalid
+		}
+		cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
+		if err != nil || (format != "png" && format != "jpeg") || img.MIME != "image/"+format || cfg.Width > 8192 || cfg.Height > 8192 {
+			return ErrInvalid
+		}
+		blocks = append(blocks, map[string]string{"type": "image", "mimeType": img.MIME, "data": img.Data})
 	}
 	s, e := m.get(id)
 	if e != nil {
@@ -20,6 +47,10 @@ func (m *Manager) Prompt(id, requestID, text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hash := sha256.Sum256([]byte(text))
+	if len(images) > 0 || model != "" {
+		b, _ := json.Marshal([]any{text, model, images})
+		hash = sha256.Sum256(b)
+	}
 	h := hex.EncodeToString(hash[:])
 	if old, ok := s.Requests[requestID]; ok {
 		if old == h {
@@ -27,18 +58,39 @@ func (m *Manager) Prompt(id, requestID, text string) error {
 		}
 		return ErrConflict
 	}
-	if s.Status != "idle" || s.process == nil {
+	if s.changingMode != "" || s.Status != "idle" || s.process == nil {
 		return ErrBusy
 	}
 	if len(s.Requests) >= 256 || len(s.Events) > maxEvents-64 {
 		return ErrLimit
 	}
+	if len(images) > 0 && !s.Images {
+		return ErrInvalid
+	}
+	if model != "" && (s.Models == nil || !slices.ContainsFunc(s.Models.Options, func(option ChatModel) bool { return option.ID == model })) {
+		return ErrInvalid
+	}
+	changeModel := model != "" && model != s.Models.Current
+	var data json.RawMessage
+	if len(images) > 0 {
+		data, _ = json.Marshal(map[string]any{"images": images})
+		existing, _ := json.Marshal(s)
+		if len(existing)+len(data)+len(text)+65536 > maxHistoryBytes {
+			return ErrLimit
+		}
+	}
 	s.Requests[requestID] = h
 	s.Status = "running"
 	s.turn++
 	turn := s.turn
-	if e = s.add("user", text, nil); e != nil {
+	if e = s.add("user", text, data); e != nil {
 		return e
+	}
+	if s.Title == "" {
+		s.Title = conversationTitle(text)
+		if s.Title == "" {
+			s.Title = "Image attachment"
+		}
 	}
 	if e = m.save(s); e != nil {
 		s.Status = "error"
@@ -54,7 +106,22 @@ func (m *Manager) Prompt(id, requestID, text string) error {
 		var result struct {
 			StopReason string `json:"stopReason"`
 		}
-		err := r.call(ctx, "session/prompt", map[string]any{"sessionId": agentID, "prompt": []any{map[string]string{"type": "text", "text": text}}}, &result)
+		var err error
+		if changeModel {
+			err = r.call(ctx, "session/set_model", map[string]string{"sessionId": agentID, "modelId": model}, nil)
+			if err == nil {
+				s.mu.Lock()
+				if s.process == r && s.turn == turn {
+					updated := *s.Models
+					updated.Current = model
+					s.Models = &updated
+				}
+				s.mu.Unlock()
+			}
+		}
+		if err == nil {
+			err = r.call(ctx, "session/prompt", map[string]any{"sessionId": agentID, "prompt": blocks}, &result)
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.turn != turn || s.process != r {
@@ -125,9 +192,9 @@ func (m *Manager) receive(s *session, generation uint64, w wire) {
 				CurrentModeID string `json:"currentModeId"`
 			}
 			_ = json.Unmarshal(p.Update, &mode)
-			if mode.CurrentModeID != "read-only" && s.Status != "initializing" {
+			if mode.CurrentModeID != s.Mode && (s.changingMode == "" || mode.CurrentModeID != s.changingMode) && s.Status != "initializing" {
 				s.Status = "error"
-				s.Error = "Agent left read-only mode"
+				s.Error = "Agent left the selected permission mode"
 				r.stop()
 				return
 			}
@@ -169,12 +236,71 @@ func (m *Manager) receive(s *session, generation uint64, w wire) {
 		}
 		seen[o.OptionID] = true
 	}
+	if s.Mode == "agent-full-access" && s.changingMode == "" && approveOnce(r, w.ID, p.Options) {
+		return
+	}
 	id := randomID()
 	s.permissions[id] = pendingPermission{Permission: Permission{ID: id, ToolCall: p.ToolCall, Options: p.Options}, wireID: w.ID}
 	if m.save(s) != nil {
 		delete(s.permissions, id)
 		r.stop()
 	}
+}
+
+// Resolve a native one-time approval without creating a persistent command rule.
+func approveOnce(r *rpc, id json.RawMessage, options []PermissionOption) bool {
+	for _, o := range options {
+		if o.Kind == "allow_once" {
+			return r.reply(id, map[string]any{"outcome": map[string]string{"outcome": "selected", "optionId": o.OptionID}}) == nil
+		}
+	}
+	return false
+}
+func (m *Manager) SetMode(ctx context.Context, id, mode string) error {
+	if !m.allowsMode(mode) {
+		return ErrInvalid
+	}
+	s, err := m.get(id)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.changingMode != "" || s.process == nil || (s.Status != "idle" && !(s.Status == "running" && mode == "agent-full-access")) {
+		s.mu.Unlock()
+		return ErrBusy
+	}
+	if s.Mode == mode {
+		s.mu.Unlock()
+		return nil
+	}
+	r, agentID := s.process, s.AgentID
+	s.changingMode = mode
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), m.c.HandshakeTimeout)
+	defer cancel()
+	err = r.call(ctx, "session/set_mode", map[string]string{"sessionId": agentID, "modeId": mode}, nil)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.changingMode = ""
+	if err != nil || s.process != r || (s.Status != "running" && s.Status != "idle") {
+		r.stop()
+		return ErrConflict
+	}
+	previous := s.Mode
+	s.Mode = mode
+	if err = m.save(s); err != nil {
+		s.Mode = previous
+		r.stop()
+		return err
+	}
+	if mode == "agent-full-access" {
+		for key, p := range s.permissions {
+			if approveOnce(r, p.wireID, p.Options) {
+				delete(s.permissions, key)
+			}
+		}
+	}
+	return nil
 }
 func (m *Manager) Permission(id, permissionID, optionID string) error {
 	s, e := m.get(id)

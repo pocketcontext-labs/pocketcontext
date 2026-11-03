@@ -22,18 +22,20 @@ var ErrInvalid = errors.New("invalid chat request")
 
 type session struct {
 	Summary
-	RequestID   string            `json:"requestId"`
-	AgentID     string            `json:"agentId"`
-	Load        bool              `json:"load"`
-	Events      []Event           `json:"events"`
-	Requests    map[string]string `json:"requests"`
-	mu          sync.Mutex
-	process     *rpc
-	permissions map[string]pendingPermission
-	decisions   map[string]string
-	replay      bool
-	turn        uint64
-	generation  uint64
+	CreatedMode  string            `json:"createdMode"`
+	RequestID    string            `json:"requestId"`
+	AgentID      string            `json:"agentId"`
+	Load         bool              `json:"load"`
+	Events       []Event           `json:"events"`
+	Requests     map[string]string `json:"requests"`
+	mu           sync.Mutex
+	process      *rpc
+	permissions  map[string]pendingPermission
+	decisions    map[string]string
+	changingMode string
+	replay       bool
+	turn         uint64
+	generation   uint64
 }
 type pendingPermission struct {
 	Permission
@@ -85,7 +87,7 @@ func New(c Config) (*Manager, error) {
 			env = append(env, v)
 		}
 	}
-	c.Env = append(env, "INITIAL_AGENT_MODE=read-only", `CODEX_CONFIG={"approval_policy":"on-request","sandbox_mode":"read-only"}`)
+	c.Env = env
 	m := &Manager{c: c, sessions: map[string]*session{}}
 	files, e := os.ReadDir(c.StateDir)
 	if e != nil {
@@ -109,6 +111,18 @@ func New(c Config) (*Manager, error) {
 		s := &session{}
 		if e = json.Unmarshal(b, s); e != nil {
 			return nil, e
+		}
+		for _, event := range s.Events {
+			if s.Title == "" && event.Type == "user" {
+				s.Title = conversationTitle(event.Text)
+				break
+			}
+		}
+		if s.Mode == "" {
+			s.Mode = "read-only"
+		}
+		if s.CreatedMode == "" {
+			s.CreatedMode = s.Mode
 		}
 		if len(s.ID) != 32 || f.Name() != s.ID+".json" || len(s.Events) > maxEvents {
 			return nil, errors.New("invalid conversation history")
@@ -178,6 +192,36 @@ func (m *Manager) get(id string) (*session, error) {
 	}
 	return s, nil
 }
+func (m *Manager) Organize(id, action string) error {
+	s, err := m.get(id)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.Summary
+	switch action {
+	case "pin":
+		if s.Archived {
+			return ErrConflict
+		}
+		s.Pinned = true
+	case "unpin":
+		s.Pinned = false
+	case "archive":
+		s.Archived = true
+		s.Pinned = false
+	case "restore":
+		s.Archived = false
+	default:
+		return ErrInvalid
+	}
+	if err := m.save(s); err != nil {
+		s.Summary = previous
+		return err
+	}
+	return nil
+}
 func snapshot(s *session, after uint64) Snapshot {
 	v := Snapshot{Summary: s.Summary, Events: []Event{}, Permissions: []Permission{}}
 	for _, e := range s.Events {
@@ -200,6 +244,13 @@ func (m *Manager) Snapshot(id string, after uint64) (Snapshot, error) {
 	defer s.mu.Unlock()
 	return snapshot(s, after), nil
 }
+func conversationTitle(text string) string {
+	chars := []rune(strings.Join(strings.Fields(text), " "))
+	if len(chars) > 80 {
+		return string(chars[:79]) + "…"
+	}
+	return string(chars)
+}
 func (m *Manager) List() []Summary {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -214,7 +265,7 @@ func (m *Manager) List() []Summary {
 }
 func (m *Manager) Status() Status {
 	list := m.List()
-	v := Status{Enabled: true, Agent: "codex-acp", Sessions: len(list)}
+	v := Status{AllowFullAccess: m.c.AllowFullAccess, AllowWorkspace: m.c.AllowWorkspace, Enabled: true, Agent: "codex-acp", Sessions: len(list)}
 	for _, s := range list {
 		if s.Status == "idle" || s.Status == "running" || s.Status == "initializing" || s.Status == "cancelling" {
 			v.Active++
@@ -226,7 +277,13 @@ func validKey(s string) bool {
 	return len(s) > 0 && len(s) <= 128 && !strings.ContainsAny(s, "\x00\r\n")
 }
 func (m *Manager) Create(ctx context.Context, requestID, space string) (Snapshot, error) {
-	if !validKey(requestID) || !validKey(space) {
+	return m.CreateWithMode(ctx, requestID, space, "read-only")
+}
+func (m *Manager) CreateWithMode(ctx context.Context, requestID, space, mode string) (Snapshot, error) {
+	if mode == "" {
+		mode = "read-only"
+	}
+	if !m.allowsMode(mode) || !validKey(requestID) || !validKey(space) {
 		return Snapshot{}, ErrInvalid
 	}
 	m.mu.Lock()
@@ -234,11 +291,11 @@ func (m *Manager) Create(ctx context.Context, requestID, space string) (Snapshot
 		m.mu.Unlock()
 		return Snapshot{}, ErrClosed
 	}
-	active := 0
+
 	for _, s := range m.sessions {
 		s.mu.Lock()
 		if s.RequestID == requestID {
-			if s.Space != space {
+			if s.Space != space || s.CreatedMode != mode {
 				s.mu.Unlock()
 				m.mu.Unlock()
 				return Snapshot{}, ErrConflict
@@ -248,17 +305,19 @@ func (m *Manager) Create(ctx context.Context, requestID, space string) (Snapshot
 			m.mu.Unlock()
 			return v, nil
 		}
-		if s.process != nil || s.Status == "initializing" {
-			active++
-		}
+
 		s.mu.Unlock()
 	}
-	if len(m.sessions) >= m.c.MaxSessions || active >= m.c.MaxActive {
+	if len(m.sessions) >= m.c.MaxSessions {
 		m.mu.Unlock()
 		return Snapshot{}, ErrLimit
 	}
+	if err := m.makeRoom(); err != nil {
+		m.mu.Unlock()
+		return Snapshot{}, err
+	}
 	id := randomID()
-	s := &session{Summary: Summary{ID: id, Space: space, Status: "initializing", Created: now(), Updated: now()}, RequestID: requestID, Events: []Event{}, Requests: map[string]string{}, permissions: map[string]pendingPermission{}, decisions: map[string]string{}, generation: 1}
+	s := &session{Summary: Summary{Mode: mode, ID: id, Space: space, Status: "initializing", Created: now(), Updated: now()}, RequestID: requestID, CreatedMode: mode, Events: []Event{}, Requests: map[string]string{}, permissions: map[string]pendingPermission{}, decisions: map[string]string{}, generation: 1}
 	if e := m.save(s); e != nil {
 		m.mu.Unlock()
 		return Snapshot{}, e
@@ -270,7 +329,13 @@ func (m *Manager) Create(ctx context.Context, requestID, space string) (Snapshot
 	defer s.mu.Unlock()
 	return snapshot(s, 0), e
 }
+func (m *Manager) allowsMode(mode string) bool {
+	return mode == "read-only" || (mode == "workspace-write" && m.c.AllowWorkspace) || (mode == "agent-full-access" && m.c.AllowFullAccess)
+}
 func (m *Manager) start(ctx context.Context, s *session, resume bool, generation uint64) error {
+	if !m.allowsMode(s.Mode) {
+		return m.failed(s, generation, errors.New("host does not allow this conversation permission mode"))
+	}
 	dir := filepath.Join(m.c.Dir, s.ID)
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		return m.failed(s, generation, errors.New("Could not prepare or start the configured agent"))
@@ -288,7 +353,13 @@ func (m *Manager) start(ctx context.Context, s *session, resume bool, generation
 	}
 	s.replay = resume
 	resumeID := s.AgentID
-	r, e := launch(m.c, dir, func(w wire) { m.receive(s, generation, w) }, func() { m.exited(s, generation) })
+	config := m.c
+	approval, sandbox := "on-request", s.Mode
+	if s.Mode == "agent-full-access" {
+		approval, sandbox = "never", "danger-full-access"
+	}
+	config.Env = append(append([]string{}, config.Env...), "INITIAL_AGENT_MODE="+s.Mode, fmt.Sprintf(`CODEX_CONFIG={"approval_policy":%q,"sandbox_mode":%q}`, approval, sandbox))
+	r, e := launch(config, dir, func(w wire) { m.receive(s, generation, w) }, func() { m.exited(s, generation) })
 	if e != nil {
 		s.mu.Unlock()
 		m.mu.Unlock()
@@ -303,15 +374,19 @@ func (m *Manager) start(ctx context.Context, s *session, resume bool, generation
 		ProtocolVersion   int `json:"protocolVersion"`
 		AgentCapabilities struct {
 			LoadSession bool `json:"loadSession"`
+			Prompt      struct {
+				Image bool `json:"image"`
+			} `json:"promptCapabilities"`
 		} `json:"agentCapabilities"`
 	}
-	e = r.call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientInfo": map[string]string{"name": "pocketcontext", "version": "0.19.0"}, "clientCapabilities": map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}}, &init)
+	e = r.call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientInfo": map[string]string{"name": "pocketcontext", "version": "0.20.0"}, "clientCapabilities": map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}}, &init)
 	if e != nil || init.ProtocolVersion != 1 {
 		r.stop()
 		return m.failed(s, generation, errors.New("agent initialization failed; verify adapter installation and provider authentication"))
 	}
 	var result struct {
-		SessionID string `json:"sessionId"`
+		Models    *ModelState `json:"models"`
+		SessionID string      `json:"sessionId"`
 		Modes     *struct {
 			CurrentModeID  string `json:"currentModeId"`
 			AvailableModes []struct {
@@ -341,21 +416,21 @@ func (m *Manager) start(ctx context.Context, s *session, resume bool, generation
 		r.stop()
 		return m.failed(s, generation, errors.New("agent returned no session ID"))
 	}
-	readonly := false
+	supported := false
 	if result.Modes != nil {
 		for _, mode := range result.Modes.AvailableModes {
-			if mode.ID == "read-only" {
-				readonly = true
+			if mode.ID == s.Mode {
+				supported = true
 			}
 		}
 	}
-	if !readonly {
+	if !supported {
 		r.stop()
-		return m.failed(s, generation, errors.New("adapter must support read-only mode"))
+		return m.failed(s, generation, errors.New("adapter does not support the selected permission mode"))
 	}
-	if e = r.call(ctx, "session/set_mode", map[string]string{"sessionId": agentID, "modeId": "read-only"}, nil); e != nil {
+	if e = r.call(ctx, "session/set_mode", map[string]string{"sessionId": agentID, "modeId": s.Mode}, nil); e != nil {
 		r.stop()
-		return m.failed(s, generation, errors.New("agent refused read-only mode"))
+		return m.failed(s, generation, errors.New("agent refused the selected permission mode"))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -363,6 +438,8 @@ func (m *Manager) start(ctx context.Context, s *session, resume bool, generation
 		r.stop()
 		return ErrClosed
 	}
+	s.Models = result.Models
+	s.Images = init.AgentCapabilities.Prompt.Image
 	s.AgentID = agentID
 	s.Load = init.AgentCapabilities.LoadSession
 	s.CanResume = s.Load
@@ -404,26 +481,51 @@ func (m *Manager) exited(s *session, generation uint64) {
 	}
 	_ = m.save(s)
 }
+
+// makeRoom is called with the manager locked before reserving an active slot.
+func (m *Manager) makeRoom() error {
+	active := 0
+	var oldest *session
+	var updated string
+	for _, v := range m.sessions {
+		v.mu.Lock()
+		if v.process != nil || v.Status == "initializing" {
+			active++
+		}
+		if v.changingMode == "" && v.Status == "idle" && v.process != nil && v.CanResume && (oldest == nil || v.Updated < updated) {
+			oldest = v
+			updated = v.Updated
+		}
+		v.mu.Unlock()
+	}
+	if active < m.c.MaxActive {
+		return nil
+	}
+	if oldest == nil {
+		return ErrLimit
+	}
+	oldest.mu.Lock()
+	defer oldest.mu.Unlock()
+	if oldest.changingMode != "" || oldest.Status != "idle" || oldest.process == nil {
+		return ErrLimit
+	}
+	oldest.Status = "closed"
+	if err := m.save(oldest); err != nil {
+		oldest.Status = "idle"
+		return err
+	}
+	oldest.generation++
+	oldest.process.stop()
+	oldest.process = nil
+	return nil
+}
 func (m *Manager) Resume(ctx context.Context, id string) error {
 	s, e := m.get(id)
 	if e != nil {
 		return e
 	}
 	m.mu.Lock()
-	active := 0
-	for _, v := range m.sessions {
-		v.mu.Lock()
-		if v.process != nil || v.Status == "initializing" {
-			active++
-		}
-		v.mu.Unlock()
-	}
 	s.mu.Lock()
-	if active >= m.c.MaxActive {
-		s.mu.Unlock()
-		m.mu.Unlock()
-		return ErrLimit
-	}
 	if s.process != nil || s.Status == "initializing" {
 		s.mu.Unlock()
 		m.mu.Unlock()
@@ -439,6 +541,12 @@ func (m *Manager) Resume(ctx context.Context, id string) error {
 		m.mu.Unlock()
 		return ErrClosed
 	}
+	s.mu.Unlock()
+	if err := m.makeRoom(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	s.mu.Lock()
 	s.generation++
 	generation := s.generation
 	s.Status = "initializing"

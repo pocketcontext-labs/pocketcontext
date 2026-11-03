@@ -18,6 +18,8 @@ var (
 // Config is supplied by the host, never by browser requests. Command must name
 // an installed executable. Dir and StateDir must be private machine-local paths.
 type Config struct {
+	AllowFullAccess  bool
+	AllowWorkspace   bool
 	Command          string
 	Args             []string
 	Dir              string
@@ -32,10 +34,12 @@ type Config struct {
 }
 
 type Status struct {
-	Enabled  bool   `json:"enabled"`
-	Agent    string `json:"agent"`
-	Active   int    `json:"active"`
-	Sessions int    `json:"sessions"`
+	AllowFullAccess bool   `json:"allowFullAccess"`
+	AllowWorkspace  bool   `json:"allowWorkspace"`
+	Enabled         bool   `json:"enabled"`
+	Agent           string `json:"agent"`
+	Active          int    `json:"active"`
+	Sessions        int    `json:"sessions"`
 }
 
 type Event struct {
@@ -58,15 +62,33 @@ type Permission struct {
 	Options  []PermissionOption `json:"options"`
 }
 
+type ChatModel struct {
+	ID   string `json:"modelId"`
+	Name string `json:"name"`
+}
+type ModelState struct {
+	Current string      `json:"currentModelId"`
+	Options []ChatModel `json:"availableModels"`
+}
+type PromptImage struct {
+	MIME string `json:"mimeType"`
+	Data string `json:"data"`
+}
 type Summary struct {
-	ID        string `json:"id"`
-	Space     string `json:"space"`
-	Status    string `json:"status"`
-	Error     string `json:"error,omitempty"`
-	CanResume bool   `json:"canResume"`
-	LastSeq   uint64 `json:"lastSeq"`
-	Created   string `json:"created"`
-	Updated   string `json:"updated"`
+	Models    *ModelState `json:"models,omitempty"`
+	Images    bool        `json:"images,omitempty"`
+	Pinned    bool        `json:"pinned,omitempty"`
+	Archived  bool        `json:"archived,omitempty"`
+	Title     string      `json:"title,omitempty"`
+	Mode      string      `json:"mode"`
+	ID        string      `json:"id"`
+	Space     string      `json:"space"`
+	Status    string      `json:"status"`
+	Error     string      `json:"error,omitempty"`
+	CanResume bool        `json:"canResume"`
+	LastSeq   uint64      `json:"lastSeq"`
+	Created   string      `json:"created"`
+	Updated   string      `json:"updated"`
 }
 
 type Snapshot struct {
