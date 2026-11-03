@@ -54,7 +54,8 @@ func (s *listenerSet) state() (string, bool) {
 }
 
 // serveHTTP preserves the app's migration and OnServe lifecycle without a
-// vendored serving patch. TLS and the account installer are intentionally absent.
+// vendored serving patch. The optional public TLS listeners wrap this handler
+// with their own route and transport boundary; the account installer is absent.
 func serveHTTP(app core.App, p *Project, opts ServeOptions, stop <-chan struct{}, local *localRoutes) error {
 	return serveHTTPContext(context.Background(), app, p, opts, stop, local)
 }
@@ -67,8 +68,13 @@ func serveHTTPContext(parent context.Context, app core.App, p *Project, opts Ser
 	if err != nil {
 		return err
 	}
+	origins := []string{p.URL(), fmt.Sprintf("http://localhost:%d", p.Config.Port)}
+	if opts.HTTPSDomain != "" {
+		local.publicURL = "https://" + opts.HTTPSDomain
+		origins = append(origins, local.publicURL)
+	}
 	router.Bind(apis.CORS(apis.CORSConfig{
-		AllowOrigins: []string{p.URL(), fmt.Sprintf("http://localhost:%d", p.Config.Port)},
+		AllowOrigins: origins,
 		AllowMethods: []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPatch, http.MethodPost, http.MethodDelete},
 	}))
 	// Preserve the embedded dashboard route and its security/cache headers.
@@ -92,7 +98,7 @@ func serveHTTPContext(parent context.Context, app core.App, p *Project, opts Ser
 			return context.WithValue(ctx, socketContextKey{}, c.LocalAddr().Network() == "unix")
 		},
 	}
-	listeners := &listenerSet{p: p, server: server, errors: make(chan error, 2)}
+	listeners := &listenerSet{p: p, server: server, errors: make(chan error, 4)}
 	local.listeners = listeners
 	event := &core.ServeEvent{App: app, Router: router, Server: server}
 	err = app.OnServe().Trigger(event, func(e *core.ServeEvent) error {
@@ -126,7 +132,23 @@ func serveHTTPContext(parent context.Context, app core.App, p *Project, opts Ser
 			return err
 		}
 	}
-	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error { cancel(); _ = server.Close(); return e.Next() })
+	var public *publicServers
+	if opts.HTTPSDomain != "" {
+		public, err = startPublicHTTPS(ctx, app, p, opts, server.Handler, listeners.errors)
+		if err != nil {
+			_ = server.Close()
+			return err
+		}
+		defer public.close()
+	}
+	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
+		cancel()
+		_ = server.Close()
+		if public != nil {
+			public.close()
+		}
+		return e.Next()
+	})
 	serveErr := runForegroundService(parent, stop, listeners.errors, opts.Service)
 	listeners.mu.Lock()
 	listeners.closing = true
@@ -139,6 +161,9 @@ func serveHTTPContext(parent context.Context, app core.App, p *Project, opts Ser
 		if serveErr == nil {
 			serveErr = err
 		}
+	}
+	if public != nil {
+		serveErr = errors.Join(serveErr, public.shutdown(shutdown))
 	}
 	return serveErr
 }

@@ -262,12 +262,12 @@ parsed:
 		return nil
 	}
 	spec := map[string][2][]string{
-		"serve":          {{"ui-dev", "port"}, {"take-over", "headless", "tcp-only", "tunnel"}},
+		"serve":          {{"ui-dev", "port", "domain", "acme-email"}, {"take-over", "headless", "tcp-only", "tunnel"}},
 		"start":          {nil, {"take-over"}},
 		"ensure-running": {nil, {"take-over"}},
 		"stop":           {nil, nil},
 		"status":         {nil, nil},
-		"open":           {nil, {"no-browser", "skip-reader"}},
+		"open":           {nil, {"no-browser", "skip-reader", "public"}},
 		"environment":    {nil, nil},
 		"flush":          {nil, nil},
 		"recover":        {{"keep"}, nil},
@@ -326,11 +326,11 @@ parsed:
 		return nil
 	}
 	if command == "open" {
-		if err := a.need(0, "open [--no-browser | --skip-reader]"); err != nil {
+		if err := a.need(0, "open [--public | --no-browser | --skip-reader]"); err != nil {
 			return err
 		}
-		if a.bools["no-browser"] && a.bools["skip-reader"] {
-			return fail(2, "choose --no-browser or --skip-reader, not both")
+		if a.bools["skip-reader"] && (a.bools["no-browser"] || a.bools["public"]) {
+			return fail(2, "choose --public, --no-browser or --skip-reader; --skip-reader cannot issue a link")
 		}
 	}
 
@@ -354,6 +354,9 @@ parsed:
 		remote = os.Getenv("POCKETCONTEXT_URL")
 	}
 	if fromFlag || remote != "" {
+		if command == "open" && a.bools["public"] {
+			return fail(2, "open --public runs on the hosting computer; use --db, not --url")
+		}
 		base, err := normalizeURL(remote)
 		if err != nil {
 			return err
@@ -363,7 +366,7 @@ parsed:
 	if command == "login" || command == "logout" {
 		return fail(2, "usage: pocketcontext %s --url http://127.0.0.1:PORT", command)
 	}
-	if command == "open" {
+	if command == "open" && !a.bools["public"] {
 		if out := skippedReader(a.bools["no-browser"], a.bools["skip-reader"]); out != nil {
 			Print(out, pretty)
 			return nil
@@ -375,6 +378,9 @@ parsed:
 	}
 	switch command {
 	case "serve":
+		if err := validateHTTPSArgs(a); err != nil {
+			return err
+		}
 		if a.has("ui-dev") && a.flags["ui-dev"] == "" {
 			return fail(2, "--ui-dev needs a loopback Vite URL")
 		}
@@ -389,7 +395,7 @@ parsed:
 			}
 			servePort = n
 		}
-		opts := bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort}
+		opts := bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort, HTTPSDomain: a.flags["domain"], ACMEEmail: a.flags["acme-email"]}
 		if a.bools["tunnel"] {
 			if !opts.Headless {
 				return fail(2, "--tunnel requires --headless")
@@ -419,6 +425,7 @@ parsed:
 		if info, e := bundle.Health(p); e == nil && running {
 			out["socket"], out["tcp"], out["headless"], out["port"], out["serverVersion"] = info.Socket, info.TCP, info.Headless, info.Port, info.Version
 			out["databaseFormat"] = info.DatabaseFormat
+			out["publicURL"] = info.PublicURL
 			compatErr := bundle.CheckServerCompatibility(info)
 			out["compatible"] = compatErr == nil
 			if compatErr != nil {
@@ -469,7 +476,13 @@ parsed:
 		Print(map[string]any{"password": "changed", "accountCreated": result["created"]}, pretty)
 		return nil
 	case "open":
-		out, err := openLocalReader(p, a.bools["no-browser"])
+		var out map[string]any
+		var err error
+		if a.bools["public"] {
+			out, err = openPublicReader(p)
+		} else {
+			out, err = openLocalReader(p, a.bools["no-browser"])
+		}
 		if err != nil {
 			return err
 		}

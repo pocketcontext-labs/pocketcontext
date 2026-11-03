@@ -22,13 +22,21 @@ that fact is unknown and needed.
   saves the connection, starts the forward and signs in the CLI. The two reader
   flags are mutually exclusive. CLI-only access is a valid completed setup.
 
-On a remote host, finish CLI checks and requested knowledge work without a reader
-login. If the user already requested access from their computer, proceed directly
-to the supervised server tunnel and complete client prompt; do not ask again.
-Otherwise offer to connect their computer once. SSH detection does not itself
-authorize a tunnel or invitation. The user pastes the generated prompt into the
-agent on the computer where the reader will be used; do not send them to another
-SSH session with an equally unreachable loopback address.
+On a remote host, finish CLI checks and requested knowledge work without a local
+reader login. For requested HTTPS or phone access, follow the public HTTPS handoff
+below first: preserve the configured service, verify its `publicURL` externally
+and issue `open --public`. Do not install a desktop tunnel client for browser-only
+access.
+
+For requested private desktop access, reuse an existing combined tunnel instead
+of starting another or replacing a running HTTPS service. Otherwise configure the
+supervised server tunnel and complete client prompt; do not ask again for access
+already requested. When remote access has not been requested, offer the appropriate
+connection once. SSH detection does not itself authorize public hosting, a tunnel
+or an invitation. For the private desktop path, the user pastes the generated
+prompt into the agent on the computer where the reader will be used; do not send
+them to another SSH session with an equally unreachable loopback address. The
+following desktop handoff applies only to that private desktop path.
 
 After displaying the complete client prompt, say: "Paste this prompt into the
 coding agent on your desktop. When it finishes, come back here and tell me whether
@@ -65,3 +73,7 @@ If the user reports that launch or sign-in did not work, create a fresh link wit
 repeat pairing while CLI authentication works. Ask the user to confirm reader
 access and return that outcome to the server agent; launcher success alone leaves
 reader access pending verification.
+
+## Public HTTPS handoff
+
+For explicitly configured native HTTPS hosting (0.18.0+), use `open --public --db DB` on the hosting computer after external HTTPS verification. It works over SSH, prints a two-minute domain sign-in link, and neither launches a browser nor starts a server. Display the link immediately and ask the user to confirm phone access. See the installed manual `docs/https.md`. Default local/tunnel reader heuristics above are unchanged.

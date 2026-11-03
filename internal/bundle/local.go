@@ -32,6 +32,7 @@ type localRoutes struct {
 	uiDev     string
 	listeners *listenerSet
 	nameMu    sync.RWMutex
+	publicURL string
 }
 
 // Sign-in code lifetimes in seconds. Codes live only in server memory.
@@ -110,6 +111,9 @@ func (l *localRoutes) allowedHost(host string) bool {
 
 func (l *localRoutes) requireKey(e *core.RequestEvent) error {
 	given := e.Request.Header.Get(keyHeader)
+	if publicRequest(e.Request) {
+		return e.ForbiddenError("Local management is unavailable on public HTTPS.", nil)
+	}
 	if (!loopback(e.Request) && !socketRequest(e.Request)) || subtle.ConstantTimeCompare([]byte(given), []byte(l.key)) != 1 {
 		return e.ForbiddenError("A local key is required.", nil)
 	}
@@ -137,6 +141,12 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 	e.Router.Bind(&hook.Handler[*core.RequestEvent]{
 		Id: "pocketcontextLocalHost", Priority: -99999,
 		Func: func(re *core.RequestEvent) error {
+			if publicRequest(re.Request) {
+				if l.publicURL == "" || ("https://"+re.Request.Host != l.publicURL && "https://"+strings.TrimSuffix(re.Request.Host, ":443") != l.publicURL) {
+					return re.ForbiddenError("Unexpected host.", nil)
+				}
+				return re.Next()
+			}
 			if !l.allowedHost(re.Request.Host) && !(socketRequest(re.Request) && re.Request.Host == SocketHost) {
 				return re.ForbiddenError("Unexpected host.", nil)
 			}
@@ -150,6 +160,9 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		info := map[string]any{
 			"app": "pocketcontext", "version": Version, "instance": l.p.Config.Instance, "key": l.p.Key, "name": l.p.Config.Name, "port": l.p.Config.Port,
 			"databaseFormat": DatabaseFormat,
+		}
+		if l.publicURL != "" {
+			info["publicURL"] = l.publicURL
 		}
 		if l.listeners != nil {
 			socket, tcp := l.listeners.state()
@@ -251,12 +264,20 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 			return err
 		}
 		var body struct {
-			TTL *int `json:"ttl"`
+			TTL    *int `json:"ttl"`
+			Public bool `json:"public"`
 		}
 		if re.Request.ContentLength != 0 {
 			if err := re.BindBody(&body); err != nil {
 				return re.BadRequestError("Invalid request.", nil)
 			}
+		}
+		baseURL := l.p.URL()
+		if body.Public {
+			if l.publicURL == "" {
+				return re.BadRequestError("Public HTTPS is not enabled on this server.", nil)
+			}
+			baseURL = l.publicURL
 		}
 		ttl := DefaultCodeTTL
 		if body.TTL != nil {
@@ -271,7 +292,7 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		}
 		code, expires := l.codes.issue(user.Id, time.Duration(ttl)*time.Second)
 		return re.JSON(http.StatusOK, map[string]string{
-			"url":     l.p.URL() + "/bundle/login#" + code,
+			"url":     baseURL + "/bundle/login#" + code,
 			"code":    code,
 			"expires": expires.UTC().Format(time.RFC3339),
 		})
@@ -362,6 +383,6 @@ const loginJS = `(async () => {
     localStorage.setItem("pocketcontext.reader.auth", JSON.stringify({token: data.token, record: data.record}));
     location.replace("/");
   } catch (error) {
-    status.textContent = error.message + " Get a new link with pocketcontext open, or sign in with your password.";
+    status.textContent = error.message + " Ask your setup agent for a fresh sign-in link, or sign in with your password.";
   }
 })();`

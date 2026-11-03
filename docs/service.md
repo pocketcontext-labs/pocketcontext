@@ -24,6 +24,15 @@ The separate `tunnel serve` command retains its earlier behavior: start or reuse
 an independent background server and leave it running when the tunnel exits.
 Supervising that tunnel alone does not supervise the independent database server.
 
+## Native HTTPS service
+
+Since 0.18.0, `serve --headless --domain knowledge.example.com` runs native HTTPS
+without a tunnel or proxy. Add `--tunnel` only when private desktop clients also
+need it. See [HTTPS hosting](https.md) for the public route boundary, certificate
+automation, phone sign-in and a Linux system service running as an unprivileged
+account with permission to bind ports 80/443. The user unit below remains the
+private-tunnel deployment; it does not grant low-port binding privileges.
+
 ## Linux systemd user service
 
 Use absolute paths for the actual installation. For example, save this as

@@ -12,14 +12,19 @@ Setup and server:
                        create the project, its account and a first space
                        named Default, and start the server
   ensure-running       start the server in the background unless it runs (alias: start)
-  serve [--headless | --tcp-only] [--tunnel] [--port N] [--ui-dev URL]
+  serve [--headless | --tcp-only] [--domain HOST] [--acme-email EMAIL]
+        [--tunnel] [--port N] [--ui-dev URL]
                        run in the foreground; plain serve enables socket and TCP
                        --headless --tunnel owns both server and tunnel in one process
+                       --headless --domain HOST enables HTTPS on 443, HTTP redirects
+                       and ACME challenges on 80; certificates renew automatically
   stop                 write back the database and stop the server
   status               show paths, port, lease and whether the server runs
   environment          report session/browser signals offline (no project needed)
-  open [--no-browser | --skip-reader]
-                       open in a confirmed desktop session; otherwise skip
+  open [--public | --no-browser | --skip-reader]
+                       --public prints a phone sign-in link from the running HTTPS
+                       service without opening a browser; local command only
+                       otherwise open in a confirmed desktop session or skip
                        --no-browser requests a link for a known reachable browser
                        --skip-reader issues no link and enables no reader TCP
   password [--password-stdin]

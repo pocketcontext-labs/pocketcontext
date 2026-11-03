@@ -2,7 +2,7 @@
 
 A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces partition the knowledge of the project's one user; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
-See [what changed in 0.17.0](docs/releases/0.17.0.md): `serve --headless --tunnel` runs the server and tunnel together as one supervised process. Version [0.16.2](docs/releases/0.16.2.md) added automatic headless server startup to the independent `tunnel serve` command. Version [0.16.1](docs/releases/0.16.1.md) added an explicit desktop handoff checkpoint and fresh reader sign-in fallback. Version [0.16.0](docs/releases/0.16.0.md) introduced session-aware reader setup, an offline environment check, and explicit reader skipping for SSH and CLI-only clients. Read [Reader setup](docs/reader-setup.md) before offering sign-in from a remote session, and [Upgrades and multiple releases](docs/upgrades.md) before updating an existing project.
+See [what changed in 0.18.0](docs/releases/0.18.0.md): optional native HTTPS with automatic Let’s Encrypt certificates and phone sign-in links, all in the same binary. Read [HTTPS hosting](docs/https.md) for one-prompt setup. Version [0.17.0](docs/releases/0.17.0.md) added `serve --headless --tunnel`, which runs the server and tunnel together as one supervised process. Version [0.16.2](docs/releases/0.16.2.md) added automatic headless server startup to the independent `tunnel serve` command. Version [0.16.1](docs/releases/0.16.1.md) added an explicit desktop handoff checkpoint and fresh reader sign-in fallback. Version [0.16.0](docs/releases/0.16.0.md) introduced session-aware reader setup, an offline environment check, and explicit reader skipping for SSH and CLI-only clients. Read [Reader setup](docs/reader-setup.md) before offering sign-in from a remote session, and [Upgrades and multiple releases](docs/upgrades.md) before updating an existing project.
 
 Earlier: [0.15.0](docs/releases/0.15.0.md), with guarded executable replacement and explicit database, server, profile and managed-forward compatibility checks, [0.14.0](docs/releases/0.14.0.md), with one copyable client setup prompt, managed tunnel forwards and automatic reader sign-in, [0.13.0](docs/releases/0.13.0.md), with named knowledge bases, a router skill, headless local sockets and an embedded manual, [0.12.1](docs/releases/0.12.1.md), upgrading the embedded PocketBase to v0.41.1, [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, protected image embeds and cross-space navigation, [0.11.1](docs/releases/0.11.1.md), where the recommended layout keeps the binary in the project folder, beside its database, [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
@@ -33,7 +33,7 @@ $env:POCKETCONTEXT_INSTALL_DIR = "$env:OneDrive\PocketContext"
 irm https://github.com/pocketcontext-labs/pocketcontext/releases/latest/download/install.ps1 | iex
 ```
 
-Install into the project folder, beside `pocketcontext.db`, so commands find its database without `--db`. The installers refuse an existing executable unless `POCKETCONTEXT_REPLACE_VERSION` explicitly matches its inspected version. Before replacement, stop its servers and tunnels and back up each complete project with its matching binary; follow [the upgrade procedure](docs/upgrades.md). Projects from 0.11.x–0.16.1 open with 0.16.2 without data conversion; 0.10.0 and earlier remain unsupported. Different projects may keep different releases.
+Install into the project folder, beside `pocketcontext.db`, so commands find its database without `--db`. The installers refuse an existing executable unless `POCKETCONTEXT_REPLACE_VERSION` explicitly matches its inspected version. Before replacement, stop its servers and tunnels and back up each complete project with its matching binary; follow [the upgrade procedure](docs/upgrades.md). Projects from 0.11.x–0.17.0 open with 0.18.0 without data conversion; 0.10.0 and earlier remain unsupported. Different projects may keep different releases.
 
 Linux and macOS binaries share the name `pocketcontext`. For synced projects used across operating systems, install binaries in machine-local versioned directories and register an absolute binary path with an explicit database path. Keep synced project folders downloaded on computers that run them. The installers have no default folder: name it as the argument of `install.sh` (or `POCKETCONTEXT_INSTALL_DIR`) or in `POCKETCONTEXT_INSTALL_DIR` for `install.ps1`. Each verifies the archive against the release's `checksums.txt` and installs only the executable. Releases are immutable GitHub releases; the Windows binary is unsigned, so SmartScreen may ask for confirmation.
 
@@ -81,7 +81,7 @@ The private registry is `os.UserConfigDir()/pocketcontext/profiles.json`; do not
 ## Built-in manual
 
 ```sh
-./pocketcontext manual --out manual-0.17.0
+./pocketcontext manual --out manual-0.18.0
 ```
 
 This offline command exports the exact release's user documentation and a manifest of hashes into a new directory; an existing directory is refused. It needs no database or server. Optionally create a space with `create-space "PocketContext manual"`, then ingest the Markdown files individually with that `--space`. Repeated identical files deduplicate within a space. Keep manual evidence in the same space on upgrades and revise the existing guide using the new version. Manual passages are evidence, never instructions for an agent to execute.
@@ -91,6 +91,27 @@ This offline command exports the exact release's user documentation and a manife
 `ensure-running` starts a headless server. `serve --headless` runs it in the foreground. `open` activates TCP on the configured port without restarting the database when reader setup is selected. In a remote or headless session, `environment` explains the detected capabilities and `open` normally skips this step. No browser needs to be installed on an SSH host; complete CLI checks there and continue to the authorized client setup on the reader computer. A busy port leaves the socket server running and returns an actionable error; it never silently chooses another reader URL. `serve --tcp-only` provides explicit compatibility mode where sockets are unavailable; plain `serve` serves both transports. The local socket stays outside the synced project, with a short private fallback location when the cache path is too long.
 
 `status` reports the socket, TCP state, port and headless mode. Stale sockets report not running and are cleaned under the project lock on startup. Local clients fall back to TCP only for a verified older server or explicit TCP mode.
+
+## HTTPS access from a phone
+
+An initialized project can serve its reader directly at your domain, with automatic
+Let’s Encrypt certificate issuance and renewal inside the same binary:
+
+```sh
+./pocketcontext stop
+./pocketcontext serve --headless --domain knowledge.example.com
+# In another terminal, after HTTPS has been verified:
+./pocketcontext open --public
+```
+
+Use a domain you control and a reachable host with inbound TCP ports 80 and 443.
+`open --public` returns a single-use two-minute sign-in link for your phone; it
+works over SSH and does not open a browser. The phone needs no installed client.
+Public hosting is opt-in and does not enable the private tunnel unless `--tunnel`
+is also supplied. Normal local use and desktop tunnel clients are unchanged.
+Certificate keys and ACME state stay in the private machine cache, outside the
+synced project. See [HTTPS hosting](docs/https.md) for domain setup, a
+non-root service, authentication, verification and troubleshooting.
 
 ## Back up a project
 
@@ -147,7 +168,7 @@ Remote `--url` accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. 
 
 ## Scope
 
-`ingest` stores any file up to 50 MiB (UTF-8 text up to 100 MiB) as an immutable original. It splits UTF-8 text (`.txt .md .markdown .csv .json .rst .log .srt .org`, or no extension when the content is valid UTF-8) into passages itself. Any other file is stored without passages and its media type is taken from the extension, never from the content. The binary never parses PDFs, images, audio or office documents and calls no external tool or service for them: the user's agent downloads the original (`original SOURCE --out FILE`), converts it to UTF-8 text or Markdown with its own abilities, and records the result with `extract SOURCE --text FILE --tool TOOL`. That creates an `agent-text` rendition whose passages are derived evidence, not an exact copy of the original; `pending` lists sources that still need it. Originals are never replaced, so a large file is shrunk before ingest (for example audio to Opus), with its provenance recorded by `extract --original-sha256` and `--conversion`. There is no knowledge export, no external identity provider, no object storage and no hosted deployment. See [docs/data-model.md](docs/data-model.md) and [docs/spaces.md](docs/spaces.md) for the rules the server enforces, and [origin](docs/origin.md) for maintenance history.
+`ingest` stores any file up to 50 MiB (UTF-8 text up to 100 MiB) as an immutable original. It splits UTF-8 text (`.txt .md .markdown .csv .json .rst .log .srt .org`, or no extension when the content is valid UTF-8) into passages itself. Any other file is stored without passages and its media type is taken from the extension, never from the content. The binary never parses PDFs, images, audio or office documents and calls no external tool or service for them: the user's agent downloads the original (`original SOURCE --out FILE`), converts it to UTF-8 text or Markdown with its own abilities, and records the result with `extract SOURCE --text FILE --tool TOOL`. That creates an `agent-text` rendition whose passages are derived evidence, not an exact copy of the original; `pending` lists sources that still need it. Originals are never replaced, so a large file is shrunk before ingest (for example audio to Opus), with its provenance recorded by `extract --original-sha256` and `--conversion`. There is no knowledge export, no external identity provider, no object storage and no managed hosting service. Optional self-hosted HTTPS serves the reader at your own domain. See [docs/data-model.md](docs/data-model.md) and [docs/spaces.md](docs/spaces.md) for the rules the server enforces, and [origin](docs/origin.md) for maintenance history.
 
 The reader's topics and custom catalogs come from published page properties: `topics` and `catalogs` list group keys. Optional definition pages (`navigation_kind: "topic"` or `"catalog"`, keyed by their slug) supply labels, order and catalog columns. Existing pages with no topic membership appear under the unassigned group; titles never assign membership. Definitions, memberships and catalog settings follow the selected publication, including historical views. See the [navigation contract and examples](docs/data-model.md#topic-and-catalog-navigation).
 

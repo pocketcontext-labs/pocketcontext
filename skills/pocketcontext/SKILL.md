@@ -16,6 +16,10 @@ Run project commands by the binary's absolute path with `--db`. Offline `environ
 
 Do not use another `pocketcontext` from PATH, and do not start the server any other way.
 
+## Public HTTPS reader
+
+When the user explicitly requests phone/domain access, follow the installed release’s `docs/https.md` manual. Native hosting uses `serve --headless --domain HOST` as one supervised service, optionally with `--tunnel`. Do not add a reverse proxy. Configure a reachable domain and ports 80/443 and verify HTTPS externally. On the hosting computer, `"{{BINARY}}" open --public --db "{{DB}}"` returns a two-minute sign-in link from the already running service, including over SSH. Display it immediately in the authorized setup chat and ask the user to confirm phone access. It never launches a browser or starts a server. Keep certificate keys and ACME state private and machine-local. Ordinary `open` and remote CLI tunnel behavior remain unchanged.
+
 ## Before knowledge operations
 
 ```sh
@@ -84,7 +88,7 @@ Use `pocketcontext search "terms"` for ranked published pages, then read the rev
 
 ## Links
 
-When reader access is established on the user's computer, its reader is at `{{URL}}`. In SSH/headless reports, omit these localhost links unless an actual reachable forward is verified. Pages: `{{URL}}/#/page/<slug>`; sources `/#/sources/<id>`; passages `/#/passages/<id>`. Use queried IDs only.
+Choose the origin whose reader access has actually been verified. For configured HTTPS hosting, read `publicURL` from `status --db "{{DB}}"`, verify that domain externally and use it as the reader origin. For local or private-tunnel access, use the actual verified local or forwarded origin (`{{URL}}` only when it is that reachable endpoint). In SSH/headless reports, omit unverified localhost links. Append `/#/page/<slug>`, `/#/sources/<id>` or `/#/passages/<id>` to the selected origin. Use queried IDs only; a configured URL alone is not proof of browser access.
 
 ## Backup and other computers
 

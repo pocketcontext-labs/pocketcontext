@@ -18,6 +18,7 @@ import (
 
 // Instance is what /api/bundle/instance reports.
 type Instance struct {
+	PublicURL      string `json:"publicURL,omitempty"`
 	App            string `json:"app"`
 	Version        string `json:"version"`
 	Instance       string `json:"instance"`

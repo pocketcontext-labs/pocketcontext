@@ -13,6 +13,16 @@ take precedence over display variables, including X11 forwarding. A terminal's
 presence or absence does not establish desktop access. If the result is unknown,
 ask where the reader will be viewed only when that information is still needed.
 
+## Public HTTPS reader
+
+Since 0.18.0, an explicitly configured HTTPS host supports `open --public --db DB`.
+This local command prints a two-minute link at the running service’s domain, even
+from SSH, without launching a browser or enabling loopback TCP. It does not start
+a server or verify public reachability. Use it after external HTTPS verification
+for a phone/browser handoff; ask the user to confirm access. `--skip-reader` cannot
+be combined with `--public`, and remote `--url` cannot issue a public handoff.
+Default `open` behavior below is unchanged. See [HTTPS hosting](https.md).
+
 ## Choose the reader behavior
 
 | Command | Behavior |
@@ -41,16 +51,25 @@ Keep the project headless and skip local reader login. Do not show the host's
 computer: those addresses refer to the computer running their browser, unless a
 matching forward has already been established and verified.
 
-If the user already requested access from their computer, continue directly to
-the authorized remote setup. Start `tunnel serve --db DB` under verified
-supervision; it starts a headless background server if needed, or reuses the
-running compatible server without changing its listeners. Stopping the tunnel
-leaves the server running; use `stop` separately to flush and stop it. Generate
-the complete client setup prompt with
-`tunnel invite --db DB`. Display that prompt for the user to paste into the agent
-on the computer where they will use the reader. Do not ask for the same permission
-again. Otherwise offer to connect that computer once; detecting SSH does not
-itself authorize a tunnel or invitation.
+If the user requested public HTTPS or phone access, follow [HTTPS hosting](https.md)
+first. Preserve an existing supervised HTTPS service, including its optional
+combined tunnel. Verify its configured `publicURL` externally, then run
+`open --public --db DB`, display the fresh link and ask the user to confirm access.
+Do not create a desktop tunnel or client installation for this browser-only path.
+
+For requested private desktop access, reuse the running combined tunnel if one is
+already configured; do not start a second tunnel or replace the HTTPS service.
+Otherwise start `tunnel serve --db DB` under verified supervision; it starts a
+headless background server if needed, or reuses the running compatible server
+without changing its listeners. Stopping that independent tunnel leaves the
+server running; use `stop` separately to flush and stop it. Generate the complete
+client setup prompt with `tunnel invite --db DB`. Display that prompt for the user
+to paste into the agent on the computer where they will use the reader. Do not ask
+for the same permission again. When remote access has not been requested, offer
+the appropriate connection once; detecting SSH does not itself authorize public
+hosting, a tunnel or an invitation.
+
+The desktop tunnel handoff below applies only to the private desktop path.
 
 A useful completion report is: “PocketContext is ready on the remote host. The
 requested checks passed. This is an SSH session, so browser sign-in here was

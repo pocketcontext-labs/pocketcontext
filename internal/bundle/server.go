@@ -33,11 +33,13 @@ var (
 
 // ServeOptions control one foreground server run.
 type ServeOptions struct {
-	TakeOver bool
-	UIDev    string
-	Headless bool
-	TCPOnly  bool
-	Port     int
+	TakeOver    bool
+	UIDev       string
+	Headless    bool
+	TCPOnly     bool
+	Port        int
+	HTTPSDomain string
+	ACMEEmail   string
 	// Service starts after the HTTP listeners are ready. Its failure stops the
 	// server; shutdown cancels and waits for it before draining HTTP and flushing.
 	Service func(context.Context) error
@@ -115,6 +117,15 @@ func Serve(p *Project, opts ServeOptions) error {
 // ServeContext runs one owned foreground server. Cancellation follows the same
 // graceful drain and snapshot write-back path as an authenticated stop request.
 func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
+	if opts.HTTPSDomain != "" {
+		if err := ValidateHTTPSDomain(opts.HTTPSDomain); err != nil {
+			return err
+		}
+		if !opts.Headless || opts.UIDev != "" || opts.TCPOnly || opts.Port != 0 {
+			return errors.New("public HTTPS requires headless mode without UI development, TCP-only or port overrides")
+		}
+	}
+
 	if err := parent.Err(); err != nil {
 		return err
 	}

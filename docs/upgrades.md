@@ -7,9 +7,9 @@ Only one server may open a given project at a time.
 
 ## Compatibility
 
-Application version and database format are separate. PocketContext 0.17.0 uses
-logical database format 1, the single-user format used by 0.11.x–0.16.2. Upgrading
-those projects to 0.17.0 requires no data conversion. The startup guard checks the
+Application version and database format are separate. PocketContext 0.18.0 uses
+logical database format 1, the single-user format used by 0.11.x–0.17.0. Upgrading
+those projects to 0.18.0 requires no data conversion. The startup guard checks the
 recorded application and PocketBase system migrations on the private working copy
 before PocketBase bootstrap; unknown migrations and unsupported formats are
 refused. Databases from
@@ -101,7 +101,7 @@ Restore the complete stopped backup together with its matching binary. Regenerat
 its profile and skill and verify its identity before writes. Restoring the backup
 returns knowledge to the backup time: preserve any later work separately before
 restoring. Binary-only downgrades are supported only when that exact path has
-been tested and documented; no blanket downgrade guarantee is made for 0.17.0.
+been tested and documented; no blanket downgrade guarantee is made for 0.18.0.
 Never force an older release past an unsupported-format or migration error.
 
 ## Several versions and computers
@@ -125,3 +125,18 @@ server's port, so two servers independently configured with the same port cannot
 both be forwarded on one client. Stop and explicitly reconfigure one project's
 port and affected profiles/invitations; never kill an unrelated process or
 silently remap a port.
+
+## HTTPS hosting upgrades
+
+Since 0.18.0, native HTTPS is an opt-in foreground service configuration. Keep the
+service’s domain, ACME contact and machine-local certificate cache when upgrading;
+none belongs in the synced project. Stop the owning OS service, back up the complete
+project and replace the binary through the normal procedure, then restart the
+service with the same arguments. If the binary has a file capability for low ports,
+replacement may remove it; reapply the documented service permission and verify
+HTTPS without disabling certificate verification. Prefer a system service with
+only `CAP_NET_BIND_SERVICE` rather than running PocketContext as root.
+
+Verify the public reader and authentication after restart, then generate a fresh
+`open --public` link only when needed. Existing unused sign-in codes do not survive
+a server restart. Never delete the certificate cache merely to retry a deployment.
