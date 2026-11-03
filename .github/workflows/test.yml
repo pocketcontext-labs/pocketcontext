@@ -49,7 +49,9 @@ jobs:
         run: |
           exe=pocketcontext
           if [ "$RUNNER_OS" = Windows ]; then exe=pocketcontext.exe; fi
-          CGO_ENABLED=1 go build -trimpath -tags "$(cat build-tags.txt)" -o "bin/$exe" ./cmd/pocketcontext
+          # Match release stripping so binary checks inspect the shipped content,
+          # without arbitrary byte sequences from compressed debug sections.
+          CGO_ENABLED=1 go build -trimpath -tags "$(cat build-tags.txt)" -ldflags "-s -w" -o "bin/$exe" ./cmd/pocketcontext
           echo "EXE=bin/$exe" >> "$GITHUB_ENV"
       - name: Development reader browser regression
         if: matrix.runner == 'ubuntu-24.04'
