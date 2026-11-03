@@ -160,8 +160,45 @@ func TestInvitationCLIRehearsal(t *testing.T) {
 		t.Fatalf("%s readiness timed out", label)
 		return stop, nil
 	}
-	stopServer, _ := start(serverEnv, "serve", "tunnel", "serve", "--db", db)
+	// Starting the tunnel alone must bring a stopped project back headlessly,
+	// even when its reader port is occupied by an unrelated service.
+	run(serverEnv, "", "stop", "--db", db)
+	if run(serverEnv, "", "status", "--db", db)["running"] != false {
+		t.Fatal("server did not stop before automatic-start rehearsal")
+	}
+	readerPort, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { readerPort.Close() })
+	stopServer, ready := start(serverEnv, "serve", "tunnel", "serve", "--db", db)
 	defer stopServer()
+	status = run(serverEnv, "", "status", "--db", db)
+	if ready["ready"] != true || ready["serverRunning"] != true || status["running"] != true || status["headless"] != true || status["tcp"] != false {
+		t.Fatal("tunnel did not automatically start a headless server")
+	}
+	lease, ok := status["lease"].(map[string]any)
+	if !ok || lease["pid"] == nil {
+		t.Fatal("running server omitted its lease PID")
+	}
+	serverPID := lease["pid"]
+	readerPort.Close()
+
+	// A second invocation must refuse before rotating the active identity.
+	beforeIdentity, err := os.ReadFile(identityPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := exec.Command(binary, "tunnel", "serve", "--db", db, "--new-address")
+	duplicate.Env = serverEnv
+	duplicateOutput, err := duplicate.CombinedOutput()
+	if err == nil || !strings.Contains(string(duplicateOutput), "already running") {
+		t.Fatalf("duplicate tunnel was not refused: %v (%s)", err, duplicateOutput)
+	}
+	afterIdentity, err := os.ReadFile(identityPath)
+	if err != nil || !bytes.Equal(beforeIdentity, afterIdentity) {
+		t.Fatal("duplicate tunnel changed the active identity")
+	}
 	// The only handoff is the complete prompt emitted by invite.
 	inviteCmd := exec.Command(binary, "tunnel", "invite", "--db", db)
 	inviteCmd.Env = serverEnv
@@ -291,5 +328,24 @@ func TestInvitationCLIRehearsal(t *testing.T) {
 		t.Fatal("accepted busy port")
 	}
 	occupied.Close()
-	t.Log("generated prompt -> stdin join -> managed forward -> authenticated reader -> stop/reconnect; used code and busy port refused")
+	// Interrupting the tunnel leaves the server available. Restarting the
+	// tunnel reuses that process, including TCP explicitly activated by open.
+	stopServer()
+	status = run(serverEnv, "", "status", "--db", db)
+	lease, ok = status["lease"].(map[string]any)
+	if status["running"] != true || !ok || lease["pid"] != serverPID {
+		t.Fatal("stopping the tunnel stopped or replaced its server")
+	}
+	run(serverEnv, "", "open", "--db", db, "--no-browser")
+	stopRestarted, _ := start(serverEnv, "serve-reused", "tunnel", "serve", "--db", db)
+	status = run(serverEnv, "", "status", "--db", db)
+	lease, ok = status["lease"].(map[string]any)
+	if status["running"] != true || status["tcp"] != true || !ok || lease["pid"] != serverPID {
+		t.Fatal("restarted tunnel did not reuse the server and preserve its listeners")
+	}
+	stopRestarted()
+	if run(serverEnv, "", "status", "--db", db)["running"] != true {
+		t.Fatal("stopping the restarted tunnel stopped its reused server")
+	}
+	t.Log("automatic headless startup, duplicate refusal, interrupt and listener-preserving reuse; generated prompt -> stdin join -> managed forward -> authenticated reader -> stop/reconnect; used code and busy port refused")
 }

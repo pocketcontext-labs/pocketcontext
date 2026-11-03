@@ -73,18 +73,17 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 		return err
 	}
 	defer release()
-	running, runErr := bundle.Running(p)
-	if runErr != nil {
-		return runErr
-	}
-	if !running {
-		return fail(1, "start the project with ensure-running before tunnel serve")
+	if err := bundle.EnsureRunningContext(ctx, p, bundle.StartOptions{}); err != nil {
+		return err
 	}
 	info, err := bundle.Health(p)
 	if err != nil {
 		return err
 	}
 	if err := bundle.CheckServerCompatibility(info); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	path := identityFile(p)
@@ -106,7 +105,7 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 			fmt.Fprintln(os.Stderr, "could not save private endpoint:", e)
 			return
 		}
-		Print(map[string]any{"port": p.Config.Port, "serverRunning": running, "ready": true, "note": "Run tunnel invite to generate one client setup prompt to share in your chat. Keep this server process supervised."}, pretty)
+		Print(map[string]any{"port": p.Config.Port, "serverRunning": true, "ready": true, "note": "Run tunnel invite to generate one client setup prompt to share in your chat. Keep this tunnel process supervised. Stopping the tunnel leaves the server running; use pocketcontext stop to stop the server."}, pretty)
 	}, func() (net.Conn, error) { return dialTunnelBackend(p) })
 	if err != nil {
 		return fail(1, "%v", err)

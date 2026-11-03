@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,7 +127,19 @@ type StartOptions struct {
 // EnsureRunning starts the server in the background unless it already runs,
 // then waits until it answers. It is safe to call before every command.
 func EnsureRunning(p *Project, opts StartOptions) error {
+	return EnsureRunningContext(context.Background(), p, opts)
+}
+
+// EnsureRunningContext allows a caller to cancel the startup wait. A server
+// already launched remains running independently, just as after successful start.
+func EnsureRunningContext(ctx context.Context, p *Project, opts StartOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	ok, err := Running(p)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if ok {
 		return compatibleRunning(p)
 	}
@@ -159,6 +172,9 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.Dir = p.Cache
 	detach(cmd)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -167,11 +183,16 @@ func EnsureRunning(p *Project, opts StartOptions) error {
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-exited:
 			return fmt.Errorf("the PocketContext server stopped during start: %s (log: %s)", lastLines(p.LogFile(), start), p.LogFile())
 		case <-time.After(200 * time.Millisecond):
 		}
 		if err := p.loadConfig(); err != nil { // serve may have just created the instance ID
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if ok, err := Running(p); ok {

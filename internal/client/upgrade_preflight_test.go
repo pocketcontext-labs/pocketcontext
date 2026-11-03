@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -81,4 +82,30 @@ func TestTunnelMismatchDoesNotRotateIdentity(t *testing.T) {
 	if err != nil || !bytes.Equal(identity, after) {
 		t.Fatalf("failed tunnel serve changed identity: %v", err)
 	}
+}
+
+func TestTunnelCancellationDoesNotRotateIdentity(t *testing.T) {
+	p := incompatibleLocalProject(t)
+	if err := os.MkdirAll(p.Cache, 0700); err != nil {
+		t.Fatal(err)
+	}
+	identity := []byte("existing identity must not be loaded or replaced")
+	if err := os.WriteFile(identityFile(p), identity, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	a := &args{pos: []string{"serve"}, flags: map[string]string{"db": p.DB}, bools: map[string]bool{"new-address": true}}
+	if err := tunnelServe(ctx, a, false); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation: %v", err)
+	}
+	after, err := os.ReadFile(identityFile(p))
+	if err != nil || !bytes.Equal(identity, after) {
+		t.Fatalf("cancelled tunnel serve changed identity: %v", err)
+	}
+	release, err := bundle.AcquireTunnelLock(p)
+	if err != nil {
+		t.Fatalf("cancelled tunnel retained lock: %v", err)
+	}
+	release()
 }

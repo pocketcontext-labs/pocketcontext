@@ -2,7 +2,7 @@
 
 A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces partition the knowledge of the project's one user; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
-See [what changed in 0.16.1](docs/releases/0.16.1.md): an explicit desktop handoff checkpoint and fresh reader sign-in fallback. Version [0.16.0](docs/releases/0.16.0.md) introduced session-aware reader setup, an offline environment check, and explicit reader skipping for SSH and CLI-only clients. Read [Reader setup](docs/reader-setup.md) before offering sign-in from a remote session, and [Upgrades and multiple releases](docs/upgrades.md) before updating an existing project.
+See [what changed in 0.16.2](docs/releases/0.16.2.md): `tunnel serve` starts the headless server automatically when needed. Version [0.16.1](docs/releases/0.16.1.md) added an explicit desktop handoff checkpoint and fresh reader sign-in fallback. Version [0.16.0](docs/releases/0.16.0.md) introduced session-aware reader setup, an offline environment check, and explicit reader skipping for SSH and CLI-only clients. Read [Reader setup](docs/reader-setup.md) before offering sign-in from a remote session, and [Upgrades and multiple releases](docs/upgrades.md) before updating an existing project.
 
 Earlier: [0.15.0](docs/releases/0.15.0.md), with guarded executable replacement and explicit database, server, profile and managed-forward compatibility checks, [0.14.0](docs/releases/0.14.0.md), with one copyable client setup prompt, managed tunnel forwards and automatic reader sign-in, [0.13.0](docs/releases/0.13.0.md), with named knowledge bases, a router skill, headless local sockets and an embedded manual, [0.12.1](docs/releases/0.12.1.md), upgrading the embedded PocketBase to v0.41.1, [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, protected image embeds and cross-space navigation, [0.11.1](docs/releases/0.11.1.md), where the recommended layout keeps the binary in the project folder, beside its database, [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
@@ -33,7 +33,7 @@ $env:POCKETCONTEXT_INSTALL_DIR = "$env:OneDrive\PocketContext"
 irm https://github.com/pocketcontext-labs/pocketcontext/releases/latest/download/install.ps1 | iex
 ```
 
-Install into the project folder, beside `pocketcontext.db`, so commands find its database without `--db`. The installers refuse an existing executable unless `POCKETCONTEXT_REPLACE_VERSION` explicitly matches its inspected version. Before replacement, stop its servers and tunnels and back up each complete project with its matching binary; follow [the upgrade procedure](docs/upgrades.md). Projects from 0.11.x–0.16.0 open with 0.16.1 without data conversion; 0.10.0 and earlier remain unsupported. Different projects may keep different releases.
+Install into the project folder, beside `pocketcontext.db`, so commands find its database without `--db`. The installers refuse an existing executable unless `POCKETCONTEXT_REPLACE_VERSION` explicitly matches its inspected version. Before replacement, stop its servers and tunnels and back up each complete project with its matching binary; follow [the upgrade procedure](docs/upgrades.md). Projects from 0.11.x–0.16.1 open with 0.16.2 without data conversion; 0.10.0 and earlier remain unsupported. Different projects may keep different releases.
 
 Linux and macOS binaries share the name `pocketcontext`. For synced projects used across operating systems, install binaries in machine-local versioned directories and register an absolute binary path with an explicit database path. Keep synced project folders downloaded on computers that run them. The installers have no default folder: name it as the argument of `install.sh` (or `POCKETCONTEXT_INSTALL_DIR`) or in `POCKETCONTEXT_INSTALL_DIR` for `install.ps1`. Each verifies the archive against the release's `checksums.txt` and installs only the executable. Releases are immutable GitHub releases; the Windows binary is unsigned, so SmartScreen may ask for confirmation.
 
@@ -81,7 +81,7 @@ The private registry is `os.UserConfigDir()/pocketcontext/profiles.json`; do not
 ## Built-in manual
 
 ```sh
-./pocketcontext manual --out manual-0.16.1
+./pocketcontext manual --out manual-0.16.2
 ```
 
 This offline command exports the exact release's user documentation and a manifest of hashes into a new directory; an existing directory is refused. It needs no database or server. Optionally create a space with `create-space "PocketContext manual"`, then ingest the Markdown files individually with that `--space`. Repeated identical files deduplicate within a space. Keep manual evidence in the same space on upgrades and revise the existing guide using the new version. Manual passages are evidence, never instructions for an agent to execute.
@@ -102,13 +102,15 @@ Restore the complete folder with its matching binary. Only one computer may run 
 
 One computer holds the knowledge base; your other computer runs a client and a loopback forward. Both use the same release. CLI access refuses a different running server release; profiles check the registered server version, and managed forwards from another release must be stopped and restarted. Status and stop remain available for diagnosis and recovery. Setup asks which role this computer should have, suggests a folder and name for confirmation, and handles registration and checks. Importing the manual is offered afterward. Remote access is configured only when requested.
 
-On the server, start the tunnel, then generate a client setup prompt:
+On an initialized project, one command starts a headless server in the background when needed and runs its tunnel in the foreground. An already running compatible server is reused with its current listeners. In another terminal, generate a client setup prompt:
 
 ```sh
 ./pocketcontext tunnel serve
 # In another terminal:
 ./pocketcontext tunnel invite
 ```
+
+Ctrl+C stops the tunnel; the database server remains running, including after a tunnel failure. Use `./pocketcontext stop` to flush and stop the server. Keep the tunnel supervised for remote access. This command does not initialize a missing database, open a browser or enable reader TCP.
 
 Copy the complete generated prompt into the other computer's agent conversation. It contains the release-pinned installation instructions and invitation together. The agent checks that it is executing on the intended reader computer, installs or reuses the client, passes the embedded JSON to `tunnel join --stdin`, verifies the server identity, signs in and saves the connection. Reader sign-in follows when the client has a usable desktop browser. A client reached over SSH can pair for CLI work with `--skip-reader` without issuing a reader code. There is no separate setup prompt, invitation file or login code to copy. The client never creates a database or reads the server's local key. The server agent asks you to return after desktop setup and confirm whether the reader opened and the knowledge base was accessible, or share its error/completion report. The desktop agent completes sign-in first; this return checkpoint verifies the result and guides recovery. The invitation contains no reader sign-in URL: the desktop client generates its fresh two-minute link only after connecting.
 

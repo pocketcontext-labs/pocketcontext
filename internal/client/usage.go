@@ -94,8 +94,9 @@ Knowledge (reads use SQL, writes use the records API; there is no delete):
 
 Tunnel (carry the server's port to another computer):
   tunnel serve [--new-address]
-                       on the server: expose only the project's service;
-                       keep supervised in the foreground (Ctrl-C stops)
+                       start a headless server if needed; expose its service;
+                       keep tunnel supervised in the foreground;
+                       Ctrl-C stops the tunnel, leaving the server running
   tunnel invite [--out FILE]
                        print one complete client setup prompt to share in chat;
                        --out optionally writes invitation JSON outside the project

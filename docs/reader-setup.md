@@ -43,7 +43,10 @@ matching forward has already been established and verified.
 
 If the user already requested access from their computer, continue directly to
 the authorized remote setup. Start `tunnel serve --db DB` under verified
-supervision and generate the complete client setup prompt with
+supervision; it starts a headless background server if needed, or reuses the
+running compatible server without changing its listeners. Stopping the tunnel
+leaves the server running; use `stop` separately to flush and stop it. Generate
+the complete client setup prompt with
 `tunnel invite --db DB`. Display that prompt for the user to paste into the agent
 on the computer where they will use the reader. Do not ask for the same permission
 again. Otherwise offer to connect that computer once; detecting SSH does not
