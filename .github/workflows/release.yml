@@ -82,7 +82,7 @@ jobs:
       - name: Unit tests
         run: |
           packages=./...
-          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client ./internal/tunnel ./internal/profiles"; fi
+          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/chat ./internal/bundle ./internal/client ./internal/tunnel ./internal/profiles"; fi
           CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" $packages
       - name: Reference and importer tests
         run: |

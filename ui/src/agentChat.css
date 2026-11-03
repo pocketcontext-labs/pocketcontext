@@ -1,0 +1,81 @@
+.agent-chat {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  width: min(100%, 36rem);
+  max-width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  border: 1px solid var(--line, #ddd);
+  padding: 1.25rem;
+  background: var(--panel, #fff);
+  color: var(--text, #242424);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.agent-chat::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+.agent-chat header,
+.agent-chat-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.agent-chat h2 {
+  font-size: 1.15rem;
+  flex: 1;
+}
+.agent-chat button {
+  min-height: 44px;
+  padding: 0.5rem 0.85rem;
+}
+.agent-chat select,
+.agent-chat textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  margin: 0.5rem 0;
+  padding: 0.65rem;
+}
+.agent-chat textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+.agent-chat label {
+  display: block;
+  max-width: 100%;
+}
+.agent-chat-note {
+  font-size: 0.9rem;
+}
+.agent-chat-transcript {
+  margin: 1rem 0;
+}
+.agent-chat-message,
+.agent-chat-permission {
+  padding: 0.9rem;
+  margin: 0.6rem 0;
+  border: 1px solid #8885;
+  border-radius: 0.5rem;
+}
+.agent-chat pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+}
+.agent-chat table {
+  display: block;
+  overflow-x: auto;
+}
+.agent-chat-permission button {
+  margin: 0.25rem;
+}
+.agent-chat [role="alert"] {
+  border-left: 3px solid #b64032;
+  padding-left: 0.75rem;
+}

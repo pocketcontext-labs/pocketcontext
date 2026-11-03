@@ -1,4 +1,5 @@
 import Brand from "./Brand";
+import AgentChat from "./AgentChat";
 import SpaceManager from "./SpaceManager";
 import SourceSearch from "./SourceSearch";
 import SourceDirectory, { sourceFilter, sourceOrder } from "./SourceDirectory";
@@ -1262,6 +1263,7 @@ function Reader() {
               </label>
             )}
           </div>
+          <AgentChat space={space?.id} />
         </header>
         {error && (
           <div className="error-banner" role="alert">

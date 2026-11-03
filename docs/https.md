@@ -9,7 +9,7 @@ is needed. Hosting is opt-in; local-only use remains unchanged.
 
 Give your setup agent this request, replacing the domain:
 
-> Set up PocketContext 0.18.0 for phone access at knowledge.example.com on this
+> Set up PocketContext 0.19.0 for phone access at knowledge.example.com on this
 > host. Use the release's HTTPS hosting manual. Confirm the project folder and
 > name, inspect existing installations before replacing anything, and preserve
 > existing data. Configure DNS and the host firewall using my authorized tools,
@@ -147,3 +147,7 @@ retain the ordinary single-user access model; spaces are not security boundaries
 Certificates and ACME state stay in the private machine cache. They are operational
 secrets, not knowledge sources, and are excluded from synced project backups. A
 restored host must re-establish its hosting configuration and certificate state.
+
+## Optional chat on the phone
+
+Since 0.19.0 the signed-in reader can also use an explicitly configured host agent. Add chat to the same service while retaining its domain, ACME contact and optional tunnel. The adapter/runtime and provider sign-in live on the host, not the phone. See [chat setup](chat.md); serving HTTPS alone does not install or enable an agent.

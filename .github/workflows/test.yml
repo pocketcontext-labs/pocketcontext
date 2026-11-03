@@ -43,7 +43,7 @@ jobs:
       - name: Unit tests
         run: |
           packages=./...
-          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/bundle ./internal/client ./internal/tunnel ./internal/profiles"; fi
+          if [ "$RUNNER_OS" = Windows ]; then packages="./internal/chat ./internal/bundle ./internal/client ./internal/tunnel ./internal/profiles"; fi
           CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" $packages
       - name: Build the binary
         run: |
@@ -62,6 +62,7 @@ jobs:
           node tests/import_reader_browser.mjs --binary "$EXE"
           node tests/sidebar_layout_browser.mjs --binary "$EXE"
           POCKETCONTEXT_HTTPS_BROWSER_TEST=1 CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" ./internal/bundle -run TestPublicHTTPSPhoneBrowser -count=1
+          POCKETCONTEXT_CHAT_BROWSER_TEST=1 CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" ./internal/bundle -run TestChatPhoneBrowser -count=1
       - name: Name check of the repository and binary
         run: $PY tests/name_check.py --binary "$EXE"
       - name: End-to-end test with synthetic notes

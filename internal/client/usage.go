@@ -13,11 +13,14 @@ Setup and server:
                        named Default, and start the server
   ensure-running       start the server in the background unless it runs (alias: start)
   serve [--headless | --tcp-only] [--domain HOST] [--acme-email EMAIL]
-        [--tunnel] [--port N] [--ui-dev URL]
+        [--tunnel] [--chat-agent ABS_EXECUTABLE] [--chat-args JSON_ARRAY]
+        [--port N] [--ui-dev URL]
                        run in the foreground; plain serve enables socket and TCP
                        --headless --tunnel owns both server and tunnel in one process
                        --headless --domain HOST enables HTTPS on 443, HTTP redirects
                        and ACME challenges on 80; certificates renew automatically
+                       --chat-agent enables optional reader chat through a separately
+                       installed host ACP adapter; provider sign-in required
   stop                 write back the database and stop the server
   status               show paths, port, lease and whether the server runs
   environment          report session/browser signals offline (no project needed)
