@@ -76,9 +76,39 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 	if err := bundle.EnsureRunningContext(ctx, p, bundle.StartOptions{}); err != nil {
 		return err
 	}
+	return runServerTunnel(ctx, p, a.bools["new-address"], pretty, false)
+}
+
+// serveWithTunnel owns both components in the same foreground process. It never
+// attaches to a separately running server or starts a detached child.
+func serveWithTunnel(p *bundle.Project, opts bundle.ServeOptions, pretty bool) error {
+	if _, err := os.Stat(p.DB); err != nil {
+		return fail(2, "no PocketContext database at %s; run `pocketcontext init` first, or pass --db", p.DB)
+	}
+	release, err := bundle.AcquireTunnelLock(p)
+	if err != nil {
+		return err
+	}
+	defer release()
+	opts.Service = func(ctx context.Context) error {
+		return runServerTunnel(ctx, p, false, pretty, true)
+	}
+	return bundle.Serve(p, opts)
+}
+
+// runServerTunnel requires a ready server and an already held tunnel lock.
+func runServerTunnel(parent context.Context, p *bundle.Project, rotate, pretty, combined bool) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := bundle.Health(p)
 	if err != nil {
 		return err
+	}
+	if info.Instance != p.Config.Instance || info.Key != p.Key {
+		return fmt.Errorf("project identity mismatch")
 	}
 	if err := bundle.CheckServerCompatibility(info); err != nil {
 		return err
@@ -87,26 +117,43 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 		return err
 	}
 	path := identityFile(p)
-	id, err := tunnel.LoadIdentity(path, a.bools["new-address"])
+	id, err := tunnel.LoadIdentity(path, rotate)
 	if err != nil {
 		return fail(1, "%v", err)
 	}
 	chosen := id.Region != nil
 	endpoint := filepath.Join(p.Cache, "tunnel-endpoint.json")
 	defer os.Remove(endpoint)
+	var readyErr error
 	err = tunnel.ServeBackend(ctx, p.Config.Port, id, func(addr tailcat.Addr) {
-		if !chosen && id.Region != nil {
-			if err := id.Save(path); err != nil {
-				fmt.Fprintf(os.Stderr, "pocketcontext: could not keep the tunnel identity (%v); the address will change on the next start\n", err)
-			}
-		}
-		data, _ := json.Marshal(connection{Format: 1, Address: string(addr), URL: p.URL(), Instance: p.Config.Instance, Name: p.Config.Name})
-		if e := bundle.WriteAtomic(endpoint, append(data, '\n'), 0600); e != nil {
-			fmt.Fprintln(os.Stderr, "could not save private endpoint:", e)
+		if ctx.Err() != nil {
 			return
 		}
-		Print(map[string]any{"port": p.Config.Port, "serverRunning": true, "ready": true, "note": "Run tunnel invite to generate one client setup prompt to share in your chat. Keep this tunnel process supervised. Stopping the tunnel leaves the server running; use pocketcontext stop to stop the server."}, pretty)
+		if !chosen && id.Region != nil {
+			if err := id.Save(path); err != nil {
+				readyErr = fmt.Errorf("could not save tunnel identity: %w", err)
+				cancel()
+				return
+			}
+		}
+		data, _ := json.Marshal(connection{Format: 1, Address: string(addr), URL: p.URL(), Instance: p.Config.Instance, Name: info.Name})
+		if e := bundle.WriteAtomic(endpoint, append(data, '\n'), 0600); e != nil {
+			readyErr = fmt.Errorf("could not save private endpoint: %w", e)
+			cancel()
+			return
+		}
+		note := "Run tunnel invite to generate one client setup prompt to share in your chat. Keep this tunnel process supervised. Stopping the tunnel leaves the server running; use pocketcontext stop to stop the server."
+		if combined {
+			note = "Run tunnel invite to generate one client setup prompt to share in your chat. This process owns the server and tunnel; stopping it closes both and flushes the database."
+		}
+		Print(map[string]any{"port": p.Config.Port, "serverRunning": true, "ready": true, "combined": combined, "note": note}, pretty)
 	}, func() (net.Conn, error) { return dialTunnelBackend(p) })
+	if readyErr != nil {
+		return readyErr
+	}
+	if parent.Err() != nil && errors.Is(err, context.Canceled) {
+		return nil
+	}
 	if err != nil {
 		return fail(1, "%v", err)
 	}

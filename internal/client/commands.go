@@ -262,7 +262,7 @@ parsed:
 		return nil
 	}
 	spec := map[string][2][]string{
-		"serve":          {{"ui-dev", "port"}, {"take-over", "headless", "tcp-only"}},
+		"serve":          {{"ui-dev", "port"}, {"take-over", "headless", "tcp-only", "tunnel"}},
 		"start":          {nil, {"take-over"}},
 		"ensure-running": {nil, {"take-over"}},
 		"stop":           {nil, nil},
@@ -389,7 +389,14 @@ parsed:
 			}
 			servePort = n
 		}
-		return bundle.Serve(p, bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort})
+		opts := bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort}
+		if a.bools["tunnel"] {
+			if !opts.Headless {
+				return fail(2, "--tunnel requires --headless")
+			}
+			return serveWithTunnel(p, opts, pretty)
+		}
+		return bundle.Serve(p, opts)
 	case "start", "ensure-running":
 		if err := bundle.EnsureRunning(p, bundle.StartOptions{TakeOver: a.bools["take-over"]}); err != nil {
 			return fail(1, "%v", err)

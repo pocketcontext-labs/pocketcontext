@@ -347,5 +347,6 @@ func TestInvitationCLIRehearsal(t *testing.T) {
 	if run(serverEnv, "", "status", "--db", db)["running"] != true {
 		t.Fatal("stopping the restarted tunnel stopped its reused server")
 	}
+	rehearseCombinedService(t, binary, root, db, cache, serverEnv, clientEnv, run)
 	t.Log("automatic headless startup, duplicate refusal, interrupt and listener-preserving reuse; generated prompt -> stdin join -> managed forward -> authenticated reader -> stop/reconnect; used code and busy port refused")
 }

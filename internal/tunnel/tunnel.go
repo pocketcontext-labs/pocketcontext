@@ -87,6 +87,9 @@ func Serve(ctx context.Context, port int, id *Identity, ready func(tailcat.Addr)
 
 // ServeBackend exposes only the selected service using a private local dialer.
 func ServeBackend(ctx context.Context, port int, id *Identity, ready func(tailcat.Addr), dial func() (net.Conn, error)) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("port %d is out of range", port)
 	}
@@ -97,25 +100,19 @@ func ServeBackend(ctx context.Context, port int, id *Identity, ready func(tailca
 		Logf:           quiet,
 		Region:         id.Region,
 		ServedTCPPorts: []filter.PortRange{{First: served, Last: served}},
-		OnTCP: func(p uint16) func(net.Conn) {
-			if p != served {
-				return nil
-			}
-			return func(c net.Conn) {
-				local, err := dial()
-				if err != nil {
-					c.Close()
-					return
-				}
-				tailcat.ProxyConns(c, local)
-			}
-		},
 	}
-	if err := s.Start(); err != nil {
+	// Listen bounds relay discovery by ctx and exposes terminal listener errors.
+	// It starts the tailcat server itself and opens only this virtual TCP port.
+	ln, err := s.Listen(ctx, "tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
 		s.Close()
-		return fmt.Errorf("the tunnel did not start: %v", err)
+		return fmt.Errorf("the tunnel did not start: %w", err)
 	}
 	defer s.Close()
+	defer ln.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	addr := s.TailcatAddr()
 	if id.Region == nil {
 		if info, err := tailcat.ParseAddr(addr); err == nil && len(info.Region) == 1 {
@@ -123,8 +120,52 @@ func ServeBackend(ctx context.Context, port int, id *Identity, ready func(tailca
 		}
 	}
 	ready(addr)
-	<-ctx.Done()
-	return nil
+	return serveTunnelConnections(ctx, ln, dial)
+}
+
+// serveTunnelConnections closes both ends of every proxy on cancellation and
+// waits for handlers before returning. A backend dial failure only rejects that
+// connection; a terminal listener failure ends the foreground tunnel service.
+func serveTunnelConnections(parent context.Context, ln net.Listener, dial func() (net.Conn, error)) error {
+	ctx, cancel := context.WithCancel(parent)
+	var handlers sync.WaitGroup
+	stopClose := context.AfterFunc(ctx, func() { _ = ln.Close() })
+	defer func() {
+		cancel()
+		_ = ln.Close()
+		stopClose()
+		handlers.Wait()
+	}()
+	for {
+		remote, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("tunnel listener stopped: %w", err)
+		}
+		handlers.Add(1)
+		go func() {
+			defer handlers.Done()
+			defer remote.Close()
+			stopRemote := context.AfterFunc(ctx, func() { _ = remote.Close() })
+			defer stopRemote()
+			if ctx.Err() != nil {
+				return
+			}
+			local, err := dial()
+			if err != nil {
+				return
+			}
+			defer local.Close()
+			stopLocal := context.AfterFunc(ctx, func() { _ = local.Close() })
+			defer stopLocal()
+			if ctx.Err() != nil {
+				return
+			}
+			tailcat.ProxyConns(remote, local)
+		}()
+	}
 }
 
 // ParseAddress validates a tailcat address without echoing it in errors: the

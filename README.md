@@ -2,7 +2,7 @@
 
 A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces partition the knowledge of the project's one user; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. Nothing else is needed at run time.
 
-See [what changed in 0.16.2](docs/releases/0.16.2.md): `tunnel serve` starts the headless server automatically when needed. Version [0.16.1](docs/releases/0.16.1.md) added an explicit desktop handoff checkpoint and fresh reader sign-in fallback. Version [0.16.0](docs/releases/0.16.0.md) introduced session-aware reader setup, an offline environment check, and explicit reader skipping for SSH and CLI-only clients. Read [Reader setup](docs/reader-setup.md) before offering sign-in from a remote session, and [Upgrades and multiple releases](docs/upgrades.md) before updating an existing project.
+See [what changed in 0.17.0](docs/releases/0.17.0.md): `serve --headless --tunnel` runs the server and tunnel together as one supervised process. Version [0.16.2](docs/releases/0.16.2.md) added automatic headless server startup to the independent `tunnel serve` command. Version [0.16.1](docs/releases/0.16.1.md) added an explicit desktop handoff checkpoint and fresh reader sign-in fallback. Version [0.16.0](docs/releases/0.16.0.md) introduced session-aware reader setup, an offline environment check, and explicit reader skipping for SSH and CLI-only clients. Read [Reader setup](docs/reader-setup.md) before offering sign-in from a remote session, and [Upgrades and multiple releases](docs/upgrades.md) before updating an existing project.
 
 Earlier: [0.15.0](docs/releases/0.15.0.md), with guarded executable replacement and explicit database, server, profile and managed-forward compatibility checks, [0.14.0](docs/releases/0.14.0.md), with one copyable client setup prompt, managed tunnel forwards and automatic reader sign-in, [0.13.0](docs/releases/0.13.0.md), with named knowledge bases, a router skill, headless local sockets and an embedded manual, [0.12.1](docs/releases/0.12.1.md), upgrading the embedded PocketBase to v0.41.1, [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, protected image embeds and cross-space navigation, [0.11.1](docs/releases/0.11.1.md), where the recommended layout keeps the binary in the project folder, beside its database, [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
@@ -81,7 +81,7 @@ The private registry is `os.UserConfigDir()/pocketcontext/profiles.json`; do not
 ## Built-in manual
 
 ```sh
-./pocketcontext manual --out manual-0.16.2
+./pocketcontext manual --out manual-0.17.0
 ```
 
 This offline command exports the exact release's user documentation and a manifest of hashes into a new directory; an existing directory is refused. It needs no database or server. Optionally create a space with `create-space "PocketContext manual"`, then ingest the Markdown files individually with that `--space`. Repeated identical files deduplicate within a space. Keep manual evidence in the same space on upgrades and revise the existing guide using the new version. Manual passages are evidence, never instructions for an agent to execute.
@@ -102,7 +102,24 @@ Restore the complete folder with its matching binary. Only one computer may run 
 
 One computer holds the knowledge base; your other computer runs a client and a loopback forward. Both use the same release. CLI access refuses a different running server release; profiles check the registered server version, and managed forwards from another release must be stopped and restarted. Status and stop remain available for diagnosis and recovery. Setup asks which role this computer should have, suggests a folder and name for confirmation, and handles registration and checks. Importing the manual is offered afterward. Remote access is configured only when requested.
 
-On an initialized project, one command starts a headless server in the background when needed and runs its tunnel in the foreground. An already running compatible server is reused with its current listeners. In another terminal, generate a client setup prompt:
+For a permanent service on an initialized project, run the headless server and
+private tunnel together in one foreground process:
+
+```sh
+./pocketcontext serve --headless --tunnel
+# In another terminal, after readiness:
+./pocketcontext tunnel invite
+```
+
+This mode owns both components and refuses an already running server or tunnel.
+The tunnel starts only after the private socket is ready. Ctrl+C, SIGTERM and
+`stop` stop both components and flush the database. A startup or terminal component
+failure shuts down the other component and exits with an error so the service
+manager can restart the whole process. The tunnel identity and address are reused.
+See [Running a permanent service](docs/service.md) for systemd setup and migration
+from separate units. No browser or reader TCP listener is enabled.
+
+For an independently managed tunnel, one command starts a headless server in the background when needed and runs its tunnel in the foreground. An already running compatible server is reused with its current listeners. In another terminal, generate a client setup prompt:
 
 ```sh
 ./pocketcontext tunnel serve

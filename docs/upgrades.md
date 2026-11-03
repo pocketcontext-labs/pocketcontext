@@ -7,9 +7,9 @@ Only one server may open a given project at a time.
 
 ## Compatibility
 
-Application version and database format are separate. PocketContext 0.16.2 uses
-logical database format 1, the single-user format used by 0.11.x–0.16.1. Upgrading
-those projects to 0.16.2 requires no data conversion. The startup guard checks the
+Application version and database format are separate. PocketContext 0.17.0 uses
+logical database format 1, the single-user format used by 0.11.x–0.16.2. Upgrading
+those projects to 0.17.0 requires no data conversion. The startup guard checks the
 recorded application and PocketBase system migrations on the private working copy
 before PocketBase bootstrap; unknown migrations and unsupported formats are
 refused. Databases from
@@ -45,8 +45,8 @@ prove that a database is compatible.
    project with it yet. Keep the stage outside the synced project. If using the
    staged binary permanently, register that machine-local path explicitly.
 3. Stop affected client forwards with their own binary's
-   `tunnel stop --url URL`. Stop supervised server tunnels through their owning
-   terminal or supervisor, then run the existing project's `stop --db DB` and
+   `tunnel stop --url URL`. Stop combined services or supervised server tunnels
+   through their owning terminal or supervisor, then run the existing project's `stop --db DB` and
    wait for success. If an executable serves several projects, stop and upgrade
    all affected projects together, or give the selected project a separate binary.
    Wait for cloud sync to finish before changing computers.
@@ -77,8 +77,9 @@ prove that a database is compatible.
    For an offline switch, use the already verified staged executable and the
    platform's file-copy tools after the same stop and backup steps.
 6. Verify the installed binary's `--version`. Start it with
-   `ensure-running --db DB`, then inspect `status --db DB` and confirm the running
-   version, project identity and port. Never run `init` over an existing project.
+   `ensure-running --db DB`, or start the owning service for a combined
+   `serve --headless --tunnel` installation, then inspect `status --db DB` and
+   confirm the running version, project identity and port. Never run `init` over an existing project.
    If the project is registered at an old binary path, explicitly reconcile its
    registration with `profile update NAME --binary NEW_BINARY`, then regenerate
    its skill with the selected binary's `skill --db DB`. Reconcile any reported
@@ -100,7 +101,7 @@ Restore the complete stopped backup together with its matching binary. Regenerat
 its profile and skill and verify its identity before writes. Restoring the backup
 returns knowledge to the backup time: preserve any later work separately before
 restoring. Binary-only downgrades are supported only when that exact path has
-been tested and documented; no blanket downgrade guarantee is made for 0.16.2.
+been tested and documented; no blanket downgrade guarantee is made for 0.17.0.
 Never force an older release past an unsupported-format or migration error.
 
 ## Several versions and computers

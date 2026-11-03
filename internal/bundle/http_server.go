@@ -56,6 +56,10 @@ func (s *listenerSet) state() (string, bool) {
 // serveHTTP preserves the app's migration and OnServe lifecycle without a
 // vendored serving patch. TLS and the account installer are intentionally absent.
 func serveHTTP(app core.App, p *Project, opts ServeOptions, stop <-chan struct{}, local *localRoutes) error {
+	return serveHTTPContext(context.Background(), app, p, opts, stop, local)
+}
+
+func serveHTTPContext(parent context.Context, app core.App, p *Project, opts ServeOptions, stop <-chan struct{}, local *localRoutes) error {
 	if err := app.RunAllMigrations(); err != nil {
 		return err
 	}
@@ -123,11 +127,7 @@ func serveHTTP(app core.App, p *Project, opts ServeOptions, stop <-chan struct{}
 		}
 	}
 	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error { cancel(); _ = server.Close(); return e.Next() })
-	var serveErr error
-	select {
-	case <-stop:
-	case serveErr = <-listeners.errors:
-	}
+	serveErr := runForegroundService(parent, stop, listeners.errors, opts.Service)
 	listeners.mu.Lock()
 	listeners.closing = true
 	listeners.mu.Unlock()
@@ -140,8 +140,69 @@ func serveHTTP(app core.App, p *Project, opts ServeOptions, stop <-chan struct{}
 			serveErr = err
 		}
 	}
-	if errors.Is(serveErr, http.ErrServerClosed) {
-		return nil
-	}
 	return serveErr
+}
+
+// runForegroundService owns the companion service for exactly one HTTP server
+// lifetime. It returns only after the companion has released its resources, so
+// callers can then drain HTTP and write the final database snapshot.
+func runForegroundService(parent context.Context, stop <-chan struct{}, serverErrors <-chan error, service func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	var serviceDone chan error
+	if service != nil && ctx.Err() == nil {
+		serviceDone = make(chan error, 1)
+		go func() { serviceDone <- service(ctx) }()
+	}
+	var serverErr, serviceErr error
+	select {
+	case <-parent.Done():
+	case <-stop:
+	case serverErr = <-serverErrors:
+	case serviceErr = <-serviceDone:
+		serviceDone = nil
+		if ctx.Err() == nil {
+			if serviceErr == nil {
+				serviceErr = errors.New("foreground service stopped unexpectedly")
+			}
+		} else if onlyServiceCancellation(serviceErr) {
+			serviceErr = nil
+		}
+	}
+	if serverErr == http.ErrServerClosed {
+		serverErr = nil
+	}
+	cancel()
+	if serviceDone != nil {
+		serviceErr = <-serviceDone
+		if onlyServiceCancellation(serviceErr) {
+			serviceErr = nil
+		}
+	}
+	return errors.Join(serverErr, serviceErr)
+}
+
+// onlyServiceCancellation keeps a real cleanup error when it was joined with
+// cancellation; shutting down a companion must not hide resource-close errors.
+func onlyServiceCancellation(err error) bool {
+	if err == context.Canceled {
+		return true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		causes := wrapped.Unwrap()
+		if len(causes) == 0 {
+			return false
+		}
+		for _, cause := range causes {
+			if !onlyServiceCancellation(cause) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		return onlyServiceCancellation(wrapped.Unwrap())
+	default:
+		return false
+	}
 }

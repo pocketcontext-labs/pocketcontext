@@ -38,6 +38,9 @@ type ServeOptions struct {
 	Headless bool
 	TCPOnly  bool
 	Port     int
+	// Service starts after the HTTP listeners are ready. Its failure stops the
+	// server; shutdown cancels and waits for it before draining HTTP and flushing.
+	Service func(context.Context) error
 }
 
 // unpack writes the embedded application files to a content-addressed cache
@@ -104,6 +107,17 @@ func unpack(p *Project) (string, error) {
 
 // Serve runs the server in the foreground until interrupted or stopped.
 func Serve(p *Project, opts ServeOptions) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	return ServeContext(ctx, p, opts)
+}
+
+// ServeContext runs one owned foreground server. Cancellation follows the same
+// graceful drain and snapshot write-back path as an authenticated stop request.
+func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
+	if err := parent.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(p.Cache, 0700); err != nil {
 		return err
 	}
@@ -268,21 +282,8 @@ func Serve(p *Project, opts ServeOptions) error {
 			}
 		}
 	}()
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(signals)
-	go func() {
-		select {
-		case <-signals:
-			select {
-			case stop <- struct{}{}:
-			default:
-			}
-		case <-ctx.Done():
-		}
-	}()
 	log.Printf("pocketcontext %s serving %s", Version, p.DB)
-	serveErr := serveHTTP(app, p, opts, stop, local)
+	serveErr := serveHTTPContext(parent, app, p, opts, stop, local)
 	cancel()
 	closeErr := app.ResetBootstrapState()
 	if err := store.Close(); err != nil {

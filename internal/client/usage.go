@@ -12,8 +12,9 @@ Setup and server:
                        create the project, its account and a first space
                        named Default, and start the server
   ensure-running       start the server in the background unless it runs (alias: start)
-  serve [--headless | --tcp-only] [--port N] [--ui-dev URL]
+  serve [--headless | --tcp-only] [--tunnel] [--port N] [--ui-dev URL]
                        run in the foreground; plain serve enables socket and TCP
+                       --headless --tunnel owns both server and tunnel in one process
   stop                 write back the database and stop the server
   status               show paths, port, lease and whether the server runs
   environment          report session/browser signals offline (no project needed)
