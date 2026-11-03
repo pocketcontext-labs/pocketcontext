@@ -56,6 +56,13 @@ func TestPublicHTTPSPhoneBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	contextserver.RegisterDatabase(a.app, filepath.Join(root, "server.json"), filepath.Join(a.app.DataDir(), "data.db"))
+	// RegisterDatabase owns read/search connections outside PocketBase's pool.
+	// Terminate them before newTestApp resets its database and removes fixtures.
+	t.Cleanup(func() {
+		if err := a.app.OnTerminate().Trigger(&core.TerminateEvent{App: a.app}); err != nil {
+			t.Error(err)
+		}
+	})
 	router, err := apis.NewRouter(a.app)
 	if err != nil {
 		t.Fatal(err)

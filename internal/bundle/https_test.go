@@ -61,6 +61,13 @@ func TestPublicHTTPSReaderAndBoundary(t *testing.T) {
 	}
 	config, _ := filepath.Abs("../../server.json")
 	contextserver.RegisterDatabase(a.app, config, filepath.Join(a.app.DataDir(), "data.db"))
+	// RegisterDatabase owns read/search connections outside PocketBase's pool.
+	// Terminate them before newTestApp resets its database and removes fixtures.
+	t.Cleanup(func() {
+		if err := a.app.OnTerminate().Trigger(&core.TerminateEvent{App: a.app}); err != nil {
+			t.Error(err)
+		}
+	})
 	router, err := apis.NewRouter(a.app)
 	if err != nil {
 		t.Fatal(err)
