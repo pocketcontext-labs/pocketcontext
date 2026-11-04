@@ -19,5 +19,5 @@ var Skill embed.FS
 // ManualSources embeds the exact release documentation. Export transforms it
 // deterministically; there is no independently maintained documentation copy.
 //
-//go:embed README.md docs/spaces.md docs/import-obsidian.md docs/upgrades.md docs/reader-setup.md docs/service.md docs/chat.md docs/https.md docs/releases/0.21.0.md
+//go:embed README.md docs/spaces.md docs/import-obsidian.md docs/upgrades.md docs/reader-setup.md docs/service.md docs/chat.md docs/https.md docs/releases/0.21.1.md
 var ManualSources embed.FS

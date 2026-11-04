@@ -234,3 +234,52 @@ func TestEnsureRunningRejectsForeignSocket(t *testing.T) {
 		t.Fatalf("existing socket identity error was suppressed: %v", err)
 	}
 }
+
+// The TCP response is held until the local socket exists: this deterministically
+// reproduces the startup race without sleeps or a real child process.
+func TestEnsureRunningSocketAppearsDuringTCPCheck(t *testing.T) {
+	for _, mode := range []string{"own", "foreign", "malformed", "tcp-only"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &Project{Cache: t.TempDir(), Key: RandomHex(8), Config: Config{Instance: "expected"}}
+			if err := os.Chmod(p.Cache, 0700); err != nil {
+				t.Fatal(err)
+			}
+			socketServer := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if mode == "malformed" {
+					http.Error(w, "not PocketContext", http.StatusNotFound)
+					return
+				}
+				key := p.Key
+				if mode == "foreign" {
+					key = "another"
+				}
+				json.NewEncoder(w).Encode(Instance{App: "pocketcontext", Key: key, Instance: p.Config.Instance,
+					Version: Version, DatabaseFormat: DatabaseFormat, Headless: true})
+			})}
+			defer socketServer.Close()
+			var once sync.Once
+			tcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				once.Do(func() {
+					ln, err := listenSocket(p)
+					if err != nil {
+						t.Errorf("create socket during TCP check: %v", err)
+						return
+					}
+					go socketServer.Serve(ln)
+				})
+				http.Error(w, "unrelated service", http.StatusNotFound)
+			}))
+			defer tcp.Close()
+			p.Config.Port = tcp.Listener.Addr().(*net.TCPAddr).Port
+			err := EnsureRunning(p, StartOptions{TCP: mode == "tcp-only"})
+			want := map[string]string{"foreign": "another PocketContext database", "malformed": "unexpected local socket server", "tcp-only": "used by another program"}[mode]
+			if mode == "own" {
+				if err != nil {
+					t.Fatalf("returned stale TCP error after own socket became ready: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("want %q, got %v", want, err)
+			}
+		})
+	}
+}

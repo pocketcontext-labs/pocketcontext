@@ -137,14 +137,14 @@ func EnsureRunningContext(ctx context.Context, p *Project, opts StartOptions) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	ok, err := Running(p)
+	ok, err := runningForStart(p, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	if ok {
 		return compatibleRunning(p)
 	}
-	if err != nil && (opts.TCP || !socketAbsent(p)) {
+	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(p.Cache, 0700); err != nil {
@@ -196,14 +196,29 @@ func EnsureRunningContext(ctx context.Context, p *Project, opts StartOptions) er
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if ok, err := Running(p); ok {
+		if ok, err := runningForStart(p, opts); ok {
 			_ = cmd.Process.Release()
 			return compatibleRunning(p)
-		} else if err != nil && (opts.TCP || !socketAbsent(p)) {
+		} else if err != nil {
 			return err
 		}
 	}
 	return fmt.Errorf("the PocketContext server did not answer within 60 seconds; see %s", p.LogFile())
+}
+
+// runningForStart allows an unrelated TCP listener during headless startup.
+// Health may fall back to TCP just before the child creates its socket. If the
+// socket appeared during that request, recheck it instead of returning the stale
+// TCP error. The second check still validates socket identity and access.
+func runningForStart(p *Project, opts StartOptions) (bool, error) {
+	running, err := Running(p)
+	if err == nil || opts.TCP {
+		return running, err
+	}
+	if socketAbsent(p) {
+		return false, nil
+	}
+	return Running(p)
 }
 
 // socketAbsent allows headless startup despite an unrelated TCP service, but

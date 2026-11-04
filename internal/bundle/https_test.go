@@ -190,6 +190,7 @@ func TestPublicHTTPSReaderAndBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		want := 308
 		if method == "POST" {
@@ -216,8 +217,15 @@ func TestPublicHTTPSReaderAndBoundary(t *testing.T) {
 	if sse.StatusCode != 200 {
 		t.Fatal("realtime unavailable", sse.StatusCode)
 	}
+	// Release pooled client connections, leaving the active SSE body open so
+	// cancellation still has to stop the realtime handler during shutdown.
+	plain.CloseIdleConnections()
+	client.CloseIdleConnections()
 	cancel()
-	shutdown, done := context.WithTimeout(context.Background(), time.Second)
+	// net/http can allow newly accepted connections over five seconds to send
+	// their first request. Keep the deadline above that grace period and allow
+	// slower CI runners to schedule the cancelled realtime handler.
+	shutdown, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
 	if err := pub.shutdown(shutdown); err != nil {
 		t.Fatal(err)
