@@ -40,8 +40,6 @@ type ServeOptions struct {
 	Port        int
 	HTTPSDomain string
 	ACMEEmail   string
-	ChatAgent   string
-	ChatArgs    []string
 	// Service starts after the HTTP listeners are ready. Its failure stops the
 	// server; shutdown cancels and waits for it before draining HTTP and flushing.
 	Service func(context.Context) error
@@ -119,9 +117,6 @@ func Serve(p *Project, opts ServeOptions) error {
 // ServeContext runs one owned foreground server. Cancellation follows the same
 // graceful drain and snapshot write-back path as an authenticated stop request.
 func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
-	if err := ValidateChatOptions(opts.ChatAgent, opts.ChatArgs); err != nil {
-		return err
-	}
 	if opts.HTTPSDomain != "" {
 		if err := ValidateHTTPSDomain(opts.HTTPSDomain); err != nil {
 			return err
@@ -262,18 +257,6 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
 		return n
 	}
 
-	chatManager, err := newChatManager(p, opts)
-	if err != nil {
-		_ = app.ResetBootstrapState()
-		return err
-	}
-	if chatManager != nil {
-		defer func() {
-			if err := chatManager.Close(); err != nil {
-				log.Printf("chat shutdown: %v", err)
-			}
-		}()
-	}
 	stop := make(chan struct{}, 1)
 	local := &localRoutes{p: p, store: store, key: key, stop: stop, uiDev: opts.UIDev}
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
@@ -282,7 +265,6 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
 			store.Changed()
 		}
 		local.register(e)
-		registerChat(e, chatManager)
 		if devUI != nil {
 			devUI.register(e)
 		} else {
@@ -313,11 +295,6 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
 	}()
 	log.Printf("pocketcontext %s serving %s", Version, p.DB)
 	serveErr := serveHTTPContext(parent, app, p, opts, stop, local)
-	if chatManager != nil {
-		if err := chatManager.Close(); err != nil {
-			log.Printf("chat shutdown: %v", err)
-		}
-	}
 	cancel()
 	closeErr := app.ResetBootstrapState()
 	if err := store.Close(); err != nil {

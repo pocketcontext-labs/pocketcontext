@@ -93,8 +93,3 @@ Choose the origin whose reader access has actually been verified. For configured
 ## Backup and other computers
 
 The database, `pocketcontext.json` and `storage/` beside it are the whole project. The server writes a consistent copy back to the database file a few seconds after changes and on `stop`. Run `"{{BINARY}}" stop --db "{{DB}}"` before the user switches computers.
-
-
-## Optional reader chat (0.19.0)
-
-When the user requests chat in the reader, read the bundled manual’s `docs/chat.md` (or the matching release source). Configure the host explicitly with `serve --chat-agent ABS_EXECUTABLE --chat-args JSON_ARRAY`, preserving existing HTTPS/tunnel settings. The first supported adapter is `@agentclientprotocol/codex-acp@2.5.0` with `@openai/codex@0.165.0`, installed separately in a private machine-local directory with its lockfile. Use an absolute Node executable and adapter entrypoint across platforms. Provider sign-in belongs to the service user on the host; the phone needs only the signed-in reader. Leave setup pending when provider login needs the user. Keep read-only mode and on-request approvals; never enable full access to bypass a failed command. Generated instructions require authenticated CLI/API operations, but are not a sandbox. Browser disconnection leaves host work running; after a host restart, inspect an interrupted task before retrying because a command may have completed. Transcripts are private machine state, not automatically published or synced knowledge.

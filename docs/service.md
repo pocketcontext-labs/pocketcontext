@@ -93,7 +93,3 @@ exit. `systemctl --user restart pocketcontext.service` restarts both components.
 
 The command is also available on macOS and Windows; configure the corresponding
 service manager explicitly. The CLI does not install an operating-system service.
-
-## Optional reader chat
-
-Since 0.19.0, add `--chat-agent ABS_EXECUTABLE --chat-args JSON_ARRAY` to the same foreground service to enable host-side ACP chat. Preserve its existing database, domain, ACME contact, tunnel, user and cache settings. Use an absolute Node executable and adapter entrypoint for portable startup, and configure provider authentication as the service user before checking a live conversation. See [chat setup](chat.md). Restarting the service interrupts active work; browser disconnection does not.

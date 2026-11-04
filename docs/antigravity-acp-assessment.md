@@ -1,5 +1,7 @@
 # Antigravity (`agy`) ACP assessment
 
+Historical assessment of the pre-0.22.0 integration. Built-in ACP chat was removed in 0.22.0; this is not current setup guidance. Code references describe the earlier checkout.
+
 Assessed 4 November 2026 against installed `agy` 1.5.0 and PocketContext checkout
 `f166673f0a1765ce3b697c2f19ea6463f938c8bb`, including the concurrent, uncommitted
 change that makes all three chat permission choices available. This is an
@@ -62,11 +64,11 @@ claims that an authenticated Antigravity session passed.
 
 | Area | PocketContext today | Assessment and required work |
 | --- | --- | --- |
-| Transport and initialization | Newline-delimited JSON-RPC, ACP v1, 1 MiB response-frame limit in [rpc.go](../internal/chat/rpc.go) | Initialization passed with the same advertised client capabilities. Validate large tool output and malformed/partial frames with fixtures. |
-| Provider identity | `Status()` reports `codex-acp`; initialization ignores `agentInfo` in [manager.go](../internal/chat/manager.go) | Capture and persist real provider/version identity. Do not label an Antigravity session as Codex or restore a Codex session ID into another backend. |
+| Transport and initialization | Newline-delimited JSON-RPC, ACP v1, 1 MiB response-frame limit in [rpc.go](https://github.com/pocketcontext-labs/pocketcontext/blob/v0.21.1/internal/chat/rpc.go) | Initialization passed with the same advertised client capabilities. Validate large tool output and malformed/partial frames with fixtures. |
+| Provider identity | `Status()` reports `codex-acp`; initialization ignores `agentInfo` in [manager.go](https://github.com/pocketcontext-labs/pocketcontext/blob/v0.21.1/internal/chat/manager.go) | Capture and persist real provider/version identity. Do not label an Antigravity session as Codex or restore a Codex session ID into another backend. |
 | Permission modes | Requires an advertised mode matching `read-only`, `workspace-write` or `agent-full-access`, then calls `session/set_mode` | Antigravity's actual session mode IDs remain unknown because session creation failed. CLI help's `plan`, `accept-edits`, `auto` values are not evidence of equivalent ACP modes or filesystem guarantees. Keep failure closed until a verified mapping exists. |
 | Startup policy | Injects `INITIAL_AGENT_MODE` and `CODEX_CONFIG` with Codex approval/sandbox settings | These are Codex-specific, not a portable ACP policy. Use a provider-specific launch policy; never assume Antigravity honors these variables. |
-| Live permissions | [turn.go](../internal/chat/turn.go) changes modes and auto-selects `allow_once` for full access | Verify exact Antigravity behavior, including restrictive changes, pending approvals and persisted rules. Availability of all three UI choices does not prove the backend can enforce all three. |
+| Live permissions | [turn.go](https://github.com/pocketcontext-labs/pocketcontext/blob/v0.21.1/internal/chat/turn.go) changes modes and auto-selects `allow_once` for full access | Verify exact Antigravity behavior, including restrictive changes, pending approvals and persisted rules. Availability of all three UI choices does not prove the backend can enforce all three. |
 | Model and effort | Reads legacy `models` and calls `session/set_model`; no `configOptions` handling | Add capability-driven config selectors and updates. Preserve native model IDs and independent effort choices; do not infer options from the CLI's model list. |
 | Images | Checks advertised image support and sends ACP image blocks; accepts at most three PNG/JPEG inputs with existing size bounds | Image capability was advertised. Actual image interpretation and provider limits are untested. Embedded-resource support is advertised but the current reader does not send general ACP embedded resources. |
 | Tools and filesystem | Does not provide ACP client filesystem/terminal services; other client requests get `-32601` | Initialization accepted this. Tool execution still needs testing with these services disabled. Do not enable them merely to make an adapter work. Agent-owned tools may execute under the host user's rights. |

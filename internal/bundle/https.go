@@ -50,9 +50,6 @@ var publicCollections = []string{"spaces", "settings", "sources", "renditions", 
 // publicRoute is deliberately an allowlist. A future local API does not become
 // public merely because it was registered on the application's router.
 func publicRoute(method, p string, collections map[string]bool, sources map[string]bool) bool {
-	if chatPublicRoute(method, p) {
-		return true
-	}
 	read := method == http.MethodGet || method == http.MethodHead
 	if read && (p == "/" || p == "/bundle/login" || p == "/bundle/login.js") {
 		return true

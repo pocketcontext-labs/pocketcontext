@@ -140,7 +140,3 @@ only `CAP_NET_BIND_SERVICE` rather than running PocketContext as root.
 Verify the public reader and authentication after restart, then generate a fresh
 `open --public` link only when needed. Existing unused sign-in codes do not survive
 a server restart. Never delete the certificate cache merely to retry a deployment.
-
-## Optional chat runtime
-
-For 0.19.0 reader chat, preserve the machine-local adapter installation, lockfile, provider credentials and transcript cache separately from project backups. Add `--chat-agent` and `--chat-args` only when requested, preserving all existing HTTPS/tunnel options. A clean stop can interrupt an active agent task; inspect its outcome before retrying. The transcript does not guarantee that the adapter can restore its execution state. See [chat setup](chat.md).

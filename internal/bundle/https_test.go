@@ -157,6 +157,24 @@ func TestPublicHTTPSReaderAndBoundary(t *testing.T) {
 	for _, p := range []string{"/_/", "/api/bundle/instance", "/api/context/maintenance", "/api/collections", "/api/collections/users/records"} {
 		request("GET", p, a.token, "", domain, "", 404)
 	}
+	// Removed agent endpoints must stay unavailable on both local and public transports.
+	for _, endpoint := range []struct{ method, path string }{
+		{"GET", "/api/chat/status"},
+		{"GET", "/api/chat/sessions"},
+		{"POST", "/api/chat/sessions"},
+		{"POST", "/api/chat/sessions/synthetic/prompt"},
+		{"POST", "/api/chat/sessions/synthetic/permission"},
+	} {
+		request(endpoint.method, endpoint.path, a.token, `{}`, domain, "", 404)
+		req := httptest.NewRequest(endpoint.method, "http://127.0.0.1:8096"+endpoint.path, strings.NewReader(`{}`))
+		req.Header.Set("Authorization", a.token)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("removed local endpoint %s %s: %d", endpoint.method, endpoint.path, rec.Code)
+		}
+	}
 	request("GET", "/api/spaces/default", a.token, "", "127.0.0.1:8096", "", 403)
 	request("GET", "/api/spaces/default", a.token, "", domain, "https://evil.example", 403)
 	request("GET", "/api/spaces/default", "", "", domain, "", 401)

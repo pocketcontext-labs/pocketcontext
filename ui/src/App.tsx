@@ -1,5 +1,5 @@
 import Brand from "./Brand";
-import AgentChat from "./AgentChat";
+import SpacesNavigation from "./SpacesNavigation";
 import SpaceManager from "./SpaceManager";
 import SourceSearch from "./SourceSearch";
 import SourceDirectory, { sourceFilter, sourceOrder } from "./SourceDirectory";
@@ -147,10 +147,6 @@ export default function App() {
   );
   // Remount every private view when the identity changes, including child caches.
   return <Reader key={session} />;
-}
-async function loadChatPages(space: string) {
-  const publication = await api.latestPublication(space);
-  return publication ? api.listPages(publication.id) : [];
 }
 function Reader() {
   const [spaceList, setSpaceList] = useState(false);
@@ -908,7 +904,7 @@ function Reader() {
       >
         Skip to page
       </a>
-      <AgentChat
+      <SpacesNavigation
         spaceManagement={
           spacesLoaded && (
             <SpaceManager
@@ -921,12 +917,6 @@ function Reader() {
               }}
             />
           )
-        }
-        loadPages={loadChatPages}
-        pageIndex={
-          snapshot
-            ? { space: snapshot.publication.space, pages: snapshot.pages }
-            : undefined
         }
         spaceList={spaceList}
         setSpaceList={setSpaceList}

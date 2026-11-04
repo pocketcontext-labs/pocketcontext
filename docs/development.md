@@ -97,44 +97,6 @@ server, rebuilding with `make build`, and restarting it. Before testing the
 embedded/release reader, rebuild both UI and binary. Hot reload does not
 perform TypeScript checks.
 
-## Optional chat during development
-
-The ordinary launcher starts without chat. The reader still works, and opening
-Chats reports that host chat is not set up. Installing an adapter alone does
-not enable chat: its executable and arguments must be supplied to the server.
-
-Follow [agent chat setup](chat.md) to install the pinned adapter and authenticate
-the host account. Keep its manifest, lockfile and credentials outside the synced
-knowledge base. The tested package pair is `@agentclientprotocol/codex-acp@2.5.0`
-and `@openai/codex@0.165.0`. Do not replace it with an unpinned `npx` invocation.
-
-The standard `pc-dev` launcher does not accept chat flags. For chat development,
-stop that launcher and manage the two foreground processes explicitly, in
-separate development-shell terminals:
-
-```sh
-# Terminal 1, repository root. Match the development project's reader port.
-POCKETCONTEXT_DEV_PORT=18096 pnpm --dir ui dev
-```
-
-```sh
-# Terminal 2, repository root. Replace both adapter paths with installed paths.
-bin/pocketcontext serve \
-  --db "$PWD/.private/dev/project/pocketcontext.db" \
-  --ui-dev http://127.0.0.1:5173 \
-  --chat-agent /absolute/path/to/node \
-  --chat-args '["/absolute/path/to/adapter/node_modules/@agentclientprotocol/codex-acp/dist/index.js"]'
-```
-
-The initial new-chat default is read-only; the permission selector also offers
-workspace access and full access. Read-only/workspace choices are remembered for
-new chats in this browser; full access is never the new-chat default. Change
-permissions deliberately for the current task.
-Reader sign-in and provider sign-in are independent. Verify adapter readiness and provider
-login before sending an approved synthetic prompt; model requests may incur
-provider charges. Stop the backend with Ctrl-C or `bin/pocketcontext stop --db
-PATH`, then stop Vite. Do not rebuild over a running backend executable.
-
 ## Temporary Cloudflare previews
 
 The shell includes Caddy and cloudflared for explicitly configured previews;
@@ -146,9 +108,7 @@ reader's local port.
 A development gateway must validate the exact temporary HTTPS hostname and
 browser Origin, proxy only reader/authentication/knowledge routes and development
 assets, and block local administration and the PocketBase dashboard. Configure
-the hot-reload WebSocket for WSS on external port 443. If chat is enabled, include
-its browser-facing status, session and action routes; blocking `/api/chat/status`
-leaves the Chats panel in a connection error state. Do not disable backend
+the hot-reload WebSocket for WSS on external port 443. Do not disable backend
 authentication or globally allow arbitrary Hosts/Origins to make a tunnel work.
 
 Machine-local gateway configuration, process helpers, logs and tunnel URLs belong

@@ -262,7 +262,7 @@ parsed:
 		return nil
 	}
 	spec := map[string][2][]string{
-		"serve":          {{"ui-dev", "port", "domain", "acme-email", "chat-agent", "chat-args"}, {"take-over", "headless", "tcp-only", "tunnel"}},
+		"serve":          {{"ui-dev", "port", "domain", "acme-email"}, {"take-over", "headless", "tcp-only", "tunnel"}},
 		"start":          {nil, {"take-over"}},
 		"ensure-running": {nil, {"take-over"}},
 		"stop":           {nil, nil},
@@ -387,21 +387,6 @@ parsed:
 		if a.bools["headless"] && (a.bools["tcp-only"] || a.has("port") || a.has("ui-dev")) {
 			return fail(2, "--headless cannot be combined with TCP or UI development options")
 		}
-		var chatArgs []string
-		if a.has("chat-args") {
-			if a.flags["chat-agent"] == "" {
-				return fail(2, "--chat-args requires --chat-agent")
-			}
-			if err := json.Unmarshal([]byte(a.flags["chat-args"]), &chatArgs); err != nil || chatArgs == nil {
-				return fail(2, "--chat-args must be a JSON array of strings")
-			}
-		}
-		if a.has("chat-agent") && a.flags["chat-agent"] == "" {
-			return fail(2, "--chat-agent needs an absolute executable path")
-		}
-		if err := bundle.ValidateChatOptions(a.flags["chat-agent"], chatArgs); err != nil {
-			return fail(2, "%v", err)
-		}
 		servePort := 0
 		if a.has("port") {
 			n, e := a.intFlag("port", 0)
@@ -410,7 +395,7 @@ parsed:
 			}
 			servePort = n
 		}
-		opts := bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort, HTTPSDomain: a.flags["domain"], ACMEEmail: a.flags["acme-email"], ChatAgent: a.flags["chat-agent"], ChatArgs: chatArgs}
+		opts := bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort, HTTPSDomain: a.flags["domain"], ACMEEmail: a.flags["acme-email"]}
 		if a.bools["tunnel"] {
 			if !opts.Headless {
 				return fail(2, "--tunnel requires --headless")

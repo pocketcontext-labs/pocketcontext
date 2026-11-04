@@ -1,0 +1,147 @@
+.workspace:has(> .destination-strip) {
+  --strip-height: 56px;
+  position: relative;
+  box-sizing: border-box;
+  padding-top: var(--strip-height);
+}
+.destination-strip {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: var(--strip-height);
+  padding: 0 0.75rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  white-space: nowrap;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.workspace:has(> .destination-strip[hidden]) {
+  --strip-height: 0px;
+}
+.destination-strip[hidden] {
+  display: none;
+}
+.destination-strip > * {
+  flex: none;
+}
+.destination-strip button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  max-width: 70vw;
+  border: 0;
+  border-radius: 0.65rem;
+  background: transparent;
+  padding: 0.35rem 0.75rem;
+  color: var(--text);
+}
+.destination-strip button[aria-pressed="true"],
+.destination-strip button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.destination-strip {
+  justify-content: space-between;
+  z-index: 2;
+  overflow: visible;
+  background: var(--panel);
+}
+.destination-strip .destination-add {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.spaces-index {
+  position: absolute;
+  inset: var(--strip-height) 0 0;
+  z-index: 2;
+  overflow-y: auto;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition:
+    transform 0.22s ease,
+    visibility 0s 0.22s;
+}
+.spaces-index[data-visible="true"] {
+  transform: none;
+  visibility: visible;
+  transition-delay: 0s;
+}
+.workspace:has(> .spaces-index[data-visible="true"])
+  > :is(.main-area, .sidebar) {
+  visibility: hidden;
+}
+.space-list-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 1rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.space-list-row span {
+  margin-left: auto;
+}
+.spaces-index form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 1rem 0;
+}
+.spaces-index input {
+  display: block;
+  margin-top: 0.25rem;
+  padding: 0.5rem;
+}
+.spaces-index form button {
+  min-height: 40px;
+}
+
+.spaces-index {
+  padding: 1rem max(1rem, calc((100% - 42rem) / 2));
+  background: var(--sidebar);
+  border: 0;
+}
+.spaces-index h2 {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 1.6px;
+  margin: 20px 10px 8px;
+}
+.spaces-index .space-list-row {
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  min-height: 48px;
+  font-size: 14px;
+  border: 0;
+  border-radius: 6px;
+}
+.spaces-index .space-list-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 550;
+}
+.spaces-index
+  .space-list-row:is(:hover, :focus-visible, [aria-current="page"]) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.spaces-index .space-list-row svg {
+  flex: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spaces-index {
+    transition: none;
+  }
+}

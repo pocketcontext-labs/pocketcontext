@@ -77,8 +77,3 @@ reader access pending verification.
 ## Public HTTPS handoff
 
 For explicitly configured native HTTPS hosting (0.18.0+), use `open --public --db DB` on the hosting computer after external HTTPS verification. It works over SSH, prints a two-minute domain sign-in link, and neither launches a browser nor starts a server. Display the link immediately and ask the user to confirm phone access. See the installed manual `docs/https.md`. Default local/tunnel reader heuristics above are unchanged.
-
-
-## Optional reader chat (0.19.0)
-
-When the user requests chat in the reader, read the bundled manual’s `docs/chat.md` (or the matching release source). Configure the host explicitly with `serve --chat-agent ABS_EXECUTABLE --chat-args JSON_ARRAY`, preserving existing HTTPS/tunnel settings. The first supported adapter is `@agentclientprotocol/codex-acp@2.5.0` with `@openai/codex@0.165.0`, installed separately in a private machine-local directory with its lockfile. Use an absolute Node executable and adapter entrypoint across platforms. Provider sign-in belongs to the service user on the host; the phone needs only the signed-in reader. Leave setup pending when provider login needs the user. Keep read-only mode and on-request approvals; never enable full access to bypass a failed command. Generated instructions require authenticated CLI/API operations, but are not a sandbox. Browser disconnection leaves host work running; after a host restart, inspect an interrupted task before retrying because a command may have completed. Transcripts are private machine state, not automatically published or synced knowledge.

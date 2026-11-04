@@ -147,7 +147,3 @@ retain the ordinary single-user access model; spaces are not security boundaries
 Certificates and ACME state stay in the private machine cache. They are operational
 secrets, not knowledge sources, and are excluded from synced project backups. A
 restored host must re-establish its hosting configuration and certificate state.
-
-## Optional chat on the phone
-
-Since 0.19.0 the signed-in reader can also use an explicitly configured host agent. Add chat to the same service while retaining its domain, ACME contact and optional tunnel. The adapter/runtime and provider sign-in live on the host, not the phone. See [chat setup](chat.md); serving HTTPS alone does not install or enable an agent.
