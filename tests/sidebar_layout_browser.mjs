@@ -96,13 +96,20 @@ try {
   const spaceList = page.getByRole('region', { name: 'Spaces list' });
   const longChoice = spaceList.getByRole('button', { name: longSpace.name, exact: true });
   const originalChoice = spaceList.getByRole('button', { name: original.name, exact: true });
+  const showSpaces = async () => {
+    await backToSpaces.click();
+    // Visibility changes before the slide-in animation finishes. Measure only
+    // after the panel reaches its final position, including on fast CI runners.
+    await until(async () => spaceList.evaluate(element => element.dataset.visible === 'true'
+      && getComputedStyle(element).transform === 'none'), 'spaces navigation transition');
+  };
   await backToSpaces.waitFor();
-  await backToSpaces.click();
+  await showSpaces();
   assert.equal(await originalChoice.getAttribute('aria-current'), 'page', 'original space is initially selected');
   for (const width of [1408, 1280, 1101, 1100, 700, 375, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await page.reload();
-    await backToSpaces.click();
+    await showSpaces();
     await longChoice.waitFor();
     await longChoice.focus();
     await page.keyboard.press('Tab');
@@ -113,11 +120,11 @@ try {
       const regionRect = region.getBoundingClientRect();
       return { left: rect.left, right: rect.right, regionLeft: regionRect.left, regionRight: regionRect.right,
         scroll: region.scrollWidth, client: region.clientWidth, viewport: innerWidth,
-        focus: document.activeElement === element };
+        focus: document.activeElement === element, transform: getComputedStyle(region).transform };
     });
     assert(bounds.left >= bounds.regionLeft - 1 && bounds.right <= bounds.regionRight + 1,
       `space choice escapes list at ${width}px: ${JSON.stringify(bounds)}`);
-    assert(bounds.left >= 0 && bounds.right <= bounds.viewport, `space choice escapes viewport at ${width}px`);
+    assert(bounds.left >= 0 && bounds.right <= bounds.viewport, `space choice escapes viewport at ${width}px: ${JSON.stringify(bounds)}`);
     assert(bounds.scroll <= bounds.client + 1, `spaces list scrolls horizontally at ${width}px`);
     assert(bounds.focus, `keyboard focus returns to space choice at ${width}px`);
     await longChoice.click();
@@ -134,7 +141,7 @@ try {
   }
   await page.setViewportSize({ width: 1408, height: 900 });
   await page.reload();
-  await backToSpaces.click();
+  await showSpaces();
   assert.equal(await longChoice.getAttribute('aria-current'), 'page', 'long space selection survives reload');
   await originalChoice.click();
   await until(async () => (await page.evaluate(() => new URLSearchParams(location.hash.split('?')[1]).get('space'))) === original.id,
