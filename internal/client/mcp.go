@@ -123,6 +123,12 @@ func (t *mcpTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	inner := req.Clone(ctx)
+	// Unlike outgoing client requests, server requests always have a non-nil
+	// Body. Match net/http's normalization before dispatching directly to the
+	// PocketBase router, which closes the body after every request.
+	if inner.Body == nil {
+		inner.Body = http.NoBody
+	}
 	inner.URL.Scheme, inner.URL.Host = "https", t.caller.host
 	inner.Host = t.caller.host
 	inner.RequestURI = inner.URL.RequestURI()

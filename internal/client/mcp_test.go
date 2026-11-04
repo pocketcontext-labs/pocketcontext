@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"ganigeorgiev.com/pocketbase/pocketbase/tools/router"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
 )
@@ -144,6 +145,63 @@ func TestMCPProtocolAndPrincipalIsolation(t *testing.T) {
 	newMCPHandler(api).ServeHTTP(rec, req)
 	if rec.Code != 401 {
 		t.Fatal("missing OAuth accepted")
+	}
+}
+
+// Exercise PocketBase's actual request-body cleanup without an HTTP hop. The
+// network-backed knowledge fixture normalizes nil bodies before the router sees
+// them, which hid the bodyless GET crash in the production in-process adapter.
+func TestMCPTransportDirectRouterRequestBodies(t *testing.T) {
+	routes := router.NewRouter(func(w http.ResponseWriter, r *http.Request) (*router.Event, router.EventCleanupFunc) {
+		return &router.Event{Response: w, Request: r}, nil
+	})
+	handler := func(e *router.Event) error {
+		var body []byte
+		if e.Request.Method == http.MethodPost {
+			var err error
+			body, err = io.ReadAll(e.Request.Body)
+			if err != nil {
+				return err
+			}
+		}
+		return e.JSON(http.StatusOK, map[string]string{"body": string(body), "token": e.Request.Header.Get("Authorization")})
+	}
+	routes.GET("/api/context/schema", handler)
+	routes.POST("/api/context/query", handler)
+	api, err := routes.BuildMux()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, method, path, wantBody string
+		body                         io.Reader
+	}{
+		{"nil GET body", "GET", "/api/context/schema", "", nil},
+		{"explicit empty GET body", "GET", "/api/context/schema", "", http.NoBody},
+		{"JSON POST body", "POST", "/api/context/query", `{"sql":"SELECT 1"}`, strings.NewReader(`{"sql":"SELECT 1"}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := &mcpTransport{ctx: context.Background(), caller: &mcpCaller{ctx: context.Background(), host: "knowledge.example.com", token: "synthetic"}, api: api}
+			req, err := http.NewRequest(tc.method, "https://knowledge.example.com"+tc.path, tc.body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := tr.RoundTrip(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			var got map[string]string
+			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != http.StatusOK || got["body"] != tc.wantBody || got["token"] != "synthetic" {
+				t.Fatalf("direct router response: status=%d body=%v", resp.StatusCode, got)
+			}
+			if tc.body == nil && req.Body != nil {
+				t.Fatal("transport changed the caller's request body")
+			}
+		})
 	}
 }
 
