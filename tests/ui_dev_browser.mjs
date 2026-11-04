@@ -212,11 +212,12 @@ try {
   assert(!(await embedded.text()).includes('/@vite/client'));
   const embeddedContext = await browser.newContext();
   const embeddedPage = await embeddedContext.newPage();
+  await embeddedPage.goto(origin);
+  await embeddedPage.locator('.product-brand img').evaluate(async image => { await image.decode(); });
+  assert(await embeddedPage.locator('.product-brand img').evaluate(image => image.naturalWidth > 0), 'embedded logo must render under the production security policy');
   const embeddedSignIn = await cli(['open', '--no-browser']);
   await embeddedPage.goto(embeddedSignIn.signInLink);
   await embeddedPage.getByRole('button', { name: 'Sign out' }).waitFor();
-  await embeddedPage.locator('.product-brand img').evaluate(async image => { await image.decode(); });
-  assert(await embeddedPage.locator('.product-brand img').evaluate(image => image.naturalWidth > 0), 'embedded logo must render under the production security policy');
   ok('the same binary still serves the signed-in embedded reader by default');
   console.log('all UI development browser checks passed');
 } finally {

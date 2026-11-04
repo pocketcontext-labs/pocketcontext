@@ -172,7 +172,11 @@ try {
   assert.equal(new URL(page.url()).pathname, '/', 'reader removed the credential-bearing handoff URL');
   ok('remote CLI opens a signed-in browser with a single-use link and retains its own session');
   await assertLight('signed-in reader');
-  assert.equal((await page.locator('.workspace-label').innerText()).trim(), 'Default');
+  assert((await page.locator('.breadcrumb').innerText()).includes('Overview'));
+  await page.getByRole('button', { name: 'Back to spaces', exact: true }).click();
+  const defaultSpaceChoice = page.getByRole('region', { name: 'Spaces list' }).getByRole('button', { name: 'Default', exact: true });
+  assert.equal(await defaultSpaceChoice.getAttribute('aria-current'), 'page');
+  await defaultSpaceChoice.click();
   assert.equal(await page.getByRole('combobox', {name: 'Space', exact: true}).count(), 0, 'a sole space needs no selector');
   ok('login and reader remain light with a legacy dark preference and dark operating system');
   async function screenshot(name) {

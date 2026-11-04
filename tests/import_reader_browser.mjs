@@ -137,7 +137,10 @@ try {
   await page.getByRole('heading', { name: 'Destination overview', exact: true }).waitFor();
   assert(page.url().includes(`space=${targetSpace.id}`));
   assert(!page.url().includes('publication='));
-  assert.equal(await page.getByRole('combobox', { name: 'Space', exact: true }).inputValue(), targetSpace.id);
+  assert((await page.locator('.breadcrumb').innerText()).includes('Destination overview'));
+  await page.getByRole('button', { name: 'Back to spaces', exact: true }).click();
+  assert.equal(await page.getByRole('region', { name: 'Spaces list' }).getByRole('button', { name: 'Destination collection', exact: true }).getAttribute('aria-current'), 'page');
+  await page.getByRole('region', { name: 'Spaces list' }).getByRole('button', { name: 'Destination collection', exact: true }).click();
   await page.screenshot({ path: path.join(screenshots, 'cross-space.png'), fullPage: true });
   await page.goto(`${origin}/#/page/imported?space=${sourceSpace.id}`);
   await page.locator('.source-image-open img').waitFor();
