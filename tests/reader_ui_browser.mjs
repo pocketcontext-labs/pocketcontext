@@ -573,6 +573,7 @@ try {
 
   await page.setViewportSize({width:1440,height:1000});
   await page.goto(`${origin}/#/?space=${defaultSpace.id}`);
+  await page.getByRole('button',{name:'Back to spaces'}).click();
   await page.getByRole('button', {name:'Manage spaces',exact:true}).click();
   const manager = page.getByRole('dialog', {name:'Manage spaces'});
   await manager.getByText('Default', {exact:true}).first().waitFor();

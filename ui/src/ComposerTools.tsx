@@ -258,18 +258,33 @@ export function ComposerTools({
         </div>
       </div>
       {models?.availableModels.length ? (
-        <select
-          aria-label="Model"
-          value={model || models.currentModelId}
-          disabled={disabled}
-          onChange={(e) => onModel(e.target.value)}
-        >
-          {models.availableModels.map((m) => (
-            <option key={m.modelId} value={m.modelId}>
-              {m.name}
-            </option>
-          ))}
-        </select>
+        <label className="composer-model" title="Choose model">
+          <svg
+            aria-hidden="true"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+          >
+            <path d="M3 7h9m4 0h5M3 17h3m4 0h11" />
+            <circle cx="14" cy="7" r="2" />
+            <circle cx="8" cy="17" r="2" />
+          </svg>
+          <select
+            aria-label="Model"
+            value={model || models.currentModelId}
+            disabled={disabled}
+            onChange={(e) => onModel(e.target.value)}
+          >
+            {models.availableModels.map((m) => (
+              <option key={m.modelId} value={m.modelId}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : (
         <small>Codex</small>
       )}

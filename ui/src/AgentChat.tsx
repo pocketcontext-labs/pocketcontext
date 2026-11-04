@@ -1,6 +1,6 @@
-import Brand from "./Brand";
-import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { useLayoutEffect, useEffect, useRef, useState } from "react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import { spaceLink } from "./spaceLinks";
 import remarkGfm from "remark-gfm";
 import { pb } from "./api";
 import "./agentChat.css";
@@ -11,18 +11,27 @@ import {
   type ModelState,
 } from "./ComposerTools";
 
-type Event = { seq: number; type: string; text?: string; data?: unknown };
+type Event = {
+  seq: number;
+  type: string;
+  time?: string;
+  text?: string;
+  data?: unknown;
+};
 type Permission = {
   id: string;
+  importFile?: string;
   toolCall: unknown;
   options: { optionId: string; name: string; kind: string }[];
 };
 function ApprovalCard({
   permission,
+  spaceName,
   pending,
   decide,
 }: {
   permission: Permission;
+  spaceName: string;
   pending: boolean;
   decide: (option: string) => void;
 }) {
@@ -50,15 +59,21 @@ function ApprovalCard({
           <path d="m12 2 8 4v6c0 5-4 8-8 10-4-2-8-5-8-10V6zM12 7v6m0 2v2" />
         </svg>
         <div>
-          <h3>Approval requested</h3>
+          <h3>
+            {permission.importFile
+              ? `Import ${permission.importFile} into ${spaceName}?`
+              : "Approval requested"}
+          </h3>
           <p>
-            {typeof call?.title === "string"
-              ? call.title
-              : "Review the requested action"}
+            {permission.importFile
+              ? "Adds one source to this space."
+              : typeof call?.title === "string"
+                ? call.title
+                : "Review the requested action"}
           </p>
         </div>
       </div>
-      {(command || path) && (
+      {!permission.importFile && (command || path) && (
         <pre className="approval-command">
           <code>{command || path}</code>
         </pre>
@@ -67,7 +82,9 @@ function ApprovalCard({
         className="approval-details"
         onToggle={(e) => setShowDetails(e.currentTarget.open)}
       >
-        <summary>Request details</summary>
+        <summary>
+          {permission.importFile ? "Command details" : "Request details"}
+        </summary>
         {showDetails && (
           <pre>{JSON.stringify(permission.toolCall, null, 2)}</pre>
         )}
@@ -81,7 +98,12 @@ function ApprovalCard({
               disabled={pending}
               onClick={() => decide(option.optionId)}
             >
-              {option.name}
+              {option.name === "Yes, proceed" && option.kind === "allow_once"
+                ? "Allow once"
+                : option.name === "No, and tell Codex what to do differently" &&
+                    option.kind === "reject_once"
+                  ? "Deny"
+                  : option.name}
             </button>
           );
           if (option.kind === "allow_always" || option.kind === "reject_always")
@@ -104,6 +126,9 @@ function ApprovalCard({
 export type ChatSession = {
   id: string;
   space: string;
+  preview?: string;
+  updated?: string;
+  needsApproval?: boolean;
   status: string;
   error?: string;
   canResume?: boolean;
@@ -124,15 +149,79 @@ function failure(error: unknown) {
     ? error.message
     : "Chat could not connect. Your draft is still here.";
 }
-export function ChatMarkdown({ text }: { text: string }) {
+type PageTarget = { title: string; slug: string };
+function listTitle(node: MarkdownNode): string | null {
+  if (node.type === "text") return String(node.value);
+  if (!["li", "p", "strong", "em", "code"].includes(node.tagName || ""))
+    return null;
+  const parts = node.children?.map(listTitle) || [];
+  return parts.includes(null) ? null : parts.join("");
+}
+type MarkdownNode = {
+  type: string;
+  value?: unknown;
+  tagName?: string;
+  children?: readonly MarkdownNode[];
+};
+export function ChatMarkdown({
+  text,
+  space,
+  pages,
+  onNavigate,
+}: {
+  text: string;
+  space?: string;
+  pages?: PageTarget[];
+  onNavigate?: () => void;
+}) {
+  const internal = (kind: string, id: string) =>
+    spaceLink(`#/${kind}/${encodeURIComponent(id)}`, space);
+  const follow = (e: React.MouseEvent) => {
+    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey)
+      onNavigate?.();
+  };
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      urlTransform={(url) =>
+        /^(?:page:[a-z0-9]+(?:-[a-z0-9]+)*|source:[a-z0-9]{15})$/.test(url)
+          ? url
+          : defaultUrlTransform(url)
+      }
       skipHtml
       components={{
         img: ({ alt }) => <span>[Image: {alt || "not loaded"}]</span>,
+        li: ({ node, children }) => {
+          const title = pages?.length && node ? listTitle(node)?.trim() : null;
+          const matches = title
+            ? pages?.filter(
+                (p) => p.title === title || title === `${p.title} — ${p.slug}`,
+              )
+            : undefined;
+          return (
+            <li>
+              {space && matches?.length === 1 ? (
+                <a href={internal("page", matches[0].slug)} onClick={follow}>
+                  {children}
+                </a>
+              ) : (
+                children
+              )}
+            </li>
+          );
+        },
         a: ({ href, children }) =>
-          /^https?:\/\//i.test(href || "") ? (
+          space && href && /^(page|source):/.test(href) ? (
+            <a
+              href={internal(
+                href.startsWith("page:") ? "page" : "sources",
+                href.slice(href.indexOf(":") + 1),
+              )}
+              onClick={follow}
+            >
+              {children}
+            </a>
+          ) : /^https?:\/\//i.test(href || "") ? (
             <a href={href} target="_blank" rel="noopener noreferrer">
               {children}
             </a>
@@ -145,11 +234,54 @@ export function ChatMarkdown({ text }: { text: string }) {
     </ReactMarkdown>
   );
 }
+function duration(start: number, end: number) {
+  const seconds = Math.max(0, Math.floor((end - start) / 1000));
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+function WorkingTimer({ start }: { start?: string }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+  const began = Date.parse(start || "");
+  return (
+    <div className="chat-worked" role="timer" aria-label="Agent working">
+      {Number.isFinite(began) && now - began >= 1000
+        ? "Working for " + duration(began, now)
+        : "Working..."}
+    </div>
+  );
+}
 function transcript(events: Event[]) {
-  const rows: Event[] = [];
+  const rows: (Event & { workedFor?: string })[] = [];
+  let started = NaN;
   let previousId: unknown;
   let continuing = false;
   for (const event of events) {
+    if (event.type === "user") started = Date.parse(event.time || "");
+    if (
+      event.type === "status" &&
+      event.data == null &&
+      [
+        "end_turn",
+        "max_tokens",
+        "max_turn_requests",
+        "refusal",
+        "cancelled",
+      ].includes(event.text || "")
+    ) {
+      const reply = rows.at(-1),
+        end = Date.parse(event.time || "");
+      if (
+        reply?.type === "agent" &&
+        Number.isFinite(started) &&
+        Number.isFinite(end)
+      )
+        reply.workedFor = duration(started, end);
+    }
     if (event.type !== "agent" && event.type !== "user") {
       if (event.type === "tool" || event.type === "error") continuing = false;
       continue;
@@ -170,11 +302,10 @@ function transcript(events: Event[]) {
   }
   return rows;
 }
-function RailIcon({ name }: { name: "home" | "chat" | "history" }) {
+function DestinationIcon({ name }: { name: "space" | "bot" }) {
   const paths = {
-    home: "M3 10.5 12 3l9 7.5V21h-6v-7H9v7H3z",
-    chat: "M4 4h16v13H9l-5 4z M8 9h8 M8 12h5",
-    history: "M3 12a9 9 0 1 0 2-6L3 8 M3 3v5h5 M12 7v5l3 2",
+    space: "M3 7V5h6l2 2h10v12H3z",
+    bot: "M4 7h16v12H4z M12 7V3 M8 11v3 M16 11v3",
   };
   return (
     <svg
@@ -196,12 +327,27 @@ export default function AgentChat({
   space,
   spaces = [],
   onSpaceChange,
+  onCreateSpace,
+  spaceManagement,
+  pageIndex,
+  loadPages,
+  spaceList,
+  setSpaceList,
 }: {
+  loadPages?: (space: string) => Promise<PageTarget[]>;
+  pageIndex?: { space: string; pages: PageTarget[] };
+  spaceList: boolean;
+  setSpaceList: (visible: boolean) => void;
   space?: string;
   spaces?: { id: string; name: string; archived?: boolean }[];
   onSpaceChange?: (id: string) => void;
+  spaceManagement?: React.ReactNode;
+  onCreateSpace?: (name: string) => Promise<string>;
 }) {
-  const [allSpaces, setAllSpaces] = useState(false);
+  const [creatingSpace, setCreatingSpace] = useState(false);
+  const [spaceDraft, setSpaceDraft] = useState("");
+  const [savingSpace, setSavingSpace] = useState(false);
+  const [spaceError, setSpaceError] = useState("");
   const [allowWorkspace, setAllowWorkspace] = useState(false);
   const [allowFullAccess, setAllowFullAccess] = useState(false);
   const [preferred, setPreferred] = useState(
@@ -214,12 +360,97 @@ export default function AgentChat({
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [selected, setSelected] = useState("");
   const [session, setSession] = useState<ChatSession | null>(null);
+  const [remoteIndex, setRemoteIndex] = useState<{
+    space: string;
+    pages: PageTarget[];
+  }>();
+  const sessionSpace = session?.space;
+  const readerSpace = pageIndex?.space;
+  useEffect(() => {
+    if (!open || !sessionSpace || sessionSpace === readerSpace || !loadPages)
+      return;
+    let active = true;
+    loadPages(sessionSpace)
+      .then((pages) => {
+        if (active) setRemoteIndex({ space: sessionSpace, pages });
+      })
+      .catch(() => {
+        if (active) setRemoteIndex(undefined);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, sessionSpace, readerSpace, loadPages]);
+  const chatPages =
+    readerSpace === sessionSpace
+      ? pageIndex?.pages
+      : remoteIndex?.space === sessionSpace
+        ? remoteIndex?.pages
+        : undefined;
+
   const [images, setImages] = useState<PromptImage[]>([]);
   const [model, setModel] = useState("");
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
+  const [sendingTo, setSendingTo] = useState("");
   const [pending, setPending] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(true);
+  const messagePane = useRef<HTMLDivElement>(null);
+  const messageContent = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const pane = messagePane.current,
+      content = messageContent.current;
+    if (!open || historyOpen || !pane || !content) return;
+    const follow = () => {
+      pane.scrollTop = pane.scrollHeight;
+    };
+    follow();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(follow);
+    observer.observe(content);
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, [open, historyOpen, enabled, session?.id]);
+  const pager = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = pager.current;
+    if (!el) return;
+    const go = (smooth: boolean) =>
+      el.scrollTo?.({
+        left: historyOpen ? 0 : el.clientWidth,
+        behavior:
+          smooth &&
+          !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+            ? "smooth"
+            : "instant",
+      });
+    go(true);
+    const resize = () => go(false);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [historyOpen, open, enabled]);
+  const workspace = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!open || !viewport) return;
+    const resize = () => {
+      workspace.current?.style.setProperty(
+        "--chat-visible-height",
+        viewport.height + "px",
+      );
+      workspace.current?.style.setProperty(
+        "--chat-visible-top",
+        viewport.offsetTop + "px",
+      );
+    };
+    resize();
+    viewport.addEventListener("resize", resize);
+    viewport.addEventListener("scroll", resize);
+    return () => {
+      viewport.removeEventListener("resize", resize);
+      viewport.removeEventListener("scroll", resize);
+    };
+  }, [open]);
   const action = useRef(false);
   const alive = useRef(true);
   const epoch = useRef(0);
@@ -311,6 +542,8 @@ export default function AgentChat({
     action.current = true;
     epoch.current++;
     setPending(true);
+    if (session && path === endpoint(session.id) + "/prompt")
+      setSendingTo(session.id);
     setError("");
     try {
       if (
@@ -342,7 +575,10 @@ export default function AgentChat({
       if (alive.current) setError(failure(err));
     } finally {
       action.current = false;
-      if (alive.current) setPending(false);
+      if (alive.current) {
+        setPending(false);
+        setSendingTo("");
+      }
     }
   }
   const busy = [
@@ -390,7 +626,7 @@ export default function AgentChat({
       },
     );
   };
-  const scoped = sessions.filter((item) => allSpaces || item.space === space);
+  const scoped = sessions;
   const pinned = scoped.filter((item) => item.pinned && !item.archived);
   const recent = scoped.filter((item) => !item.pinned && !item.archived);
   const archived = scoped.filter((item) => item.archived);
@@ -405,45 +641,19 @@ export default function AgentChat({
       savedDrafts.current.set(selected, { text: draft, images, model });
     else savedDrafts.current.delete(selected);
   }
-  function spacePicker(id: string | undefined, label: string) {
-    const choices = spaces.filter((item) => !item.archived || item.id === id);
-    if (
-      !onSpaceChange ||
-      !choices.some((item) => item.id !== id && !item.archived)
-    )
-      return <strong>{id ? nameOf(id) : "No space selected"}</strong>;
-    return (
-      <select
-        aria-label={label}
-        value={id || ""}
-        disabled={pending}
-        onChange={(event) => {
-          rememberDraft();
-          epoch.current++;
-          setHistoryOpen(true);
-          setAllSpaces(false);
-          setSession(null);
-          setSelected("");
-          setDraft("");
-          setImages([]);
-          setModel("");
-          setError("");
-          creation.current = null;
-          onSpaceChange(event.target.value);
-        }}
-      >
-        {!id && (
-          <option value="" disabled>
-            Choose a space
-          </option>
-        )}
-        {choices.map((item) => (
-          <option key={item.id} value={item.id} disabled={item.archived}>
-            {item.name}
-          </option>
-        ))}
-      </select>
-    );
+  function changeSpace(id: string) {
+    rememberDraft();
+    epoch.current++;
+    setHistoryOpen(true);
+
+    setSession(null);
+    setSelected("");
+    setDraft("");
+    setImages([]);
+    setModel("");
+    setError("");
+    creation.current = null;
+    onSpaceChange?.(id);
   }
   function historyRow(item: ChatSession) {
     const title = item.title || "Untitled chat";
@@ -451,7 +661,10 @@ export default function AgentChat({
       <div className="history-entry" key={item.id}>
         <button
           className="history-row"
-          aria-label={allSpaces ? title + ", " + nameOf(item.space) : title}
+          aria-label={title}
+          aria-description={
+            item.needsApproval ? "Approval needed" : item.preview
+          }
           aria-current={selected === item.id ? "page" : undefined}
           disabled={pending}
           title={title}
@@ -469,19 +682,41 @@ export default function AgentChat({
             setError("");
           }}
         >
-          <span>
-            {title}
-            {allSpaces && (
-              <small className="history-space-name">{nameOf(item.space)}</small>
-            )}
+          <DestinationIcon name="bot" />
+          <span className="chat-row-copy">
+            <strong>{title}</strong>
+            <small className={item.needsApproval ? "chat-attention" : ""}>
+              {item.needsApproval
+                ? "Approval needed"
+                : item.preview || "No messages yet"}
+            </small>
+            {
+              <small className="history-space-name">
+                <span aria-hidden="true">
+                  {
+                    ["◇", "○", "△", "□", "⬡"][
+                      Array.from(item.space).reduce(
+                        (hash, c) => (hash * 31 + c.charCodeAt(0)) >>> 0,
+                        0,
+                      ) % 5
+                    ]
+                  }{" "}
+                </span>
+                {nameOf(item.space)}
+              </small>
+            }
           </span>
-          {[
-            "running",
-            "waiting",
-            "starting",
-            "initializing",
-            "cancelling",
-          ].includes(item.status) && <small aria-label={item.status}>◌</small>}
+          {item.updated && (
+            <time dateTime={item.updated}>
+              {new Intl.DateTimeFormat(
+                undefined,
+                new Date(item.updated).toDateString() ===
+                  new Date().toDateString()
+                  ? { hour: "numeric", minute: "2-digit" }
+                  : { month: "short", day: "numeric" },
+              ).format(new Date(item.updated))}
+            </time>
+          )}
         </button>
         <div className="history-actions">
           {(item.archived
@@ -538,44 +773,208 @@ export default function AgentChat({
       </div>
     );
   }
+  const chatSpaceDialog = useRef<HTMLDialogElement>(null);
+  const availableSpaces = spaces.filter((item) => !item.archived);
+  function newChat(space: string) {
+    chatSpaceDialog.current?.close();
+    if (
+      !creation.current ||
+      creation.current.space !== space ||
+      creation.current.mode !== mode
+    )
+      creation.current = { id: requestId(), space, mode };
+    void mutate(
+      "/api/chat/sessions",
+      { requestId: creation.current.id, space, mode },
+      () => {
+        setHistoryOpen(false);
+        rememberDraft();
+        setDraft("");
+        creation.current = null;
+        setImages([]);
+        setModel("");
+      },
+    );
+  }
+  async function createSpace(event: React.FormEvent) {
+    event.preventDefault();
+    if (!spaceDraft.trim() || !onCreateSpace || savingSpace) return;
+    setSavingSpace(true);
+    setSpaceError("");
+    try {
+      const id = await onCreateSpace(spaceDraft.trim());
+      changeSpace(id);
+      setSpaceDraft("");
+      setCreatingSpace(false);
+      setSpaceList(false);
+    } catch (err) {
+      setSpaceError(failure(err));
+    } finally {
+      setSavingSpace(false);
+    }
+  }
+  const messages = transcript(session?.events || []);
+  const last = messages.at(-1);
+  const submitting = !!session && sendingTo === session.id;
+  const working =
+    session &&
+    (submitting || session.status === "running") &&
+    !session.permissions?.length;
+  const liveReply =
+    working && !submitting && last?.type === "agent" && !last.workedFor
+      ? last
+      : undefined;
+  const timer = working ? (
+    <WorkingTimer
+      start={
+        submitting
+          ? undefined
+          : session.events
+              ?.slice()
+              .reverse()
+              .find((event) => event.type === "user")?.time
+      }
+    />
+  ) : null;
   return (
     <>
-      <nav className="reader-rail" aria-label="Reader tools">
-        <button
-          title="Knowledge base"
-          aria-label={open ? "Close chat" : "Knowledge base"}
-          aria-pressed={!open}
-          onClick={() => {
-            setOpen(false);
-          }}
-        >
-          <RailIcon name="home" />
-        </button>
-        <button
-          title="Chat"
-          aria-label="Chat"
-          aria-pressed={open}
-          onClick={() => {
-            setOpen(true);
-            setHistoryOpen(!selected);
-          }}
-        >
-          <RailIcon name="chat" />
-        </button>
-        {open && (
+      <nav
+        hidden={open ? !historyOpen && !!enabled : !spaceList}
+        className="destination-strip"
+        aria-label="Workspace navigation"
+      >
+        <div className="workspace-switch">
           <button
-            className="rail-history"
-            title="Conversation history"
-            aria-label="Conversation history"
-            aria-expanded={historyOpen}
-            onClick={() => setHistoryOpen(!historyOpen)}
+            type="button"
+            aria-pressed={!open}
+            disabled={savingSpace}
+            onClick={() => {
+              setOpen(false);
+              setSpaceList(true);
+            }}
           >
-            <RailIcon name="history" />
+            Spaces
           </button>
-        )}
+          <button
+            type="button"
+            aria-pressed={open}
+            disabled={savingSpace}
+            onClick={() => {
+              setOpen(true);
+              setHistoryOpen(true);
+              setCreatingSpace(false);
+            }}
+          >
+            Chats
+          </button>
+        </div>
+        <button
+          className="destination-add"
+          type="button"
+          aria-label={open ? "New chat" : "New space"}
+          title={open ? "New chat" : "New space"}
+          disabled={
+            open
+              ? pending || !availableSpaces.length || !enabled
+              : !onCreateSpace || savingSpace
+          }
+          onClick={() => {
+            if (open) chatSpaceDialog.current?.showModal();
+            else {
+              setSpaceList(true);
+              setCreatingSpace(true);
+              setSpaceError("");
+            }
+          }}
+        >
+          ＋
+        </button>
       </nav>
+      <dialog
+        ref={chatSpaceDialog}
+        className="chat-space-choice"
+        aria-labelledby="new-chat-space-title"
+      >
+        <h2 id="new-chat-space-title">Choose a space for this chat</h2>
+        <div>
+          {availableSpaces.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className="space-list-row"
+              onClick={() => newChat(item.id)}
+            >
+              <DestinationIcon name="space" />
+              {item.name}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={() => chatSpaceDialog.current?.close()}>
+          Cancel
+        </button>
+      </dialog>
+      {!open && (
+        <section
+          className="spaces-index"
+          data-visible={spaceList}
+          inert={!spaceList}
+          aria-label="Spaces list"
+        >
+          <div className="spaces-list-heading">
+            <h2>Spaces</h2>
+            {spaceManagement}
+          </div>
+          {creatingSpace && (
+            <form onSubmit={createSpace}>
+              <label>
+                Space name
+                <input
+                  autoFocus
+                  value={spaceDraft}
+                  onChange={(e) => setSpaceDraft(e.target.value)}
+                  disabled={savingSpace}
+                />
+              </label>
+              <button disabled={!spaceDraft.trim() || savingSpace}>
+                Create space
+              </button>
+              <button
+                type="button"
+                disabled={savingSpace}
+                onClick={() => setCreatingSpace(false)}
+              >
+                Cancel
+              </button>
+              {spaceError && <p role="alert">{spaceError}</p>}
+            </form>
+          )}
+          {spaces
+            .filter((item) => !item.archived || item.id === space)
+            .map((item) => (
+              <button
+                className="space-list-row"
+                key={item.id}
+                aria-current={item.id === space ? "page" : undefined}
+                disabled={savingSpace}
+                onClick={() => {
+                  changeSpace(item.id);
+                  setSpaceList(false);
+                  setCreatingSpace(false);
+                }}
+              >
+                <DestinationIcon name="space" />
+                <strong>{item.name}</strong>
+                <span aria-hidden="true">›</span>
+              </button>
+            ))}
+        </section>
+      )}
       {open && (
-        <section className="agent-chat" aria-label="Chat workspace">
+        <section
+          ref={workspace}
+          className="agent-chat"
+          aria-label="Chat workspace"
+        >
           {enabled === null && <p role="status">Connecting…</p>}
           {enabled === false && (
             <p>
@@ -586,57 +985,16 @@ export default function AgentChat({
           {error && <p role="alert">{error}</p>}
           {enabled && (
             <>
-              <div className="chat-layout" data-history={historyOpen}>
-                <nav className="chat-history" aria-label="Chat history">
-                  <Brand />
-                  <div className="publication-control nav-space-picker">
-                    <span>Space</span>
-                    {spacePicker(space, "Space for new chats")}
-                  </div>
-                  <button
-                    className="new-chat-action"
-                    disabled={pending || !space}
-                    onClick={() => {
-                      if (
-                        !creation.current ||
-                        creation.current.space !== space ||
-                        creation.current.mode !== mode
-                      )
-                        creation.current = { id: requestId(), space, mode };
-                      void mutate(
-                        "/api/chat/sessions",
-                        { requestId: creation.current.id, space, mode },
-                        () => {
-                          setHistoryOpen(false);
-                          rememberDraft();
-                          setDraft("");
-                          creation.current = null;
-                          setImages([]);
-                          setModel("");
-                        },
-                      );
-                    }}
-                  >
-                    <span aria-hidden="true">＋</span> New chat
-                  </button>
-                  <div
-                    className="history-scope"
-                    role="group"
-                    aria-label="History scope"
-                  >
-                    <button
-                      aria-pressed={!allSpaces}
-                      onClick={() => setAllSpaces(false)}
-                    >
-                      Current space
-                    </button>
-                    <button
-                      aria-pressed={allSpaces}
-                      onClick={() => setAllSpaces(true)}
-                    >
-                      All spaces
-                    </button>
-                  </div>
+              <div
+                ref={pager}
+                className="chat-layout"
+                data-history={historyOpen}
+              >
+                <nav
+                  className="chat-history"
+                  aria-label="Chat history"
+                  inert={!historyOpen}
+                >
                   {!!pinned.length && (
                     <>
                       <h3>Pinned</h3>
@@ -657,72 +1015,119 @@ export default function AgentChat({
                   )}
                   {!scoped.length && <p>No conversations yet</p>}
                 </nav>
-                <div className="chat-thread">
-                  {session && (
+                <div className="chat-thread" inert={historyOpen}>
+                  {(session || !historyOpen) && (
                     <header
                       className="chat-space-header"
                       aria-label="Conversation space"
                     >
-                      <span>Space</span>
-                      <strong>{nameOf(session.space)}</strong>
+                      <button
+                        className="thread-back"
+                        aria-label="Back to chats"
+                        onClick={() => setHistoryOpen(true)}
+                      >
+                        ‹
+                      </button>
+                      <div>
+                        <strong>
+                          {session
+                            ? session.title || "Untitled chat"
+                            : "Opening chat…"}
+                        </strong>
+                        {session && <small>{nameOf(session.space)}</small>}
+                      </div>
                     </header>
                   )}
-                  {!session && (
+                  {!session && historyOpen && (
                     <p>Start a new chat or choose a conversation.</p>
                   )}
                   {session && (
                     <>
-                      {session.error && <p role="alert">{session.error}</p>}
-                      <div
-                        className="agent-chat-transcript"
-                        aria-label="Conversation messages"
-                        tabIndex={0}
-                      >
-                        {transcript(session.events || []).map((event) => (
-                          <article
-                            key={event.seq}
-                            className="agent-chat-message"
-                            data-speaker={event.type}
-                            aria-label={
-                              event.type === "user"
-                                ? "Your message"
-                                : "Agent reply"
-                            }
+                      <div className="chat-thread-scroll" ref={messagePane}>
+                        <div
+                          ref={messageContent}
+                          className="chat-thread-content"
+                        >
+                          {session.error && <p role="alert">{session.error}</p>}
+                          <div
+                            className="agent-chat-transcript"
+                            aria-label="Conversation messages"
+                            tabIndex={0}
                           >
-                            {event.type === "user" &&
-                              Array.isArray(
-                                (
-                                  event.data as {
-                                    images?: PromptImage[];
-                                  } | null
-                                )?.images,
-                              ) &&
-                              (
-                                event.data as { images: PromptImage[] }
-                              ).images.map((img, i) => (
-                                <ImagePreview
-                                  image={img}
-                                  key={i}
-                                  alt={"Attached image " + (i + 1)}
+                            {messages.map((event) => (
+                              <article
+                                key={event.seq}
+                                className="agent-chat-message"
+                                data-speaker={event.type}
+                                aria-label={
+                                  event.type === "user"
+                                    ? "Your message"
+                                    : "Agent reply"
+                                }
+                              >
+                                {event.type === "user" &&
+                                  Array.isArray(
+                                    (
+                                      event.data as {
+                                        images?: PromptImage[];
+                                      } | null
+                                    )?.images,
+                                  ) &&
+                                  (
+                                    event.data as { images: PromptImage[] }
+                                  ).images.map((img, i) => (
+                                    <ImagePreview
+                                      image={img}
+                                      key={i}
+                                      alt={"Attached image " + (i + 1)}
+                                    />
+                                  ))}
+                                {event === liveReply && timer}
+                                {event.workedFor && (
+                                  <div className="chat-worked">
+                                    Worked for {event.workedFor}
+                                  </div>
+                                )}
+                                <ChatMarkdown
+                                  text={event.text || ""}
+                                  space={
+                                    event.type === "agent"
+                                      ? session.space
+                                      : undefined
+                                  }
+                                  pages={
+                                    event.type === "agent"
+                                      ? chatPages
+                                      : undefined
+                                  }
+                                  onNavigate={() => {
+                                    setOpen(false);
+                                    setSpaceList(false);
+                                  }}
                                 />
-                              ))}
-                            <ChatMarkdown text={event.text || ""} />
-                          </article>
-                        ))}
+                              </article>
+                            ))}
+                            {!liveReply && timer}
+                          </div>
+                          {(session.permissions || []).map((permission) => (
+                            <ApprovalCard
+                              key={permission.id}
+                              permission={permission}
+                              spaceName={nameOf(session.space)}
+                              pending={pending}
+                              decide={(optionId) =>
+                                void mutate(
+                                  `${endpoint(session.id)}/permission`,
+                                  {
+                                    requestId: permission.id,
+                                    optionId,
+                                  },
+                                )
+                              }
+                            />
+                          ))}
+                        </div>
                       </div>
-                      {(session.permissions || []).map((permission) => (
-                        <ApprovalCard
-                          key={permission.id}
-                          permission={permission}
-                          pending={pending}
-                          decide={(optionId) =>
-                            void mutate(`${endpoint(session.id)}/permission`, {
-                              requestId: permission.id,
-                              optionId,
-                            })
-                          }
-                        />
-                      ))}
                       <form
                         className="agent-composer"
                         onSubmit={(event) => {

@@ -183,6 +183,7 @@ try {
 
   const [initialDefault] = (await cli(['sql', 'SELECT default_space FROM settings'])).rows[0];
   const second = await cli(['create-space', 'Synthetic second space']);
+  await page.getByRole('button',{name:'Back to spaces'}).click();
   await page.getByRole('button', { name: 'Manage spaces' }).click();
   const manager = page.getByRole('dialog', { name: 'Manage spaces' });
   const rowFor = name => manager.locator('li').filter({ has: page.locator('strong', { hasText: new RegExp(`^${name}$`) }) });

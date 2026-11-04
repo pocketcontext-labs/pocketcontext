@@ -240,7 +240,7 @@ func (m *Manager) receive(s *session, generation uint64, w wire) {
 		return
 	}
 	id := randomID()
-	s.permissions[id] = pendingPermission{Permission: Permission{ID: id, ToolCall: p.ToolCall, Options: p.Options}, wireID: w.ID}
+	s.permissions[id] = pendingPermission{Permission: Permission{ImportFile: m.importFile(s.Space, p.ToolCall), ID: id, ToolCall: p.ToolCall, Options: p.Options}, wireID: w.ID}
 	if m.save(s) != nil {
 		delete(s.permissions, id)
 		r.stop()

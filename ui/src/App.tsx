@@ -148,7 +148,12 @@ export default function App() {
   // Remount every private view when the identity changes, including child caches.
   return <Reader key={session} />;
 }
+async function loadChatPages(space: string) {
+  const publication = await api.latestPublication(space);
+  return publication ? api.listPages(publication.id) : [];
+}
 function Reader() {
+  const [spaceList, setSpaceList] = useState(false);
   const [authenticated, setAuthenticated] = useState(pb.authStore.isValid);
   const [current, setCurrent] = useState(route);
   const routeSelection = useRef(current);
@@ -904,8 +909,34 @@ function Reader() {
         Skip to page
       </a>
       <AgentChat
+        spaceManagement={
+          spacesLoaded && (
+            <SpaceManager
+              selected={space?.id}
+              onChanged={async (destination) => {
+                await readSpaces(true);
+                if (destination)
+                  location.hash = `#/?space=${encodeURIComponent(destination)}`;
+                else await refresh();
+              }}
+            />
+          )
+        }
+        loadPages={loadChatPages}
+        pageIndex={
+          snapshot
+            ? { space: snapshot.publication.space, pages: snapshot.pages }
+            : undefined
+        }
+        spaceList={spaceList}
+        setSpaceList={setSpaceList}
         space={space?.id}
         spaces={spaces}
+        onCreateSpace={async (name) => {
+          const result = await api.createSpace(name);
+          await readSpaces(true);
+          return result.id;
+        }}
         onSpaceChange={(id) => {
           setSpace(spaces.find((item) => item.id === id) || null);
           location.hash = `#/?space=${encodeURIComponent(id)}`;
@@ -936,48 +967,7 @@ function Reader() {
         >
           ×
         </button>
-        <Brand href={pageHref("")} />
-        {spaces.length > 0 && (spaces.length > 1 || !space) ? (
-          <label className="publication-control nav-space-picker">
-            Space
-            <select
-              aria-label="Space"
-              value={space?.id || ""}
-              onChange={(e) => {
-                location.hash = `#/?space=${encodeURIComponent(e.target.value)}`;
-              }}
-            >
-              {!space && (
-                <option value="" disabled>
-                  Choose a space
-                </option>
-              )}
-              {spaces
-                .filter((item) => !item.archived || item.id === space?.id)
-                .map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                    {item.archived ? " (archived)" : ""}
-                  </option>
-                ))}
-            </select>
-          </label>
-        ) : (
-          <div className="workspace-label">
-            <span className="workspace-dot" /> {space?.name || "Default"}
-          </div>
-        )}
-        {spacesLoaded && (
-          <SpaceManager
-            selected={space?.id}
-            onChanged={async (destination) => {
-              await readSpaces(true);
-              if (destination)
-                location.hash = `#/?space=${encodeURIComponent(destination)}`;
-              else await refresh();
-            }}
-          />
-        )}
+        <h2 className="space-drawer-title">{space?.name || "Space"}</h2>
         <nav className="primary-navigation" aria-label="Workspace">
           <a
             href={pageHref("", displayedPinned)}
@@ -1073,10 +1063,6 @@ function Reader() {
           />
           <kbd>/</kbd>
         </label>
-        <div className="nav-label" hidden={current.collection === "sources"}>
-          {current.collection.toUpperCase()}
-          {current.collection === "pages" && <span>{pages.length}</span>}
-        </div>
         <div
           ref={setEvidenceNavigation}
           className="evidence-navigation"
@@ -1086,68 +1072,80 @@ function Reader() {
           className="page-navigation"
           hidden={current.collection !== "pages"}
         >
-          {(builtInCatalogs.length > 0 || customCatalogs.length > 0) && (
+          {(builtInCatalogs.length ||
+            customCatalogs.length ||
+            topicGroups.length) > 0 && (
             <details
               className="navigation-group"
               key={current.catalog ? "catalog" : "pages"}
-              open={current.catalog}
+              open={current.catalog || Boolean(view.topic)}
             >
-              <summary>Catalogs</summary>
-              <nav
-                className="catalog-navigation"
-                aria-label="Catalog navigation"
-              >
-                {builtInCatalogs.map((type) => (
-                  <a
-                    key={type}
-                    href={catalogHref({ type }, displayedPinned)}
-                    aria-current={
-                      current.catalog &&
-                      current.catalogState.custom === undefined &&
-                      current.catalogState.type === type
-                        ? "page"
-                        : undefined
-                    }
+              <summary>Browse by topic or catalog</summary>
+              {(builtInCatalogs.length > 0 || customCatalogs.length > 0) && (
+                <div>
+                  <h3>Catalogs</h3>
+                  <nav
+                    className="catalog-navigation"
+                    aria-label="Catalog navigation"
                   >
-                    {catalogLabels[type]}
-                  </a>
-                ))}
-                {customCatalogs.map((group) => (
-                  <a
-                    key={`custom-${group.id}`}
-                    href={catalogHref({ custom: group.id }, displayedPinned)}
-                    aria-current={
-                      current.catalog &&
-                      current.catalogState.custom === group.id
-                        ? "page"
-                        : undefined
-                    }
-                  >
-                    {group.title}
-                  </a>
-                ))}
-              </nav>
-            </details>
-          )}
-          {topicGroups.length > 0 && (
-            <details className="navigation-group">
-              <summary>Topics</summary>
-              <nav className="topic-navigation" aria-label="Topics">
-                {topicGroups.map((group) => (
-                  <a
-                    key={group.id}
-                    href={pagesHref({ topic: group.id }, displayedPinned)}
-                    aria-current={
-                      view.directory && view.topic === group.id
-                        ? "page"
-                        : undefined
-                    }
-                  >
-                    <span>{group.title}</span>
-                    <span className="topic-count">{group.pages.length}</span>
-                  </a>
-                ))}
-              </nav>
+                    {builtInCatalogs.map((type) => (
+                      <a
+                        key={type}
+                        href={catalogHref({ type }, displayedPinned)}
+                        aria-current={
+                          current.catalog &&
+                          current.catalogState.custom === undefined &&
+                          current.catalogState.type === type
+                            ? "page"
+                            : undefined
+                        }
+                      >
+                        {catalogLabels[type]}
+                      </a>
+                    ))}
+                    {customCatalogs.map((group) => (
+                      <a
+                        key={`custom-${group.id}`}
+                        href={catalogHref(
+                          { custom: group.id },
+                          displayedPinned,
+                        )}
+                        aria-current={
+                          current.catalog &&
+                          current.catalogState.custom === group.id
+                            ? "page"
+                            : undefined
+                        }
+                      >
+                        {group.title}
+                      </a>
+                    ))}
+                  </nav>
+                </div>
+              )}
+              {topicGroups.length > 0 && (
+                <div>
+                  <h3>Topics</h3>
+                  <nav className="topic-navigation" aria-label="Topics">
+                    {topicGroups.map((group) => (
+                      <a
+                        key={group.id}
+                        href={pagesHref({ topic: group.id }, displayedPinned)}
+                        aria-current={
+                          view.directory && view.topic === group.id
+                            ? "page"
+                            : undefined
+                        }
+                      >
+                        <span>{group.title}</span>
+                        <span className="topic-count">
+                          {group.pages.length}
+                        </span>
+                      </a>
+                    ))}
+                  </nav>
+                </div>
+              )}
             </details>
           )}
         </div>
@@ -1179,6 +1177,17 @@ function Reader() {
         }
       >
         <header className="topbar">
+          <button
+            className="icon-button reader-space-back"
+            aria-label="Back to spaces"
+            title="Back to spaces"
+            onClick={() => {
+              setMenu(false);
+              setSpaceList(true);
+            }}
+          >
+            ‹
+          </button>
           <button
             className="icon-button mobile-menu"
             ref={navigationToggle}

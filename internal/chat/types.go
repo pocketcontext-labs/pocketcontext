@@ -18,6 +18,8 @@ var (
 // Config is supplied by the host, never by browser requests. Command must name
 // an installed executable. Dir and StateDir must be private machine-local paths.
 type Config struct {
+	KnowledgeBinary  string
+	KnowledgeDB      string
 	AllowFullAccess  bool
 	AllowWorkspace   bool
 	Command          string
@@ -57,9 +59,10 @@ type PermissionOption struct {
 }
 
 type Permission struct {
-	ID       string             `json:"id"`
-	ToolCall json.RawMessage    `json:"toolCall"`
-	Options  []PermissionOption `json:"options"`
+	ImportFile string             `json:"importFile,omitempty"`
+	ID         string             `json:"id"`
+	ToolCall   json.RawMessage    `json:"toolCall"`
+	Options    []PermissionOption `json:"options"`
 }
 
 type ChatModel struct {
@@ -75,20 +78,22 @@ type PromptImage struct {
 	Data string `json:"data"`
 }
 type Summary struct {
-	Models    *ModelState `json:"models,omitempty"`
-	Images    bool        `json:"images,omitempty"`
-	Pinned    bool        `json:"pinned,omitempty"`
-	Archived  bool        `json:"archived,omitempty"`
-	Title     string      `json:"title,omitempty"`
-	Mode      string      `json:"mode"`
-	ID        string      `json:"id"`
-	Space     string      `json:"space"`
-	Status    string      `json:"status"`
-	Error     string      `json:"error,omitempty"`
-	CanResume bool        `json:"canResume"`
-	LastSeq   uint64      `json:"lastSeq"`
-	Created   string      `json:"created"`
-	Updated   string      `json:"updated"`
+	Preview       string      `json:"preview,omitempty"`
+	NeedsApproval bool        `json:"needsApproval,omitempty"`
+	Models        *ModelState `json:"models,omitempty"`
+	Images        bool        `json:"images,omitempty"`
+	Pinned        bool        `json:"pinned,omitempty"`
+	Archived      bool        `json:"archived,omitempty"`
+	Title         string      `json:"title,omitempty"`
+	Mode          string      `json:"mode"`
+	ID            string      `json:"id"`
+	Space         string      `json:"space"`
+	Status        string      `json:"status"`
+	Error         string      `json:"error,omitempty"`
+	CanResume     bool        `json:"canResume"`
+	LastSeq       uint64      `json:"lastSeq"`
+	Created       string      `json:"created"`
+	Updated       string      `json:"updated"`
 }
 
 type Snapshot struct {

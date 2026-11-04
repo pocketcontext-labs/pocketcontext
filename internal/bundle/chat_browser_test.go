@@ -42,6 +42,18 @@ func TestChatPhoneBrowser(t *testing.T) {
 	}
 	defer manager.Close()
 	a := newTestApp(t)
+	spaces, err := a.app.FindCollectionByNameOrId("spaces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Research notebook", "Field observations", "Design archive", "Reading list"} {
+		record := core.NewRecord(spaces)
+		record.Set("name", name)
+		record.Set("revision", 1)
+		if err := a.app.Save(record); err != nil {
+			t.Fatal(err)
+		}
+	}
 	contextserver.RegisterDatabase(a.app, filepath.Join(root, "server.json"), filepath.Join(a.app.DataDir(), "data.db"))
 	t.Cleanup(func() {
 		if err := a.app.OnTerminate().Trigger(&core.TerminateEvent{App: a.app}); err != nil {

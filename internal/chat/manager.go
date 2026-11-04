@@ -222,8 +222,38 @@ func (m *Manager) Organize(id, action string) error {
 	}
 	return nil
 }
+func historySummary(s *session) Summary {
+	row := s.Summary
+	row.NeedsApproval = len(s.permissions) > 0
+	for i := len(s.Events) - 1; i >= 0; i-- {
+		e := s.Events[i]
+		if e.Type != "agent" && e.Type != "user" {
+			continue
+		}
+		if e.Type == "user" && e.Text == "" {
+			row.Preview = "Image attachment"
+			break
+		}
+		if e.Text == "" {
+			continue
+		}
+		start := i
+		if e.Type == "agent" {
+			for start > 0 && s.Events[start-1].Type == "agent" {
+				start--
+			}
+		}
+		var text strings.Builder
+		for j := start; j <= i && text.Len() < 512; j++ {
+			text.WriteString(s.Events[j].Text)
+		}
+		row.Preview = conversationTitle(text.String())
+		break
+	}
+	return row
+}
 func snapshot(s *session, after uint64) Snapshot {
-	v := Snapshot{Summary: s.Summary, Events: []Event{}, Permissions: []Permission{}}
+	v := Snapshot{Summary: historySummary(s), Events: []Event{}, Permissions: []Permission{}}
 	for _, e := range s.Events {
 		if e.Seq > after {
 			e.Data = append(json.RawMessage(nil), e.Data...)
@@ -257,7 +287,7 @@ func (m *Manager) List() []Summary {
 	out := []Summary{}
 	for _, s := range m.sessions {
 		s.mu.Lock()
-		out = append(out, s.Summary)
+		out = append(out, historySummary(s))
 		s.mu.Unlock()
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated > out[j].Updated })
@@ -340,7 +370,7 @@ func (m *Manager) start(ctx context.Context, s *session, resume bool, generation
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		return m.failed(s, generation, errors.New("Could not prepare or start the configured agent"))
 	}
-	instructions := m.c.Instructions + "\n\nThe selected PocketContext space ID is " + s.Space + ". Use this space explicitly for all knowledge operations.\n"
+	instructions := m.c.Instructions + "\n\nThe selected PocketContext space ID is " + s.Space + ". Use this space explicitly for all knowledge operations. In replies, link each page result with [Title](page:slug) and each source result with [Title](source:id), using the exact slug or source ID returned by the authenticated query. Retrieve those identifiers with the results; never guess them.\n"
 	if e := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(instructions), 0600); e != nil {
 		return m.failed(s, generation, errors.New("Could not prepare or start the configured agent"))
 	}

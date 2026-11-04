@@ -4,10 +4,30 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import AgentChat, { ChatMarkdown, type ChatSession } from "./AgentChat";
+import { useState, type ComponentProps } from "react";
+import ChatWorkspace, { ChatMarkdown, type ChatSession } from "./AgentChat";
 import { pb } from "./api";
+function AgentChat(
+  props: Omit<
+    ComponentProps<typeof ChatWorkspace>,
+    "spaceList" | "setSpaceList"
+  >,
+) {
+  const [spaceList, setSpaceList] = useState(true);
+  return (
+    <>
+      <button onClick={() => setSpaceList(true)}>Back to spaces</button>
+      <ChatWorkspace
+        {...props}
+        spaceList={spaceList}
+        setSpaceList={setSpaceList}
+      />
+    </>
+  );
+}
 vi.mock("./api", () => ({ pb: { send: vi.fn() } }));
 const send = vi.mocked(pb.send);
 const snapshot: ChatSession = {
@@ -35,7 +55,7 @@ beforeEach(() => {
 afterEach(cleanup);
 async function openSession() {
   render(<AgentChat space="space-one" />);
-  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chats" }));
   fireEvent.click(
     (await screen.findAllByRole("button", { name: "Untitled chat" }))[0],
   );
@@ -44,7 +64,7 @@ async function openSession() {
 it("explains unavailable host chat", async () => {
   send.mockResolvedValue({ enabled: false });
   render(<AgentChat space="space-one" />);
-  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chats" }));
   expect(await screen.findByText(/Chat is not set up/)).toBeVisible();
   expect(screen.queryByText("New conversation")).not.toBeInTheDocument();
 });
@@ -129,13 +149,14 @@ it("reconnects to the same conversation after closing without stopping host work
   fireEvent.change(screen.getByLabelText("Message"), {
     target: { value: "Draft for later" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Close chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to chats" }));
+  fireEvent.click(screen.getByRole("button", { name: "Spaces" }));
   expect(
     send.mock.calls.filter(
       ([path]) => path.endsWith("/cancel") || path.endsWith("/close"),
     ),
   ).toHaveLength(0);
-  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chats" }));
   await waitFor(() =>
     expect(
       screen.getAllByRole("button", { name: "Untitled chat" })[0],
@@ -212,16 +233,15 @@ it("filters history by space, lists pinned chats once and labels a cross-space c
       ]}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chats" }));
   const pinned = await screen.findByRole("button", { name: "Important" });
   expect(
     pinned.compareDocumentPosition(
       screen.getByRole("button", { name: "Recent" }),
     ) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  expect(screen.queryByText("Elsewhere")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "All spaces" }));
-  fireEvent.click(screen.getByRole("button", { name: "Elsewhere, Recipes" }));
+  expect(screen.queryByRole("button", { name: "All spaces" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Elsewhere" }));
   expect(await screen.findByLabelText("Conversation space")).toHaveTextContent(
     "Recipes",
   );
@@ -243,26 +263,39 @@ it("switches from a conversation to another space's history and creates there", 
   const view = render(
     <AgentChat space="space-one" spaces={spaces} onSpaceChange={switchSpace} />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chats" }));
   fireEvent.click(await screen.findByRole("button", { name: "Untitled chat" }));
   const header = await screen.findByLabelText("Conversation space");
   expect(header).toHaveTextContent("Research");
   expect(header.querySelector("select")).toBeNull();
-  fireEvent.change(screen.getByLabelText("Space for new chats"), {
-    target: { value: "two" },
-  });
+  fireEvent.click(screen.getByRole("button", { name: "Back to chats" }));
+  fireEvent.click(screen.getByRole("button", { name: "Spaces" }));
+  fireEvent.click(screen.getByRole("button", { name: /Recipes/ }));
   expect(switchSpace).toHaveBeenCalledWith("two");
   view.rerender(
     <AgentChat space="two" spaces={spaces} onSpaceChange={switchSpace} />,
   );
-  expect(screen.getByLabelText("Space for new chats")).toHaveValue("two");
+  fireEvent.click(screen.getByRole("button", { name: "Back to spaces" }));
+  fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+  expect(screen.queryByLabelText("Space for new chats")).toBeNull();
   expect(screen.queryByLabelText("Message")).toBeNull();
   await screen.findByRole("button", { name: "Dinner" });
   fireEvent.click(screen.getByRole("button", { name: /New chat/ }));
+  expect(
+    send.mock.calls.some(
+      ([path, options]) =>
+        path === "/api/chat/sessions" && options?.method === "POST",
+    ),
+  ).toBe(false);
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", {
+      name: "Research",
+    }),
+  );
   await waitFor(() =>
     expect(send).toHaveBeenCalledWith("/api/chat/sessions", {
       method: "POST",
-      body: expect.objectContaining({ space: "two" }),
+      body: expect.objectContaining({ space: "space-one" }),
     }),
   );
 });
@@ -287,4 +320,29 @@ it("applies full access directly to the open session", async () => {
       body: { mode: "agent-full-access" },
     }),
   );
+});
+
+it("opens identified pages and sources in the conversation space", () => {
+  const navigate = vi.fn();
+  const space = "s70bwoya9iej1nd";
+  render(
+    <ChatMarkdown
+      space={space}
+      pages={[{ title: "Codex ACP adapter", slug: "codex-acp" }]}
+      onNavigate={navigate}
+      text={
+        "1. **Codex ACP adapter**\n2. [Manual](source:l9iboblltcx7y7t)\n3. [Chat](page:agent-chat)\n4. Missing title"
+      }
+    />,
+  );
+  expect(
+    screen.getByRole("link", { name: "Codex ACP adapter" }),
+  ).toHaveAttribute("href", "#/page/codex-acp?space=" + space);
+  expect(screen.getByRole("link", { name: "Manual" })).toHaveAttribute(
+    "href",
+    "#/sources/l9iboblltcx7y7t?space=" + space,
+  );
+  fireEvent.click(screen.getByRole("link", { name: "Chat" }));
+  expect(navigate).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("link", { name: "Missing title" })).toBeNull();
 });
