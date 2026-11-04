@@ -120,7 +120,7 @@ func Serve(p *Project, opts ServeOptions) error {
 
 // ServeContext runs one owned foreground server. Cancellation follows the same
 // graceful drain and snapshot write-back path as an authenticated stop request.
-func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
+func ServeContext(parent context.Context, p *Project, opts ServeOptions) (resultErr error) {
 	if opts.MCP && (opts.HTTPSDomain == "" || opts.MCPHandler == nil) {
 		return errors.New("MCP requires --domain and the MCP protocol adapter")
 	}
@@ -223,6 +223,20 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
 			return controller.Connect(filepath.Join(live, filepath.Base(path)))
 		},
 	})
+	// SQL/search engines and plugin resources register their own termination
+	// hooks; clearing PocketBase alone does not close those independent pools.
+	// Cover bootstrap/serve failures too, and run the hooks at most once.
+	appClosed := false
+	closeApp := func() error {
+		appClosed = true
+		terminateErr := app.OnTerminate().Trigger(&core.TerminateEvent{App: app})
+		return errors.Join(terminateErr, app.ResetBootstrapState())
+	}
+	defer func() {
+		if !appClosed {
+			resultErr = errors.Join(resultErr, closeApp())
+		}
+	}()
 	// PocketBase watches DataDir/.notify to coordinate processes that share one
 	// pb_data. Here DataDir is the synced folder and each computer has its own
 	// working copy, so the watcher would only leak events between computers.
@@ -282,7 +296,9 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	backgroundDone := make(chan struct{})
 	go func() {
+		defer close(backgroundDone)
 		flush := time.NewTicker(5 * time.Second)
 		heartbeat := time.NewTicker(30 * time.Second)
 		defer flush.Stop()
@@ -303,16 +319,14 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
 	log.Printf("pocketcontext %s serving %s", Version, p.DB)
 	serveErr := serveHTTPContext(parent, app, p, opts, stop, local)
 	cancel()
-	closeErr := app.ResetBootstrapState()
+	<-backgroundDone
+	closeErr := closeApp()
 	if err := store.Close(); err != nil {
 		log.Printf("final write-back failed: %v", err)
+		return errors.Join(serveErr, closeErr, err)
+	}
+	if err := errors.Join(serveErr, closeErr); err != nil {
 		return err
-	}
-	if serveErr != nil {
-		return serveErr
-	}
-	if closeErr != nil {
-		log.Printf("closing databases: %v", closeErr)
 	}
 	log.Printf("stopped; %s is up to date", p.DB)
 	return nil
