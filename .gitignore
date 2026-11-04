@@ -11,3 +11,5 @@ ui/playwright-report/
 ui/*.tsbuildinfo
 bin/
 dist/
+.devenv/
+.direnv/

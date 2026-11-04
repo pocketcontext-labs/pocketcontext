@@ -92,44 +92,55 @@ try {
   page.on('pageerror', e => errors.push(e.message));
   const signIn = await cli(['open', '--no-browser']);
   await page.goto(signIn.signInLink);
-  const select = page.getByRole('combobox', { name: 'Space', exact: true });
-  await select.waitFor();
-  assert.equal(await select.inputValue(), original.id, 'short name is selected while long option controls intrinsic size');
+  const backToSpaces = page.getByRole('button', { name: 'Back to spaces', exact: true });
+  const spaceList = page.getByRole('region', { name: 'Spaces list' });
+  const longChoice = spaceList.getByRole('button', { name: longSpace.name, exact: true });
+  const originalChoice = spaceList.getByRole('button', { name: original.name, exact: true });
+  await backToSpaces.waitFor();
+  await backToSpaces.click();
+  assert.equal(await originalChoice.getAttribute('aria-current'), 'page', 'original space is initially selected');
   for (const width of [1408, 1280, 1101, 1100, 700, 375, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await page.reload();
-    await page.locator('.sidebar select[aria-label="Space"]').waitFor({ state: 'attached' });
-    if (!(await select.isVisible())) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-    await select.waitFor();
-    await select.focus();
+    await backToSpaces.click();
+    await longChoice.waitFor();
+    await longChoice.focus();
     await page.keyboard.press('Tab');
     await page.keyboard.press('Shift+Tab');
-    const bounds = await select.evaluate(element => {
-      const row = element.parentElement;
-      const sidebar = element.closest('.sidebar');
+    const bounds = await longChoice.evaluate(element => {
+      const region = element.closest('.spaces-index');
       const rect = element.getBoundingClientRect();
-      const rowRect = row.getBoundingClientRect();
-      const sideRect = sidebar.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      return { left: rect.left, right: rect.right, rowLeft: rowRect.left, rowRight: rowRect.right,
-        sideLeft: sideRect.left, sideRight: sideRect.right, scroll: sidebar.scrollWidth, client: sidebar.clientWidth,
-        focus: document.activeElement === element, outline: parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset) };
+      const regionRect = region.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, regionLeft: regionRect.left, regionRight: regionRect.right,
+        scroll: region.scrollWidth, client: region.clientWidth, viewport: innerWidth,
+        focus: document.activeElement === element };
     });
-    assert(bounds.left >= bounds.rowLeft - 1 && bounds.right <= bounds.rowRight + 1, `selector escapes row at ${width}px: ${JSON.stringify(bounds)}`);
-    assert(bounds.scroll <= bounds.client + 1, `sidebar scrolls horizontally at ${width}px`);
-    assert(bounds.focus, `keyboard focus returns to selector at ${width}px`);
-    assert(bounds.left - bounds.outline >= bounds.sideLeft && bounds.right + bounds.outline <= bounds.sideRight, `focus outline is clipped at ${width}px: ${JSON.stringify(bounds)}`);
+    assert(bounds.left >= bounds.regionLeft - 1 && bounds.right <= bounds.regionRight + 1,
+      `space choice escapes list at ${width}px: ${JSON.stringify(bounds)}`);
+    assert(bounds.left >= 0 && bounds.right <= bounds.viewport, `space choice escapes viewport at ${width}px`);
+    assert(bounds.scroll <= bounds.client + 1, `spaces list scrolls horizontally at ${width}px`);
+    assert(bounds.focus, `keyboard focus returns to space choice at ${width}px`);
+    await longChoice.click();
+    await until(async () => (await page.evaluate(() => new URLSearchParams(location.hash.split('?')[1]).get('space'))) === longSpace.id,
+      'long space selection');
+    await spaceList.waitFor({ state: 'hidden' });
+    const sidebar = page.locator('.sidebar');
+    const heading = sidebar.getByRole('heading', { name: longSpace.name, exact: true });
+    if (!(await heading.isVisible())) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await heading.waitFor();
+    const sidebarBounds = await sidebar.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+    assert(sidebarBounds.scroll <= sidebarBounds.client + 1, `long selected name overflows sidebar at ${width}px`);
     if (screenshotOption) await page.screenshot({ path: path.join(screenshots, `sidebar-${width}.png`) });
   }
   await page.setViewportSize({ width: 1408, height: 900 });
   await page.reload();
-  await select.waitFor();
-  await select.selectOption(longSpace.id);
-  await until(async () => (await page.evaluate(() => new URLSearchParams(location.hash.split('?')[1]).get('space'))) === longSpace.id && await select.inputValue() === longSpace.id, 'space selection');
-  await select.selectOption(original.id);
-  await until(async () => await select.inputValue() === original.id, 'return to original space');
+  await backToSpaces.click();
+  assert.equal(await longChoice.getAttribute('aria-current'), 'page', 'long space selection survives reload');
+  await originalChoice.click();
+  await until(async () => (await page.evaluate(() => new URLSearchParams(location.hash.split('?')[1]).get('space'))) === original.id,
+    'return to original space');
   assert.deepEqual(errors, []);
-  ok('long space options stay within desktop/mobile sidebar; keyboard focus and space switching work');
+  ok('long space choices and selected names fit desktop/mobile navigation; keyboard focus and space switching work');
 } finally {
   await browser?.close();
   await cli(['stop']).catch(() => {});

@@ -52,7 +52,11 @@ func TestACPProcess(t *testing.T) {
 				send(wire{JSONRPC: "2.0", ID: w.ID, Error: &rpcError{Code: -32000, Message: "authentication required"}})
 				continue
 			}
-			reply(w.ID, map[string]any{"sessionId": "fake-session", "models": ModelState{Current: "first", Options: []ChatModel{{ID: "first", Name: "First"}, {ID: "second", Name: "Second"}}}, "modes": map[string]any{"currentModeId": "agent-full-access", "availableModes": []any{map[string]string{"id": "read-only"}, map[string]string{"id": "workspace-write"}, map[string]string{"id": "agent-full-access"}}}})
+			models := ModelState{Current: "first", Options: []ChatModel{{ID: "first", Name: "First"}, {ID: "second", Name: "Second"}}}
+			if os.Getenv("CHAT_TEST_MODEL_EFFORT") == "1" {
+				models = ModelState{Current: "first[low]", Options: []ChatModel{{ID: "first[low]", Name: "First (low)"}, {ID: "first[high]", Name: "First (high)"}, {ID: "second[high]", Name: "Second (high)"}}}
+			}
+			reply(w.ID, map[string]any{"sessionId": "fake-session", "models": models, "modes": map[string]any{"currentModeId": "agent-full-access", "availableModes": []any{map[string]string{"id": "read-only"}, map[string]string{"id": "workspace-write"}, map[string]string{"id": "agent-full-access"}}}})
 		case "session/set_mode", "session/set_model":
 			if os.Getenv("INITIAL_AGENT_MODE") == "agent-full-access" && os.Getenv("CODEX_CONFIG") != `{"approval_policy":"never","sandbox_mode":"danger-full-access"}` {
 				os.Exit(4)
@@ -377,26 +381,32 @@ func TestCloseDuringInitializeAndResume(t *testing.T) {
 	await(t, m, snap.ID, func(s Snapshot) bool { return s.Status == "idle" })
 }
 
-func TestHostBoundsConversationMode(t *testing.T) {
+func TestAllConversationModesAvailable(t *testing.T) {
 	m := testManager(t)
 	ctx := context.Background()
-	if _, err := m.CreateWithMode(ctx, "create", "space", "workspace-write"); err != ErrInvalid {
-		t.Fatalf("disabled workspace mode: %v", err)
+	ordinary, err := m.Create(ctx, "default", "space")
+	if err != nil || ordinary.Mode != "read-only" {
+		t.Fatalf("default mode: %v, %q", err, ordinary.Mode)
 	}
-	m.c.AllowWorkspace = true
-	if _, err := m.CreateWithMode(ctx, "create", "space", "agent-full-access"); err != ErrInvalid {
-		t.Fatalf("full access: %v", err)
+	if !m.Status().AllowWorkspace || !m.Status().AllowFullAccess {
+		t.Fatal("permission modes are not advertised")
 	}
-	m.c.AllowFullAccess = true
-	full, err := m.CreateWithMode(ctx, "explicit-full", "space", "agent-full-access")
-	if err != nil || full.Mode != "agent-full-access" {
-		t.Fatalf("explicit full access: %v", err)
+	for _, mode := range []string{"read-only", "workspace-write", "agent-full-access"} {
+		snap, err := m.CreateWithMode(ctx, mode, "space", mode)
+		if err != nil || snap.Mode != mode {
+			t.Fatalf("explicit %s creation: %v, %q", mode, err, snap.Mode)
+		}
+		if err = m.CloseSession(snap.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err = m.Resume(ctx, snap.ID); err != nil {
+			t.Fatalf("restore %s: %v", mode, err)
+		}
 	}
-	snap, err := m.CreateWithMode(ctx, "create", "space", "workspace-write")
-	if err != nil || snap.Mode != "workspace-write" {
-		t.Fatalf("workspace creation: %v, %q", err, snap.Mode)
+	if _, err := m.CreateWithMode(ctx, "invalid", "space", "invalid"); err != ErrInvalid {
+		t.Fatalf("invalid mode: %v", err)
 	}
-	if _, err := m.Create(ctx, "create", "space"); err != ErrConflict {
+	if _, err := m.Create(ctx, "workspace-write", "space"); err != ErrConflict {
 		t.Fatalf("retry with changed mode: %v", err)
 	}
 }
@@ -430,10 +440,6 @@ func TestLiveModeResolvesPendingApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = m.SetMode(ctx, s.ID, "agent-full-access"); err != ErrInvalid {
-		t.Fatal(err)
-	}
-	m.c.AllowFullAccess = true
 	if err = m.Prompt(s.ID, "one", "permission"); err != nil {
 		t.Fatal(err)
 	}
@@ -446,5 +452,64 @@ func TestLiveModeResolvesPendingApproval(t *testing.T) {
 	})
 	if err = m.SetMode(ctx, s.ID, "read-only"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestModelDefaultSurvivesSelectionAndResume(t *testing.T) {
+	m := testManager(t)
+	s, err := m.Create(context.Background(), "model-default", "space")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Models == nil || s.Models.Default != "first" {
+		t.Fatalf("initial adapter default missing: %+v", s.Models)
+	}
+	if err = m.PromptWithOptions(s.ID, "change-model", "synthetic", "second", nil); err != nil {
+		t.Fatal(err)
+	}
+	s = await(t, m, s.ID, func(s Snapshot) bool { return s.Status == "idle" })
+	if s.Models.Current != "second" || s.Models.Default != "first" {
+		t.Fatalf("selection overwrote default: %+v", s.Models)
+	}
+	if err = m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := New(m.c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { restored.Close() })
+	s, _ = restored.Snapshot(s.ID, 0)
+	if s.Models.Current != "second" || s.Models.Default != "first" {
+		t.Fatalf("restart lost model selection/default: %+v", s.Models)
+	}
+	if err = restored.Resume(context.Background(), s.ID); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = restored.Snapshot(s.ID, 0)
+	if s.Models.Default != "first" {
+		t.Fatalf("resume overwrote default: %+v", s.Models)
+	}
+}
+
+func TestLegacyModelHistoryDoesNotInventDefaultOnResume(t *testing.T) {
+	m := testManager(t)
+	s, err := m.Create(context.Background(), "legacy-model", "space")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.CloseSession(s.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := m.get(s.ID)
+	stored.mu.Lock()
+	stored.Models.Default = "" // The field is absent in histories from older builds.
+	stored.mu.Unlock()
+	if err = m.Resume(context.Background(), s.ID); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = m.Snapshot(s.ID, 0)
+	if s.Models.Default != "" {
+		t.Fatalf("invented an original default from resumed current: %+v", s.Models)
 	}
 }

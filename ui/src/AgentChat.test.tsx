@@ -300,10 +300,22 @@ it("switches from a conversation to another space's history and creates there", 
   );
 });
 
+it("offers all permission modes without host flags and keeps read-only selected", async () => {
+  await openSession();
+  const readOnly = screen.getByRole("radio", {
+    name: /Read-only/,
+    hidden: true,
+  });
+  expect(readOnly).toBeChecked();
+  for (const name of [/Read-only/, /Workspace access/, /Full access/]) {
+    expect(screen.getByRole("radio", { name, hidden: true })).toBeEnabled();
+  }
+  expect(send.mock.calls.some(([path]) => path.endsWith("/mode"))).toBe(false);
+});
+
 it("applies full access directly to the open session", async () => {
   send.mockImplementation(async (path) => {
-    if (path === "/api/chat/status")
-      return { enabled: true, allowFullAccess: true } as never;
+    if (path === "/api/chat/status") return { enabled: true } as never;
     if (path === "/api/chat/sessions") return { sessions: [snapshot] } as never;
     return {
       ...snapshot,

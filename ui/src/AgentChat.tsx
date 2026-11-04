@@ -348,13 +348,10 @@ export default function AgentChat({
   const [spaceDraft, setSpaceDraft] = useState("");
   const [savingSpace, setSavingSpace] = useState(false);
   const [spaceError, setSpaceError] = useState("");
-  const [allowWorkspace, setAllowWorkspace] = useState(false);
-  const [allowFullAccess, setAllowFullAccess] = useState(false);
   const [preferred, setPreferred] = useState(
     () => localStorage.getItem("chat.defaultMode") || "read-only",
   );
-  const mode =
-    allowWorkspace && preferred === "workspace-write" ? preferred : "read-only";
+  const mode = preferred === "workspace-write" ? preferred : "read-only";
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -484,13 +481,9 @@ export default function AgentChat({
       try {
         const status = await pb.send<{
           enabled: boolean;
-          allowWorkspace?: boolean;
-          allowFullAccess?: boolean;
         }>("/api/chat/status", {});
         if (stopped || own !== epoch.current) return;
         setEnabled(status.enabled);
-        setAllowWorkspace(Boolean(status.allowWorkspace));
-        setAllowFullAccess(Boolean(status.allowFullAccess));
         if (!status.enabled || !open) return;
         const list = await pb.send<{ sessions: ChatSession[] }>(
           "/api/chat/sessions",
@@ -1193,8 +1186,6 @@ export default function AgentChat({
                             disabled={pending || busy || !canSend}
                             currentMode={session.mode || "read-only"}
                             modePending={pending}
-                            allowWorkspace={allowWorkspace}
-                            allowFullAccess={allowFullAccess}
                             onMode={(value) =>
                               void mutate(
                                 endpoint(session.id) + "/mode",

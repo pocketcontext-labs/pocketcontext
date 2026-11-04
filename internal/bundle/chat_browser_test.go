@@ -36,7 +36,7 @@ func TestChatPhoneBrowser(t *testing.T) {
 	if out, err := compile.CombinedOutput(); err != nil {
 		t.Fatalf("compile fake ACP: %v\n%s", err, out)
 	}
-	manager, err := chat.New(chat.Config{Command: fake, Args: []string{"-test.run=^TestACPProcess$"}, Env: append(os.Environ(), "CHAT_TEST_PROCESS=1"), Dir: t.TempDir(), StateDir: t.TempDir()})
+	manager, err := chat.New(chat.Config{Command: fake, Args: []string{"-test.run=^TestACPProcess$"}, Env: append(os.Environ(), "CHAT_TEST_PROCESS=1", "CHAT_TEST_MODEL_EFFORT=1"), Dir: t.TempDir(), StateDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

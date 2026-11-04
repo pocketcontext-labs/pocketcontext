@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ModelPicker from "./ModelPicker";
 export type PromptImage = { mimeType: string; data: string };
 export function ImagePreview({
   image,
@@ -22,6 +23,7 @@ export function ImagePreview({
 }
 export type ModelState = {
   currentModelId: string;
+  defaultModelId?: string;
   availableModels: { modelId: string; name: string }[];
 };
 type Recognition = {
@@ -53,8 +55,6 @@ export function ComposerTools({
   permission,
   currentMode,
   modePending,
-  allowWorkspace,
-  allowFullAccess,
   onMode,
 }: {
   images: PromptImage[];
@@ -69,8 +69,6 @@ export function ComposerTools({
   permission: string;
   currentMode: string;
   modePending: boolean;
-  allowWorkspace: boolean;
-  allowFullAccess: boolean;
   onMode: (mode: string) => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
@@ -216,26 +214,18 @@ export function ComposerTools({
                 label: "Read-only",
                 detail: "Ask before editing files or accessing the network.",
               },
-              ...(allowWorkspace
-                ? [
-                    {
-                      id: "workspace-write",
-                      label: "Workspace access",
-                      detail:
-                        "Edit the scratch workspace and ask before broader access.",
-                    },
-                  ]
-                : []),
-              ...(allowFullAccess
-                ? [
-                    {
-                      id: "agent-full-access",
-                      label: "Full access (YOLO)",
-                      detail:
-                        "Applies immediately, including pending command approvals. Run commands without approval, with access to the network and any file your host account can access.",
-                    },
-                  ]
-                : []),
+              {
+                id: "workspace-write",
+                label: "Workspace access",
+                detail:
+                  "Edit the scratch workspace and ask before broader access.",
+              },
+              {
+                id: "agent-full-access",
+                label: "Full access (YOLO)",
+                detail:
+                  "Applies immediately, including pending command approvals. Run commands without approval, with access to the network and any file your host account can access.",
+              },
             ].map((option) => (
               <label key={option.id}>
                 <input
@@ -258,35 +248,14 @@ export function ComposerTools({
         </div>
       </div>
       {models?.availableModels.length ? (
-        <label className="composer-model" title="Choose model">
-          <svg
-            aria-hidden="true"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-          >
-            <path d="M3 7h9m4 0h5M3 17h3m4 0h11" />
-            <circle cx="14" cy="7" r="2" />
-            <circle cx="8" cy="17" r="2" />
-          </svg>
-          <select
-            aria-label="Model"
-            value={model || models.currentModelId}
-            disabled={disabled}
-            onChange={(e) => onModel(e.target.value)}
-          >
-            {models.availableModels.map((m) => (
-              <option key={m.modelId} value={m.modelId}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ModelPicker
+          models={models}
+          model={model}
+          onModel={onModel}
+          disabled={disabled}
+        />
       ) : (
-        <small>Codex</small>
+        <small>Model unavailable</small>
       )}
       <button
         type="button"

@@ -128,10 +128,10 @@ try {
   const css = path.join(ui, 'src/styles.css');
   await writeFile(css, `${await readFile(css, 'utf8')}\nbody { --pocketcontext-hmr-check: updated; }\n`);
   await page.waitForFunction(() => getComputedStyle(document.body).getPropertyValue('--pocketcontext-hmr-check').trim() === 'updated');
-  const component = path.join(ui, 'src/Brand.tsx');
+  const component = path.join(ui, 'src/App.tsx');
   const source = await readFile(component, 'utf8');
-  assert(source.includes('<span>PocketContext</span>'));
-  await writeFile(component, source.replace('<span>PocketContext</span>', '<span>SYNTHETIC HOT UPDATE</span>'));
+  assert(source.includes('<span>Overview</span>'));
+  await writeFile(component, source.replace('<span>Overview</span>', '<span>SYNTHETIC HOT UPDATE</span>'));
   await page.getByText('SYNTHETIC HOT UPDATE', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.__uiTestDocument), documentMarker, 'CSS and component edits must preserve the document');
   assert.equal(server.pid, initialPID);

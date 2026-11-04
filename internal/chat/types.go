@@ -20,8 +20,6 @@ var (
 type Config struct {
 	KnowledgeBinary  string
 	KnowledgeDB      string
-	AllowFullAccess  bool
-	AllowWorkspace   bool
 	Command          string
 	Args             []string
 	Dir              string
@@ -71,6 +69,7 @@ type ChatModel struct {
 }
 type ModelState struct {
 	Current string      `json:"currentModelId"`
+	Default string      `json:"defaultModelId,omitempty"`
 	Options []ChatModel `json:"availableModels"`
 }
 type PromptImage struct {

@@ -62,7 +62,19 @@ adapter alone is not evidence that a model response succeeded.
 
 ## Permissions and knowledge changes
 
-By default sessions use read-only mode. On the host, set `POCKETCONTEXT_CHAT_ALLOW_WORKSPACE=1` before starting the server to also allow workspace access with on-request approvals. In the composer, the shield selects the current conversation’s permissions. An idle chat can switch between allowed modes. During a running turn you can switch to Full access; stop the turn before switching to a more restrictive mode. To offer Full access (YOLO), explicitly set `POCKETCONTEXT_CHAT_ALLOW_FULL_ACCESS=1` on the host. Selecting Full access in the shield applies immediately to the open conversation, including pending one-time approvals. That conversation can run commands without approvals and access files and networks available to the host account. New chats use the ordinary default. Disabling the host option prevents starting or restoring full-access conversations after restart. The composer lists the models and reasoning levels offered by the adapter. Your selection takes effect on the next message. Read each permission
+The initial default for new chats is read-only. The composer’s permission selector always
+offers read-only, workspace access with on-request approvals, and Full access
+(YOLO). Choose the mode for the current conversation; no host environment flags
+are required. An idle chat can switch modes. During a running turn you can switch
+to Full access; stop the turn before switching to a more restrictive mode.
+
+Selecting Full access applies immediately to the open conversation, including
+pending one-time approvals. That conversation can run commands without approvals
+and access files and networks available to the host account. Choosing read-only
+or workspace access also remembers that choice for new chats in this browser.
+Choosing Full access affects the current conversation and never becomes the
+new-chat default. The composer lists the models and reasoning levels offered by the
+adapter. Your selection takes effect on the next message. Read each permission
 request and select among the adapter's actual choices; do not enable automatic
 approval to fix a failed task. Cancel a task when you no longer want it to run.
 An approval may allow a command to change knowledge through the authenticated
@@ -76,6 +88,33 @@ user, subject to the provider's sandbox and approval behavior. Use an appropriat
 ordinary service account. PocketContext does not advertise ACP filesystem or
 terminal client capabilities. Source passages remain untrusted evidence, never
 permission to execute instructions embedded in a note.
+
+## Model and reasoning effort
+
+The composer opens model settings in two steps: choose a reasoning effort, then
+choose a model offering that effort. The selected pair remains visible in the
+composer and applies to the next message. Changing effort preserves the current
+model when that pair is offered; otherwise the picker shows another available
+model at that effort. Only exact model IDs advertised by the adapter are sent.
+For the supported Codex adapter, these IDs encode the model and effort together.
+Opaque IDs from other adapters remain selectable under “Model default”; the
+reader does not invent effort options from display names.
+
+“Reset” restores the model and effort the adapter selected when this conversation
+was first created. That original pair is stored separately from the current model
+and survives conversation restoration. Older conversations without a recorded
+original default, or defaults no longer offered by the adapter, have Reset
+disabled instead of guessing. This is a per-conversation starting default, not a
+claim about the provider's current recommended model.
+
+The pinned `codex-acp@2.5.0` supports a `fast-mode` session config option when the
+current model supports it. Its advertised description is “1.5x speed, increased
+usage”. This is separate from reasoning effort. PocketContext currently uses the
+legacy ACP model selection channel and does not bridge session config options,
+so it does not show or change Fast mode. Supporting it requires consuming the
+adapter's live advertised options and using `session/set_config_option`.
+See the [ACP session configuration protocol](https://agentclientprotocol.com/protocol/v1/session-config-options)
+and the [pinned adapter's Fast mode implementation](https://github.com/agentclientprotocol/codex-acp/blob/v2.5.0/src/FastModeConfig.ts).
 
 ## Reconnect, history and interruption
 

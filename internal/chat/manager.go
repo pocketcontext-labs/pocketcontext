@@ -295,7 +295,7 @@ func (m *Manager) List() []Summary {
 }
 func (m *Manager) Status() Status {
 	list := m.List()
-	v := Status{AllowFullAccess: m.c.AllowFullAccess, AllowWorkspace: m.c.AllowWorkspace, Enabled: true, Agent: "codex-acp", Sessions: len(list)}
+	v := Status{AllowFullAccess: true, AllowWorkspace: true, Enabled: true, Agent: "codex-acp", Sessions: len(list)}
 	for _, s := range list {
 		if s.Status == "idle" || s.Status == "running" || s.Status == "initializing" || s.Status == "cancelling" {
 			v.Active++
@@ -360,11 +360,11 @@ func (m *Manager) CreateWithMode(ctx context.Context, requestID, space, mode str
 	return snapshot(s, 0), e
 }
 func (m *Manager) allowsMode(mode string) bool {
-	return mode == "read-only" || (mode == "workspace-write" && m.c.AllowWorkspace) || (mode == "agent-full-access" && m.c.AllowFullAccess)
+	return mode == "read-only" || mode == "workspace-write" || mode == "agent-full-access"
 }
 func (m *Manager) start(ctx context.Context, s *session, resume bool, generation uint64) error {
 	if !m.allowsMode(s.Mode) {
-		return m.failed(s, generation, errors.New("host does not allow this conversation permission mode"))
+		return m.failed(s, generation, errors.New("invalid conversation permission mode"))
 	}
 	dir := filepath.Join(m.c.Dir, s.ID)
 	if e := os.MkdirAll(dir, 0700); e != nil {
@@ -409,7 +409,7 @@ func (m *Manager) start(ctx context.Context, s *session, resume bool, generation
 			} `json:"promptCapabilities"`
 		} `json:"agentCapabilities"`
 	}
-	e = r.call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientInfo": map[string]string{"name": "pocketcontext", "version": "0.20.0"}, "clientCapabilities": map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}}, &init)
+	e = r.call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientInfo": map[string]string{"name": "pocketcontext", "version": "0.21.0"}, "clientCapabilities": map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}}, &init)
 	if e != nil || init.ProtocolVersion != 1 {
 		r.stop()
 		return m.failed(s, generation, errors.New("agent initialization failed; verify adapter installation and provider authentication"))
@@ -467,6 +467,16 @@ func (m *Manager) start(ctx context.Context, s *session, resume bool, generation
 	if s.process != r || s.Status != "initializing" || s.generation != generation {
 		r.stop()
 		return ErrClosed
+	}
+	// Keep the adapter-selected starting pair distinct from the mutable current
+	// model. Older histories without this field cannot reconstruct that default.
+	if result.Models != nil {
+		result.Models.Default = ""
+		if !resume {
+			result.Models.Default = result.Models.Current
+		} else if s.Models != nil {
+			result.Models.Default = s.Models.Default
+		}
 	}
 	s.Models = result.Models
 	s.Images = init.AgentCapabilities.Prompt.Image
