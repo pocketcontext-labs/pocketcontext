@@ -61,11 +61,30 @@ func agentNotes(passages []passage, textSHA string, o ExtractOptions) string {
 // Extract records the agent's UTF-8 conversion of a source that is not text
 // as an agent-text rendition, resuming it like ingest resumes text renditions.
 func (c *Client) Extract(sourceID string, o ExtractOptions) (map[string]any, error) {
-	if !idPattern.MatchString(sourceID) {
-		return nil, fail(2, "source ID must be 15 lowercase letters or digits; list sources awaiting extraction with `pocketcontext pending`")
-	}
 	if o.Text == "" {
 		return nil, fail(2, "--text FILE is required: the UTF-8 text or Markdown converted from the original")
+	}
+	abs, err := filepath.Abs(o.Text)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, fail(2, "--text must be a regular file")
+	}
+	if info.Size() > maxSource {
+		return nil, fail(2, "--text file must be no larger than 100 MiB")
+	}
+	content, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, fail(2, "cannot read --text file: %v", err)
+	}
+	return c.extractContent(sourceID, filepath.Base(abs), content, o)
+}
+
+func (c *Client) extractContent(sourceID, abs string, content []byte, o ExtractOptions) (map[string]any, error) {
+	if !idPattern.MatchString(sourceID) {
+		return nil, fail(2, "source ID must be 15 lowercase letters or digits; list sources awaiting extraction with `pocketcontext pending`")
 	}
 	if n := utf8.RuneCountInString(o.Tool); n < 1 || n > toolRunes || strings.ContainsAny(o.Tool, "\r\n") {
 		return nil, fail(2, "--tool must be one line of 1–300 characters naming how the text was produced, e.g. \"claude-opus-5-5 read the PDF\"")
@@ -82,20 +101,8 @@ func (c *Client) Extract(sourceID string, o ExtractOptions) (map[string]any, err
 	if o.ConversionSet && (o.Conversion == "" || utf8.RuneCountInString(o.Conversion) > conversionRune) {
 		return nil, fail(2, "--conversion must contain 1–2000 characters")
 	}
-	abs, err := filepath.Abs(o.Text)
-	if err != nil {
-		return nil, err
-	}
-	info, err := os.Stat(abs)
-	if err != nil || !info.Mode().IsRegular() {
-		return nil, fail(2, "--text must be a regular file")
-	}
-	if info.Size() > maxSource {
+	if len(content) > maxSource {
 		return nil, fail(2, "--text file must be no larger than 100 MiB")
-	}
-	content, err := os.ReadFile(abs)
-	if err != nil {
-		return nil, fail(2, "cannot read --text file: %v", err)
 	}
 	text := strings.TrimPrefix(string(content), "\ufeff")
 	if !utf8.ValidString(text) {
@@ -247,6 +254,12 @@ func (c *Client) download(path string) ([]byte, error) {
 	client.Timeout = 3 * time.Minute
 	resp, err := client.Do(req)
 	if err != nil {
+		// net/http wraps transport failures in url.Error, whose URL can contain
+		// a short-lived protected-file token. Never include it in tool/CLI errors.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return nil, fail(1, "cannot reach the PocketContext server at %s: %v", c.Base, err)
 	}
 	defer resp.Body.Close()

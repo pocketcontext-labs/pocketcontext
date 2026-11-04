@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -40,6 +41,9 @@ type ServeOptions struct {
 	Port        int
 	HTTPSDomain string
 	ACMEEmail   string
+	MCP         bool
+	// MCPHandler builds the protocol adapter around the ordinary authenticated API.
+	MCPHandler func(http.Handler) http.Handler
 	// Service starts after the HTTP listeners are ready. Its failure stops the
 	// server; shutdown cancels and waits for it before draining HTTP and flushing.
 	Service func(context.Context) error
@@ -117,6 +121,9 @@ func Serve(p *Project, opts ServeOptions) error {
 // ServeContext runs one owned foreground server. Cancellation follows the same
 // graceful drain and snapshot write-back path as an authenticated stop request.
 func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
+	if opts.MCP && (opts.HTTPSDomain == "" || opts.MCPHandler == nil) {
+		return errors.New("MCP requires --domain and the MCP protocol adapter")
+	}
 	if opts.HTTPSDomain != "" {
 		if err := ValidateHTTPSDomain(opts.HTTPSDomain); err != nil {
 			return err
@@ -258,7 +265,7 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) error {
 	}
 
 	stop := make(chan struct{}, 1)
-	local := &localRoutes{p: p, store: store, key: key, stop: stop, uiDev: opts.UIDev}
+	local := &localRoutes{p: p, store: store, key: key, stop: stop, uiDev: opts.UIDev, mcp: opts.MCP}
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.InstallerFunc = nil // accounts are created by `pocketcontext init`
 		if migrations() != before {

@@ -9,7 +9,7 @@ is needed. Hosting is opt-in; local-only use remains unchanged.
 
 Give your setup agent this request, replacing the domain:
 
-> Set up PocketContext 0.19.0 for phone access at knowledge.example.com on this
+> Set up PocketContext 0.23.0 for phone access at knowledge.example.com on this
 > host. Use the release's HTTPS hosting manual. Confirm the project folder and
 > name, inspect existing installations before replacing anything, and preserve
 > existing data. Configure DNS and the host firewall using my authorized tools,
@@ -61,6 +61,11 @@ database. The OS service manager handles boot and restart policy; the CLI does n
 install it. Public HTTPS does not expose local administration or the dashboard.
 The private socket remains available for the local CLI. Public CLI `--url` access
 is not added: remote CLI clients continue to use a private loopback forward.
+
+For an explicitly requested external assistant connection, add `--mcp` to this
+same HTTPS service. See [MCP setup](mcp.md) for account linking and revocation.
+Preserve `--mcp` when changing other service options. No private tunnel is needed
+for MCP; keep `--tunnel` only for separately requested desktop CLI clients.
 
 ## Linux systemd service
 

@@ -33,6 +33,7 @@ type localRoutes struct {
 	listeners *listenerSet
 	nameMu    sync.RWMutex
 	publicURL string
+	mcp       bool
 }
 
 // Sign-in code lifetimes in seconds. Codes live only in server memory.
@@ -163,6 +164,9 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		}
 		if l.publicURL != "" {
 			info["publicURL"] = l.publicURL
+			if l.mcp {
+				info["mcpURL"] = l.publicURL + "/mcp"
+			}
 		}
 		if l.listeners != nil {
 			socket, tcp := l.listeners.state()

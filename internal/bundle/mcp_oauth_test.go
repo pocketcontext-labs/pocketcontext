@@ -1,0 +1,324 @@
+package bundle
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+)
+
+type oauthFixture struct {
+	t        *testing.T
+	a        *testApp
+	o        *mcpOAuth
+	p        *Project
+	h        http.Handler
+	requests int
+}
+
+func newOAuthFixture(t *testing.T) *oauthFixture {
+	a := newTestApp(t)
+	p := &Project{Cache: t.TempDir(), Config: Config{Instance: "synthetic-instance"}}
+	adapter := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !publicRequest(r) || r.Header.Get("Authorization") != "" || r.Header.Get(keyHeader) != "" {
+			t.Error("MCP lost public boundary or leaked credentials")
+		}
+		record, err := a.app.FindAuthRecordByToken(MCPAuthToken(r.Context()))
+		if err != nil || record.Id != a.user.Id {
+			t.Error("invalid internal principal")
+		}
+		oauthJSON(w, 200, map[string]bool{"ok": true})
+	})
+	o, err := newMCPOAuth(a.app, p, "knowledge.example.com", adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &oauthFixture{t: t, a: a, o: o, p: p}
+	f.h = publicHandler(a.app, "knowledge.example.com", http.NotFoundHandler(), o)
+	return f
+}
+func (f *oauthFixture) request(method, path, token, body, ctype string, want int) map[string]any {
+	f.t.Helper()
+	f.requests++
+	r := httptest.NewRequest(method, "https://knowledge.example.com"+path, strings.NewReader(body))
+	r.RemoteAddr = fmt.Sprintf("192.0.2.%d:1234", f.requests%250+1)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	r.Header.Set("Content-Type", ctype)
+	r.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	f.h.ServeHTTP(w, r)
+	if w.Code != want {
+		f.t.Fatalf("%s %s = %d, want %d: %s", method, path, w.Code, want, w.Body)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	return out
+}
+func (f *oauthFixture) registration() string {
+	return f.request("POST", "/oauth/register", "", `{"client_name":"Synthetic client","redirect_uris":["https://client.example.com/callback"],"token_endpoint_auth_method":"none"}`, "application/json", 201)["client_id"].(string)
+}
+func (f *oauthFixture) authorization(client, verifier string) url.Values {
+	h := sha256.Sum256([]byte(verifier))
+	return url.Values{"client_id": {client}, "redirect_uri": {"https://client.example.com/callback"}, "response_type": {"code"}, "code_challenge_method": {"S256"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(h[:])}, "resource": {f.o.resource()}, "scope": {"knowledge"}, "state": {"synthetic-state"}}
+}
+func (f *oauthFixture) code(client, verifier string) string {
+	q := f.authorization(client, verifier)
+	out := f.request("POST", "/oauth/authorize?"+q.Encode(), f.a.token, `{"approve":true}`, "application/json", 200)
+	u, err := url.Parse(out["redirect"].(string))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if u.Query().Get("state") != "synthetic-state" {
+		f.t.Fatal("lost state")
+	}
+	return u.Query().Get("code")
+}
+func (f *oauthFixture) exchange(client, code, verifier string, want int) map[string]any {
+	q := url.Values{"client_id": {client}, "code": {code}, "redirect_uri": {"https://client.example.com/callback"}, "code_verifier": {verifier}, "resource": {f.o.resource()}, "grant_type": {"authorization_code"}}
+	return f.request("POST", "/oauth/token", "", q.Encode(), "application/x-www-form-urlencoded", want)
+}
+func (f *oauthFixture) refresh(client, token string, want int) map[string]any {
+	q := url.Values{"client_id": {client}, "refresh_token": {token}, "resource": {f.o.resource()}, "grant_type": {"refresh_token"}}
+	return f.request("POST", "/oauth/token", "", q.Encode(), "application/x-www-form-urlencoded", want)
+}
+func TestMCPOAuthLifecycle(t *testing.T) {
+	f := newOAuthFixture(t)
+	client := f.registration()
+	verifier := strings.Repeat("v", 64)
+	code := f.code(client, verifier)
+	result := f.exchange(client, code, verifier, 200)
+	access := result["access_token"].(string)
+	refresh := result["refresh_token"].(string)
+	f.request("POST", "/mcp", access, "{}", "application/json", 200)
+	f.request("POST", "/mcp", f.a.token, "{}", "application/json", 401)
+	f.exchange(client, code, verifier, 400)
+	data, err := os.ReadFile(f.o.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{access, refresh, f.a.token, f.a.user.TokenKey()} {
+		if strings.Contains(string(data), secret) {
+			t.Fatal("usable credential persisted")
+		}
+	}
+	if info, err := os.Stat(f.o.path); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) {
+		t.Fatal("OAuth state must be private")
+	}
+	// Reload state exactly as a service restart does. Access and refresh survive;
+	// unredeemed authorization codes intentionally do not.
+	restored, err := newMCPOAuth(f.a.app, f.p, "knowledge.example.com", f.o.mcp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.o = restored
+	f.h = publicHandler(f.a.app, "knowledge.example.com", http.NotFoundHandler(), restored)
+	f.request("POST", "/mcp", access, "{}", "application/json", 200)
+	rotated := f.refresh(client, refresh, 200)
+	if rotated["refresh_token"] == refresh {
+		t.Fatal("refresh must rotate")
+	}
+	otherClient := f.registration()
+	f.refresh(otherClient, refresh, 400)
+	f.request("POST", "/mcp", rotated["access_token"].(string), "{}", "application/json", 200) // other client cannot revoke our family
+	f.refresh(client, refresh, 400)                                                            // replay revokes new access/refresh as a family
+	f.request("POST", "/mcp", rotated["access_token"].(string), "{}", "application/json", 401)
+	f.refresh(client, rotated["refresh_token"].(string), 400)
+}
+func TestMCPOAuthRevocationPasswordExpiry(t *testing.T) {
+	f := newOAuthFixture(t)
+	client := f.registration()
+	v := strings.Repeat("x", 64)
+	result := f.exchange(client, f.code(client, v), v, 200)
+	list := f.request("GET", "/oauth/connections", f.a.token, "", "", 200)["connections"].([]any)
+	id := list[0].(map[string]any)["id"].(string)
+	f.request("POST", "/oauth/connections", f.a.token, `{"id":"`+id+`"}`, "application/json", 200)
+	f.request("POST", "/mcp", result["access_token"].(string), "{}", "application/json", 401)
+	f.refresh(client, result["refresh_token"].(string), 400)
+	result = f.exchange(client, f.code(client, v), v, 200)
+	f.request("POST", "/oauth/revoke", "", url.Values{"client_id": {client}, "token": {result["refresh_token"].(string)}}.Encode(), "application/x-www-form-urlencoded", 200)
+	f.request("POST", "/mcp", result["access_token"].(string), "{}", "application/json", 401)
+	result = f.exchange(client, f.code(client, v), v, 200)
+	f.o.now = func() time.Time { return time.Now().Add(11 * time.Minute) }
+	f.request("POST", "/mcp", result["access_token"].(string), "{}", "application/json", 401)
+	f.o.now = nil
+	f.a.user.RefreshTokenKey()
+	if err := f.a.app.Save(f.a.user); err != nil {
+		t.Fatal(err)
+	}
+	f.request("POST", "/mcp", result["access_token"].(string), "{}", "application/json", 401)
+	f.refresh(client, result["refresh_token"].(string), 400)
+}
+func TestMCPOAuthRequestBoundaries(t *testing.T) {
+	f := newOAuthFixture(t)
+	client := f.registration()
+	v := strings.Repeat("q", 64)
+	q := f.authorization(client, v)
+	f.request("POST", "/oauth/authorize?"+q.Encode(), "", `{"approve":true}`, "application/json", 401)
+	for key, value := range map[string]string{"redirect_uri": "https://evil.example.com/callback", "resource": "https://evil.example.com/mcp", "code_challenge_method": "plain", "scope": "admin"} {
+		bad := f.authorization(client, v)
+		bad.Set(key, value)
+		f.request("GET", "/oauth/authorize?"+bad.Encode(), "", "", "", 400)
+	}
+	f.exchange(client, f.code(client, v), strings.Repeat("w", 64), 400)
+	for _, redirect := range []string{"http://client.example.com/callback", "https://*.example.com/", "https://client.example.com/#fragment", "https://localhost/", "https://127.0.0.1/", "https://user@client.example.com/"} {
+		body, _ := json.Marshal(map[string]any{"redirect_uris": []string{redirect}})
+		f.request("POST", "/oauth/register", "", string(body), "application/json", 400)
+	}
+	for _, path := range []string{"/oauth/register", "/mcp", "/.well-known/oauth-authorization-server"} {
+		r := httptest.NewRequest("POST", "https://knowledge.example.com"+path, strings.NewReader("{}"))
+		r.Header.Set("Origin", "https://evil.example.com")
+		w := httptest.NewRecorder()
+		f.h.ServeHTTP(w, r)
+		if w.Code != 403 {
+			t.Errorf("cross-origin %s = %d", path, w.Code)
+		}
+	}
+	// The extension is absent without the explicit serve option.
+	disabled := publicHandler(f.a.app, "knowledge.example.com", http.NotFoundHandler())
+	for _, path := range []string{"/mcp", "/oauth/connections", "/.well-known/oauth-authorization-server"} {
+		r := httptest.NewRequest("GET", "https://knowledge.example.com"+path, nil)
+		w := httptest.NewRecorder()
+		disabled.ServeHTTP(w, r)
+		if w.Code != 404 {
+			t.Errorf("disabled %s = %d", path, w.Code)
+		}
+	}
+}
+func TestMCPOAuthCodeExpiryAndPersistenceFailure(t *testing.T) {
+	f := newOAuthFixture(t)
+	client := f.registration()
+	v := strings.Repeat("s", 64)
+	code := f.code(client, v)
+	f.o.now = func() time.Time { return time.Now().Add(3 * time.Minute) }
+	f.exchange(client, code, v, 400)
+	f.o.now = nil
+	code = f.code(client, v)
+	old := f.o.path
+	f.o.path = old + "/missing/state.json"
+	f.exchange(client, code, v, 503)
+	if len(f.o.state.Grants) != 0 {
+		t.Fatal("failed persistence granted access")
+	}
+	f.o.path = old
+	// Invalid verifier characters are refused, even with the matching hash.
+	bad := strings.Repeat("!", 64)
+	f.exchange(client, f.code(client, bad), bad, 400)
+}
+
+func TestMCPOAuthConfidentialClients(t *testing.T) {
+	for _, method := range []string{"client_secret_basic", "client_secret_post"} {
+		t.Run(method, func(t *testing.T) {
+			f := newOAuthFixture(t)
+			body := `{"client_name":"Confidential client","redirect_uris":["https://client.example.com/callback"],"token_endpoint_auth_method":"` + method + `"}`
+			registration := f.request("POST", "/oauth/register", "", body, "application/json", 201)
+			client, secret := registration["client_id"].(string), registration["client_secret"].(string)
+			verifier := strings.Repeat("c", 64)
+			code := f.code(client, verifier)
+			values := url.Values{"client_id": {client}, "code": {code}, "redirect_uri": {"https://client.example.com/callback"}, "code_verifier": {verifier}, "resource": {f.o.resource()}, "grant_type": {"authorization_code"}}
+			send := func(path string, form url.Values, supplied string, want int) map[string]any {
+				t.Helper()
+				f.requests++
+				copied := url.Values{}
+				for k, v := range form {
+					copied[k] = append([]string{}, v...)
+				}
+				if method == "client_secret_post" && supplied != "" {
+					copied.Set("client_secret", supplied)
+				}
+				r := httptest.NewRequest("POST", "https://knowledge.example.com"+path, strings.NewReader(copied.Encode()))
+				r.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", f.requests)
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				if method == "client_secret_basic" && supplied != "" {
+					r.SetBasicAuth(client, supplied)
+				}
+				w := httptest.NewRecorder()
+				f.h.ServeHTTP(w, r)
+				if w.Code != want {
+					t.Fatalf("%s returned %d: %s", path, w.Code, w.Body)
+				}
+				var out map[string]any
+				_ = json.Unmarshal(w.Body.Bytes(), &out)
+				return out
+			}
+			send("/oauth/token", values, "", 401)
+			send("/oauth/token", values, "wrong-secret", 401)
+			tokens := send("/oauth/token", values, secret, 200)
+			refresh := tokens["refresh_token"].(string)
+			form := url.Values{"client_id": {client}, "grant_type": {"refresh_token"}, "resource": {f.o.resource()}, "refresh_token": {refresh}}
+			send("/oauth/token", form, "", 401)
+			newer := send("/oauth/token", form, secret, 200)
+			if newer["refresh_token"] != refresh {
+				t.Fatal("confidential persistent linking should retain refresh token")
+			}
+			f.request("POST", "/mcp", newer["access_token"].(string), "{}", "application/json", 200)
+			data, _ := os.ReadFile(f.o.path)
+			if strings.Contains(string(data), secret) || strings.Contains(string(data), refresh) {
+				t.Fatal("raw credential persisted")
+			}
+			revoke := url.Values{"client_id": {client}, "token": {refresh}}
+			send("/oauth/revoke", revoke, "", 401)
+			send("/oauth/revoke", revoke, secret, 200)
+			f.request("POST", "/mcp", newer["access_token"].(string), "{}", "application/json", 401)
+		})
+	}
+}
+
+func TestMCPOAuthIdleRegistrationAndCleanup(t *testing.T) {
+	f := newOAuthFixture(t)
+	client := f.registration()
+	v := strings.Repeat("i", 64)
+	now := time.Now().Add(25 * time.Hour)
+	f.o.now = func() time.Time { return now }
+	result := f.exchange(client, f.code(client, v), v, 200)
+	updated := f.refresh(client, result["refresh_token"].(string), 200)
+	if len(f.o.state.UsedRefresh) != 1 {
+		t.Fatal("missing replay history")
+	}
+	list := f.request("GET", "/oauth/connections", f.a.token, "", "", 200)["connections"].([]any)
+	id := list[0].(map[string]any)["id"].(string)
+	f.request("POST", "/oauth/connections", f.a.token, `{"id":"`+id+`"}`, "application/json", 200)
+	if len(f.o.state.UsedRefresh) != 0 || len(f.o.state.Access) != 0 {
+		t.Fatal("revocation retained orphaned token records")
+	}
+	f.request("POST", "/mcp", updated["access_token"].(string), "{}", "application/json", 401)
+}
+
+func TestMCPOAuthRegistrationRateAndMethod(t *testing.T) {
+	f := newOAuthFixture(t)
+	for i := 0; i < 11; i++ {
+		r := httptest.NewRequest("POST", "https://knowledge.example.com/oauth/register", strings.NewReader(`{"redirect_uris":["https://client.example.com/callback"]}`))
+		r.RemoteAddr = "203.0.113.5:1234"
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		f.h.ServeHTTP(w, r)
+		if i < 10 {
+			if w.Code != 201 {
+				t.Fatalf("registration %d: %d", i, w.Code)
+			}
+			var body map[string]any
+			_ = json.Unmarshal(w.Body.Bytes(), &body)
+			if body["token_endpoint_auth_method"] != "client_secret_basic" || body["client_secret"] == nil {
+				t.Fatal("DCR default must be confidential basic")
+			}
+		} else if w.Code != 429 {
+			t.Fatalf("rate limit: %d", w.Code)
+		}
+	}
+}
+
+func TestMCPRequiresExplicitDomain(t *testing.T) {
+	if err := ServeContext(context.Background(), nil, ServeOptions{MCP: true}); err == nil || !strings.Contains(err.Error(), "MCP requires") {
+		t.Fatal("MCP without a domain must fail before opening a project")
+	}
+}

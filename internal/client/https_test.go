@@ -17,6 +17,8 @@ func TestHTTPSCLIOptions(t *testing.T) {
 		{[]string{"--headless", "--domain", "knowledge.example.com"}, true},
 		{[]string{"--headless", "--domain", "knowledge.example.com", "--tunnel", "--acme-email", "owner@example.com"}, true},
 		{[]string{"--headless", "--tunnel"}, true},
+		{[]string{"--headless", "--domain", "knowledge.example.com", "--mcp"}, true},
+		{[]string{"--headless", "--mcp"}, false},
 		{[]string{"--domain", "knowledge.example.com"}, false},
 		{[]string{"--headless", "--domain", ""}, false},
 		{[]string{"--headless", "--domain", "https://knowledge.example.com"}, false},
@@ -28,7 +30,7 @@ func TestHTTPSCLIOptions(t *testing.T) {
 		{[]string{"--headless", "--domain", "knowledge.example.com", "--acme-email", "Owner <owner@example.com>"}, false},
 		{[]string{"--headless", "--domain", "knowledge.example.com", "--acme-email", ""}, false},
 	} {
-		a, err := parseArgs(tc.args, []string{"domain", "acme-email", "port", "ui-dev"}, []string{"headless", "tcp-only", "tunnel"})
+		a, err := parseArgs(tc.args, []string{"domain", "acme-email", "port", "ui-dev"}, []string{"headless", "tcp-only", "tunnel", "mcp"})
 		if err != nil {
 			t.Fatal(err)
 		}

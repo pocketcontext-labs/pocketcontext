@@ -120,7 +120,11 @@ func (l *publicAuthLimiter) allow(address string) bool {
 	return entry.limiter.Allow()
 }
 
-func publicHandler(app core.App, domain string, next http.Handler) http.Handler {
+func publicHandler(app core.App, domain string, next http.Handler, oauth ...*mcpOAuth) http.Handler {
+	var mcp *mcpOAuth
+	if len(oauth) > 0 {
+		mcp = oauth[0]
+	}
 	collections := map[string]bool{}
 	sources := map[string]bool{"sources": true}
 	for _, name := range publicCollections {
@@ -149,7 +153,8 @@ func publicHandler(app core.App, domain string, next http.Handler) http.Handler 
 			http.NotFound(w, r)
 			return
 		}
-		if !publicRoute(r.Method, r.URL.Path, collections, sources) {
+		isOAuth := mcp != nil && oauthRoute(r.Method, r.URL.Path)
+		if !isOAuth && !publicRoute(r.Method, r.URL.Path, collections, sources) {
 			http.NotFound(w, r)
 			return
 		}
@@ -172,6 +177,10 @@ func publicHandler(app core.App, domain string, next http.Handler) http.Handler 
 			r.Header.Del(name)
 		}
 		r = r.WithContext(context.WithValue(r.Context(), publicContextKey{}, true))
+		if isOAuth {
+			mcp.ServeHTTP(w, r)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -239,7 +248,17 @@ func startPublicHTTPS(ctx context.Context, app core.App, p *Project, opts ServeO
 	if err != nil {
 		return nil, err
 	}
-	return startPublicListeners(ctx, publicHandler(app, opts.HTTPSDomain, handler), publicHTTPHandler(opts.HTTPSDomain, manager.HTTPHandler), tlsConfig, ":443", ":80", failures)
+	var oauth *mcpOAuth
+	if opts.MCP {
+		if opts.MCPHandler == nil {
+			return nil, errors.New("MCP protocol adapter unavailable")
+		}
+		oauth, err = newMCPOAuth(app, p, opts.HTTPSDomain, opts.MCPHandler(handler))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return startPublicListeners(ctx, publicHandler(app, opts.HTTPSDomain, handler, oauth), publicHTTPHandler(opts.HTTPSDomain, manager.HTTPHandler), tlsConfig, ":443", ":80", failures)
 }
 
 // Addresses are internal parameters so lifecycle tests can use ephemeral ports.

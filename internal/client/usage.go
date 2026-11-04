@@ -12,7 +12,7 @@ Setup and server:
                        create the project, its account and a first space
                        named Default, and start the server
   ensure-running       start the server in the background unless it runs (alias: start)
-  serve [--headless | --tcp-only] [--domain HOST] [--acme-email EMAIL]
+  serve [--headless | --tcp-only] [--domain HOST] [--acme-email EMAIL] [--mcp]
         [--tunnel]
         [--port N] [--ui-dev URL]
                        run in the foreground; plain serve enables socket and TCP

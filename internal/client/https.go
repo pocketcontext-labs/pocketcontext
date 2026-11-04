@@ -9,6 +9,9 @@ import (
 )
 
 func validateHTTPSArgs(a *args) error {
+	if a.bools["mcp"] && !a.has("domain") {
+		return fail(2, "--mcp requires --domain and --headless")
+	}
 	if !a.has("domain") {
 		if a.has("acme-email") {
 			return fail(2, "--acme-email requires --domain")

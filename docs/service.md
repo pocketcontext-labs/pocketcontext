@@ -33,6 +33,14 @@ automation, phone sign-in and a Linux system service running as an unprivileged
 account with permission to bind ports 80/443. The user unit below remains the
 private-tunnel deployment; it does not grant low-port binding privileges.
 
+## MCP on the HTTPS service
+
+Since 0.23.0, add `--mcp` to the same `serve --headless --domain HOST`
+command to allow external assistants to connect through OAuth. It requires the
+native HTTPS domain and remains disabled when omitted. No additional process,
+agent adapter or private tunnel is needed. Preserve the flag when adding private
+CLI access. See [MCP setup](mcp.md).
+
 ## Linux systemd user service
 
 Use absolute paths for the actual installation. For example, save this as

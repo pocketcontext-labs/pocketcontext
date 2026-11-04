@@ -608,13 +608,6 @@ type IngestOptions struct {
 // text rendition reuses it (v3, else v2, else the latest), so re-running ingest
 // never adds a second extraction silently; --version v3 re-extracts.
 func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
-	version := o.Version
-	if o.VersionSet && (version == "" || utf8.RuneCountInString(version) > 100) {
-		return nil, fail(2, "rendition version must contain 1–100 characters")
-	}
-	if o.DateSet && (utf8.RuneCountInString(o.Date) > dateRunes || strings.ContainsAny(o.Date, "\r\n")) {
-		return nil, fail(2, "source date must be one line of at most 100 characters")
-	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -623,17 +616,33 @@ func (c *Client) Ingest(path string, o IngestOptions) (map[string]any, error) {
 	if err != nil || !info.Mode().IsRegular() {
 		return nil, fail(2, "source must be a regular file")
 	}
-	suffix := strings.ToLower(filepath.Ext(abs))
-	media, isText := textExtensions[suffix]
 	if info.Size() > maxSource {
 		return nil, fail(2, "source must be no larger than 100 MiB")
-	}
-	if !isText && suffix != "" && info.Size() > maxBinarySource {
-		return nil, fail(2, binaryTooLarge)
 	}
 	content, err := os.ReadFile(abs)
 	if err != nil {
 		return nil, fail(2, "cannot read source: %v", err)
+	}
+	return c.ingestContent(filepath.Base(abs), content, o)
+}
+
+// ingestContent shares extraction and immutable-source semantics with MCP without
+// granting remote callers access to paths on the host filesystem.
+func (c *Client) ingestContent(abs string, content []byte, o IngestOptions) (map[string]any, error) {
+	version := o.Version
+	if o.VersionSet && (version == "" || utf8.RuneCountInString(version) > 100) {
+		return nil, fail(2, "rendition version must contain 1–100 characters")
+	}
+	if o.DateSet && (utf8.RuneCountInString(o.Date) > dateRunes || strings.ContainsAny(o.Date, "\r\n")) {
+		return nil, fail(2, "source date must be one line of at most 100 characters")
+	}
+	suffix := strings.ToLower(filepath.Ext(abs))
+	media, isText := textExtensions[suffix]
+	if len(content) > maxSource {
+		return nil, fail(2, "source must be no larger than 100 MiB")
+	}
+	if !isText && suffix != "" && len(content) > maxBinarySource {
+		return nil, fail(2, binaryTooLarge)
 	}
 	if len(content) == 0 || bytes.HasPrefix(content, []byte("version https://git-lfs.github.com/spec/v1\n")) {
 		return nil, fail(2, "source is empty or a Git LFS pointer; retrieve actual source bytes first")

@@ -262,7 +262,7 @@ parsed:
 		return nil
 	}
 	spec := map[string][2][]string{
-		"serve":          {{"ui-dev", "port", "domain", "acme-email"}, {"take-over", "headless", "tcp-only", "tunnel"}},
+		"serve":          {{"ui-dev", "port", "domain", "acme-email"}, {"take-over", "headless", "tcp-only", "tunnel", "mcp"}},
 		"start":          {nil, {"take-over"}},
 		"ensure-running": {nil, {"take-over"}},
 		"stop":           {nil, nil},
@@ -396,6 +396,10 @@ parsed:
 			servePort = n
 		}
 		opts := bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort, HTTPSDomain: a.flags["domain"], ACMEEmail: a.flags["acme-email"]}
+		opts.MCP = a.bools["mcp"]
+		if opts.MCP {
+			opts.MCPHandler = newMCPHandler
+		}
 		if a.bools["tunnel"] {
 			if !opts.Headless {
 				return fail(2, "--tunnel requires --headless")
@@ -426,6 +430,9 @@ parsed:
 			out["socket"], out["tcp"], out["headless"], out["port"], out["serverVersion"] = info.Socket, info.TCP, info.Headless, info.Port, info.Version
 			out["databaseFormat"] = info.DatabaseFormat
 			out["publicURL"] = info.PublicURL
+			if info.MCPURL != "" {
+				out["mcpURL"] = info.MCPURL
+			}
 			compatErr := bundle.CheckServerCompatibility(info)
 			out["compatible"] = compatErr == nil
 			if compatErr != nil {

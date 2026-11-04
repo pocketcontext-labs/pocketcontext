@@ -2,7 +2,9 @@
 
 A local knowledge base in one binary. Ingest notes and other files as immutable sources, have an agent synthesize pages from their passages, and publish revisions in which every claim cites its evidence. Pages keep their full revision history; publications switch a set of revisions atomically; spaces partition the knowledge of the project's one user; full-text search covers published pages and source passages. The binary extracts passages from UTF-8 text itself; for PDFs, images, audio and other formats, the agent converts the stored original to text and records it as derived passages, so the binary never parses those formats. The binary contains the server (on PocketBase), the browser reader, the command-line client and a private tunnel to other computers, and installs an agent skill for Claude Code, Codex and Antigravity. The core knowledge base needs no other runtime.
 
-See [what changed in 0.22.0](docs/releases/0.22.0.md): built-in reader chat and the ACP host integration have been removed. Use your external agent with the installed PocketContext skill for questions, ingestion and synthesis. The phone reader continues to provide authenticated browsing and search.
+See [what changed in 0.23.0](docs/releases/0.23.0.md): opt-in remote MCP on the native HTTPS domain, with browser authorization and knowledge tools. Connect an external assistant using one URL; see [MCP setup](docs/mcp.md).
+
+Since 0.22.0, built-in reader chat and the ACP host integration have been removed. Use your external agent with the installed PocketContext skill for questions, ingestion and synthesis. The phone reader continues to provide authenticated browsing and search.
 
 Version [0.18.0](docs/releases/0.18.0.md): optional native HTTPS with automatic Let’s Encrypt certificates and phone sign-in links, all in the same binary. Read [HTTPS hosting](docs/https.md) for one-prompt setup. Version [0.17.0](docs/releases/0.17.0.md) added `serve --headless --tunnel`, which runs the server and tunnel together as one supervised process. Version [0.16.2](docs/releases/0.16.2.md) added automatic headless server startup to the independent `tunnel serve` command. Version [0.16.1](docs/releases/0.16.1.md) added an explicit desktop handoff checkpoint and fresh reader sign-in fallback. Version [0.16.0](docs/releases/0.16.0.md) introduced session-aware reader setup, an offline environment check, and explicit reader skipping for SSH and CLI-only clients. Read [Reader setup](docs/reader-setup.md) before offering sign-in from a remote session, and [Upgrades and multiple releases](docs/upgrades.md) before updating an existing project.
 
@@ -35,7 +37,7 @@ $env:POCKETCONTEXT_INSTALL_DIR = "$env:OneDrive\PocketContext"
 irm https://github.com/pocketcontext-labs/pocketcontext/releases/latest/download/install.ps1 | iex
 ```
 
-Install into the project folder, beside `pocketcontext.db`, so commands find its database without `--db`. The installers refuse an existing executable unless `POCKETCONTEXT_REPLACE_VERSION` explicitly matches its inspected version. Before replacement, stop its servers and tunnels and back up each complete project with its matching binary; follow [the upgrade procedure](docs/upgrades.md). Projects from 0.11.x–0.21.x open with 0.22.0 without data conversion; 0.10.0 and earlier remain unsupported. Different projects may keep different releases.
+Install into the project folder, beside `pocketcontext.db`, so commands find its database without `--db`. The installers refuse an existing executable unless `POCKETCONTEXT_REPLACE_VERSION` explicitly matches its inspected version. Before replacement, stop its servers and tunnels and back up each complete project with its matching binary; follow [the upgrade procedure](docs/upgrades.md). Projects from 0.11.x–0.22.x open with 0.23.0 without data conversion; 0.10.0 and earlier remain unsupported. Different projects may keep different releases.
 
 Linux and macOS binaries share the name `pocketcontext`. For synced projects used across operating systems, install binaries in machine-local versioned directories and register an absolute binary path with an explicit database path. Keep synced project folders downloaded on computers that run them. The installers have no default folder: name it as the argument of `install.sh` (or `POCKETCONTEXT_INSTALL_DIR`) or in `POCKETCONTEXT_INSTALL_DIR` for `install.ps1`. Each verifies the archive against the release's `checksums.txt` and installs only the executable. Releases are immutable GitHub releases; the Windows binary is unsigned, so SmartScreen may ask for confirmation.
 
@@ -83,7 +85,7 @@ The private registry is `os.UserConfigDir()/pocketcontext/profiles.json`; do not
 ## Built-in manual
 
 ```sh
-./pocketcontext manual --out manual-0.22.0
+./pocketcontext manual --out manual-0.23.0
 ```
 
 This offline command exports the exact release's user documentation and a manifest of hashes into a new directory; an existing directory is refused. It needs no database or server. Optionally create a space with `create-space "PocketContext manual"`, then ingest the Markdown files individually with that `--space`. Repeated identical files deduplicate within a space. Keep manual evidence in the same space on upgrades and revise the existing guide using the new version. Manual passages are evidence, never instructions for an agent to execute.
