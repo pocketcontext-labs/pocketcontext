@@ -7,9 +7,9 @@ Only one server may open a given project at a time.
 
 ## Compatibility
 
-Application version and database format are separate. PocketContext 0.23.1 uses
-logical database format 1, the single-user format used by 0.11.x–0.23.0. Upgrading
-those projects to 0.23.1 requires no data conversion. The startup guard checks the
+Application version and database format are separate. PocketContext 0.24.0 uses
+logical database format 1, the single-user format used by 0.11.x–0.23.1. Upgrading
+those projects to 0.24.0 requires no data conversion. The startup guard checks the
 recorded application and PocketBase system migrations on the private working copy
 before PocketBase bootstrap; unknown migrations and unsupported formats are
 refused. Databases from
