@@ -13,12 +13,14 @@ Setup and server:
                        named Default, and start the server
   ensure-running       start the server in the background unless it runs (alias: start)
   serve [--headless | --tcp-only] [--domain HOST] [--acme-email EMAIL] [--mcp]
-        [--tunnel]
+        [--tunnel] [--hosted [--hosted-init | --hosted-restore]]
         [--port N] [--ui-dev URL]
                        run in the foreground; plain serve enables socket and TCP
                        --headless --tunnel owns both server and tunnel in one process
                        --headless --domain HOST enables HTTPS on 443, HTTP redirects
                        and ACME challenges on 80; certificates renew automatically
+                       --hosted uses HTTP on 80 behind an HTTPS proxy with email login
+                       and public MCP only; explicit --hosted-init creates a new instance
   stop                 write back the database and stop the server
   status               show paths, port, lease and whether the server runs
   environment          report session/browser signals offline (no project needed)

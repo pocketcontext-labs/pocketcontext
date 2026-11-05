@@ -7,6 +7,12 @@ and model; PocketContext does not run an agent or require a model-provider login
 
 ## Enable on an existing domain
 
+For a PocketDeploy/ONCE container, follow [hosted setup](hosting.md) instead.
+Hosted mode enables public MCP and email login behind the proxy; its endpoint
+remains `https://YOUR_DOMAIN/mcp`. Sign in to the reader with the configured
+owner email, then return to the assistant's consent page in the same browser.
+The native HTTPS instructions below remain unchanged for existing installations.
+
 Follow [HTTPS hosting](https.md) to initialize the project and configure a
 reachable domain and one persistent OS service. Add `--mcp` to that service's
 command, preserving its existing domain, paths and any requested tunnel:

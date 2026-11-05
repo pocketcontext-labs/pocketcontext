@@ -623,7 +623,9 @@ async function readPage(
 let pendingSignIn: { cancel: (message?: string) => void } | null = null;
 /** The sign-in name of the project's one account; the password is the secret. */
 export const localIdentity = "me@pocketcontext.localhost";
-async function signIn(email: string, password: string): Promise<void> {
+async function signIn(
+  authenticate: (client: PocketBase) => Promise<RecordAuthResponse>,
+): Promise<void> {
   pendingSignIn?.cancel();
   const generation = sessionGeneration,
     token = authStore.token;
@@ -643,10 +645,7 @@ async function signIn(email: string, password: string): Promise<void> {
   try {
     const result = await new Promise<RecordAuthResponse>((resolve, reject) => {
       rejectAttempt = reject;
-      client
-        .collection("users")
-        .authWithPassword(email, password)
-        .then(resolve, reject);
+      authenticate(client).then(resolve, reject);
     });
     if (
       ended ||
@@ -668,7 +667,32 @@ export function cancelLogin(): void {
   pendingSignIn?.cancel();
 }
 export async function loginPassword(password: string): Promise<void> {
-  await signIn(localIdentity, password);
+  await signIn((client) =>
+    client.collection("users").authWithPassword(localIdentity, password),
+  );
+}
+export type AuthMode = "email" | "password";
+export async function loginMode(): Promise<AuthMode> {
+  const client = new PocketBase(pb.baseURL, new BaseAuthStore());
+  const result = await client.send<{ mode: AuthMode }>(
+    "/api/bundle/auth-mode",
+    { method: "GET" },
+  );
+  if (result.mode !== "email" && result.mode !== "password")
+    throw new Error("Unable to load sign-in options. Please try again.");
+  return result.mode;
+}
+export async function requestEmailLogin(email: string): Promise<void> {
+  const client = new PocketBase(pb.baseURL, new BaseAuthStore());
+  await client.collection("users").requestOTP(email.trim());
+}
+export async function loginEmail(
+  otpId: string,
+  password: string,
+): Promise<void> {
+  await signIn((client) =>
+    client.collection("users").authWithOTP(otpId, password),
+  );
 }
 let refreshedAt = 0;
 let refreshedToken = "";
@@ -973,6 +997,9 @@ export const api = {
   evidenceSpace,
   cancelLogin,
   loginPassword,
+  loginMode,
+  requestEmailLogin,
+  loginEmail,
   refreshSession,
   logout,
   listPublications,

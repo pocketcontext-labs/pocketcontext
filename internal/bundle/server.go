@@ -34,14 +34,18 @@ var (
 
 // ServeOptions control one foreground server run.
 type ServeOptions struct {
-	TakeOver    bool
-	UIDev       string
-	Headless    bool
-	TCPOnly     bool
-	Port        int
-	HTTPSDomain string
-	ACMEEmail   string
-	MCP         bool
+	TakeOver      bool
+	UIDev         string
+	Headless      bool
+	TCPOnly       bool
+	Port          int
+	HTTPSDomain   string
+	ACMEEmail     string
+	MCP           bool
+	Hosted        bool
+	HostedInit    bool
+	HostedRestore bool
+	HostedConfig  *HostedConfig
 	// MCPHandler builds the protocol adapter around the ordinary authenticated API.
 	MCPHandler func(http.Handler) http.Handler
 	// Service starts after the HTTP listeners are ready. Its failure stops the
@@ -121,6 +125,36 @@ func Serve(p *Project, opts ServeOptions) error {
 // ServeContext runs one owned foreground server. Cancellation follows the same
 // graceful drain and snapshot write-back path as an authenticated stop request.
 func ServeContext(parent context.Context, p *Project, opts ServeOptions) (resultErr error) {
+	if p != nil && !opts.Hosted {
+		if err := CheckLocalProject(p); err != nil {
+			return err
+		}
+	}
+	if opts.HostedRestore && (!opts.Hosted || opts.HostedInit) {
+		return errors.New("--hosted-restore requires --hosted and excludes --hosted-init")
+	}
+	if opts.HostedInit && !opts.Hosted {
+		return errors.New("--hosted-init requires --hosted")
+	}
+	if opts.Hosted {
+		if !opts.MCP || opts.HTTPSDomain == "" || !opts.Headless || opts.Service != nil || opts.ACMEEmail != "" {
+			return errors.New("hosted mode requires --headless --domain --mcp and excludes tunnels and ACME")
+		}
+		if opts.HostedConfig == nil {
+			var err error
+			opts.HostedConfig, err = HostedConfigFromEnv()
+			if err != nil {
+				return err
+			}
+		}
+		_, err := os.Stat(p.DB)
+		if opts.HostedInit && !errors.Is(err, os.ErrNotExist) {
+			return errors.New("hosted initialization requires a new project; existing database will not be overwritten")
+		}
+		if !opts.HostedInit && err != nil {
+			return errors.New("hosted database is missing or inaccessible; initialize a new instance explicitly or restore its backup")
+		}
+	}
 	if opts.MCP && (opts.HTTPSDomain == "" || opts.MCPHandler == nil) {
 		return errors.New("MCP requires --domain and the MCP protocol adapter")
 	}
@@ -159,6 +193,9 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) (result
 	}
 	if err := p.EnsureInstance(); err != nil {
 		return err
+	}
+	if opts.Hosted {
+		p.LeaseHost = "hosted-" + p.Config.Instance
 	}
 	if err := claimLease(p, opts.TakeOver); err != nil {
 		return err
@@ -279,11 +316,33 @@ func ServeContext(parent context.Context, p *Project, opts ServeOptions) (result
 	}
 
 	stop := make(chan struct{}, 1)
-	local := &localRoutes{p: p, store: store, key: key, stop: stop, uiDev: opts.UIDev, mcp: opts.MCP}
+	local := &localRoutes{p: p, store: store, key: key, stop: stop, uiDev: opts.UIDev, mcp: opts.MCP, hosted: opts.Hosted}
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.InstallerFunc = nil // accounts are created by `pocketcontext init`
 		if migrations() != before {
 			store.Changed()
+		}
+		if !opts.Hosted {
+			records, err := app.FindRecordsByFilter("users", "", "", 1, 0)
+			if err != nil {
+				return err
+			}
+			if len(records) > 0 && records[0].Email() != LocalIdentity {
+				return errors.New("this hosted project requires explicit --hosted serving; local and tunnel modes are unavailable")
+			}
+		}
+		if opts.Hosted {
+			if err := configureHosted(app, opts.HTTPSDomain, opts.HostedConfig, opts.HostedInit); err != nil {
+				return err
+			}
+			if err := WriteAtomic(filepath.Join(p.Cache, "hosted.json"), []byte(`{"version":1}`), 0600); err != nil {
+				return err
+			}
+			if opts.HostedRestore {
+				if err := invalidateHostedRestore(app, p); err != nil {
+					return err
+				}
+			}
 		}
 		local.register(e)
 		if devUI != nil {

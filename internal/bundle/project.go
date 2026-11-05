@@ -38,6 +38,7 @@ type Project struct {
 	ConfigPath string
 	Cache      string // private per-machine cache for this database
 	Key        string // stable per-machine identifier of this database path
+	LeaseHost  string // runtime-only stable identity for an exclusively locked hosted volume
 	Config     Config
 }
 

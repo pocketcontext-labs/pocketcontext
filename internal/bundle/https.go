@@ -51,7 +51,7 @@ var publicCollections = []string{"spaces", "settings", "sources", "renditions", 
 // public merely because it was registered on the application's router.
 func publicRoute(method, p string, collections map[string]bool, sources map[string]bool) bool {
 	read := method == http.MethodGet || method == http.MethodHead
-	if read && (p == "/" || p == "/bundle/login" || p == "/bundle/login.js") {
+	if read && (p == "/" || p == "/api/bundle/auth-mode" || p == "/bundle/login" || p == "/bundle/login.js") {
 		return true
 	}
 	if read && strings.HasPrefix(p, "/assets/") && readerAssetName.MatchString(strings.TrimPrefix(p, "/assets/")) {
@@ -121,6 +121,10 @@ func (l *publicAuthLimiter) allow(address string) bool {
 }
 
 func publicHandler(app core.App, domain string, next http.Handler, oauth ...*mcpOAuth) http.Handler {
+	return publicHandlerMode(app, domain, next, false, oauth...)
+}
+
+func publicHandlerMode(app core.App, domain string, next http.Handler, hosted bool, oauth ...*mcpOAuth) http.Handler {
 	var mcp *mcpOAuth
 	if len(oauth) > 0 {
 		mcp = oauth[0]
@@ -137,7 +141,16 @@ func publicHandler(app core.App, domain string, next http.Handler, oauth ...*mcp
 		}
 	}
 	limiter := &publicAuthLimiter{}
+	emailLimiter := rate.NewLimiter(rate.Every(6*time.Second), 10)
+	redemptionLimiter := rate.NewLimiter(rate.Every(6*time.Second), 10)
+	var otpMu sync.Mutex // Serialize OTP redemption, including validation and deletion.
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hosted && r.URL.Path == "/up" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		if r.Host != domain && r.Host != domain+":443" {
 			http.Error(w, "Unexpected host.", http.StatusForbidden)
 			return
@@ -154,13 +167,34 @@ func publicHandler(app core.App, domain string, next http.Handler, oauth ...*mcp
 			return
 		}
 		isOAuth := mcp != nil && oauthRoute(r.Method, r.URL.Path)
-		if !isOAuth && !publicRoute(r.Method, r.URL.Path, collections, sources) {
+		isOTP := hosted && r.Method == http.MethodPost && (r.URL.Path == "/api/collections/users/request-otp" || r.URL.Path == "/api/collections/users/auth-with-otp")
+		if hosted && (r.URL.Path == "/api/collections/users/auth-with-password" || r.URL.Path == "/api/bundle/redeem" || strings.HasPrefix(r.URL.Path, "/bundle/login")) {
+			http.NotFound(w, r)
+			return
+		}
+		if !isOAuth && !isOTP && !publicRoute(r.Method, r.URL.Path, collections, sources) {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if r.URL.Path == "/api/bundle/redeem" || r.URL.Path == "/api/collections/users/auth-with-password" {
+		if isOTP {
+			w.Header().Set("Cache-Control", "no-store")
+			selectedLimiter := emailLimiter
+			if r.URL.Path == "/api/collections/users/auth-with-otp" {
+				selectedLimiter = redemptionLimiter
+			}
+			if !selectedLimiter.Allow() {
+				w.Header().Set("Retry-After", "60")
+				http.Error(w, "Too many requests. Please try again shortly.", http.StatusTooManyRequests)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+			if r.URL.Path == "/api/collections/users/auth-with-otp" {
+				otpMu.Lock()
+				defer otpMu.Unlock()
+			}
+		} else if r.URL.Path == "/api/bundle/redeem" || r.URL.Path == "/api/collections/users/auth-with-password" {
 			w.Header().Set("Cache-Control", "no-store")
 			if !limiter.allow(r.RemoteAddr) {
 				w.Header().Set("Retry-After", "6")
@@ -171,7 +205,8 @@ func publicHandler(app core.App, domain string, next http.Handler, oauth ...*mcp
 		} else {
 			r.Body = http.MaxBytesReader(w, r.Body, 110<<20)
 		}
-		// This listener terminates TLS itself. Forwarded headers are never authority
+		// Native serving terminates TLS itself; hosted mode has a fixed HTTPS
+		// origin at its upstream proxy. Forwarded headers are never authority
 		// for identity, origin, scheme, or source-address decisions.
 		for _, name := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP", keyHeader} {
 			r.Header.Del(name)
@@ -211,13 +246,28 @@ type publicServers struct {
 }
 
 func (s *publicServers) close() {
-	_ = s.https.Close()
-	_ = s.http.Close()
-	_ = s.tlsListener.Close()
-	_ = s.plainListener.Close()
+	if s.https != nil {
+		_ = s.https.Close()
+	}
+	if s.http != nil {
+		_ = s.http.Close()
+	}
+	if s.tlsListener != nil {
+		_ = s.tlsListener.Close()
+	}
+	if s.plainListener != nil {
+		_ = s.plainListener.Close()
+	}
 }
 func (s *publicServers) shutdown(ctx context.Context) error {
-	return errors.Join(s.http.Shutdown(ctx), s.https.Shutdown(ctx))
+	var errs []error
+	if s.http != nil {
+		errs = append(errs, s.http.Shutdown(ctx))
+	}
+	if s.https != nil {
+		errs = append(errs, s.https.Shutdown(ctx))
+	}
+	return errors.Join(errs...)
 }
 
 func publicCertificateManager(p *Project, opts ServeOptions) (*autocert.Manager, *tls.Config, error) {

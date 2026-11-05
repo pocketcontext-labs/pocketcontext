@@ -119,3 +119,38 @@ describe("password and competing attempts", () => {
     expect(api.pb.authStore.token).toBe("");
   });
 });
+
+describe("email login", () => {
+  it("uses PocketBase OTP and persists the ordinary user session", async () => {
+    const otp = vi
+      .spyOn(servicePrototype, "authWithOTP")
+      .mockResolvedValue({ token, record });
+    await api.loginEmail("syntheticotp1234", "12345678");
+    expect(otp).toHaveBeenCalledWith("syntheticotp1234", "12345678");
+    expect(api.pb.authStore.token).toBe(token);
+  });
+  it("does not resurrect a cancelled OTP attempt", async () => {
+    const pending = deferred<RecordAuthResponse>();
+    vi.spyOn(servicePrototype, "authWithOTP").mockReturnValue(pending.promise);
+    const attempt = api.loginEmail("syntheticotp1234", "12345678");
+    const rejected = expect(attempt).rejects.toThrow(/cancel/i);
+    api.logout();
+    await rejected;
+    pending.resolve({ token, record });
+    await pending.promise;
+    await Promise.resolve();
+    expect(api.pb.authStore.token).toBe("");
+  });
+  it("requests email with an isolated anonymous client", async () => {
+    const request = vi
+      .spyOn(servicePrototype, "requestOTP")
+      .mockImplementation(function (this: { client: PocketBase }) {
+        expect(this.client.authStore.token).toBe("");
+        return Promise.resolve({ otpId: "syntheticotp1234" });
+      });
+    api.pb.authStore.save(token, record);
+    await api.requestEmailLogin(" owner@example.test ");
+    expect(request).toHaveBeenCalledWith("owner@example.test");
+    expect(api.pb.authStore.token).toBe(token);
+  });
+});

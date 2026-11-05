@@ -1,4 +1,4 @@
-import Brand from "./Brand";
+import Login, { readEmailLoginLink } from "./Login";
 import SpacesNavigation from "./SpacesNavigation";
 import SpaceManager from "./SpaceManager";
 import SourceSearch from "./SourceSearch";
@@ -17,14 +17,7 @@ import {
 } from "./readerControls";
 import { ReconciledRead } from "./reconciledRead";
 import { spaceLink } from "./spaceLinks";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Catalog, {
   catalogHref,
   catalogLabels,
@@ -37,14 +30,7 @@ import EvidenceBrowser, {
   evidenceHref,
   sourcePassageHref,
 } from "./EvidenceBrowser";
-import {
-  api,
-  localIdentity,
-  pb,
-  selectSpace,
-  sessionGeneration,
-  type Space,
-} from "./api";
+import { api, pb, selectSpace, sessionGeneration, type Space } from "./api";
 import SearchResults, { searchHref } from "./SearchResults";
 import { highlightSearchText } from "./searchText";
 import { homePageSlug } from "./home";
@@ -140,11 +126,44 @@ function message(error: unknown) {
     : "Unable to load PocketContext. Please try again.";
 }
 export default function App() {
+  const [emailLink, setEmailLink] = useState(readEmailLoginLink);
+  useEffect(() => {
+    const receiveLink = () => {
+      const next = readEmailLoginLink();
+      if (next) setEmailLink(next);
+    };
+    window.addEventListener("hashchange", receiveLink);
+    return () => window.removeEventListener("hashchange", receiveLink);
+  }, []);
+  useEffect(() => {
+    // Secrets remain only in this component's memory, never browser history.
+    if (emailLink)
+      history.replaceState(
+        null,
+        "",
+        location.pathname + location.search + "#/login",
+      );
+  }, [emailLink]);
   const [session, setSession] = useState(sessionGeneration);
   useEffect(
     () => pb.authStore.onChange(() => setSession(sessionGeneration)),
     [],
   );
+  if (emailLink)
+    return (
+      <Login
+        key={emailLink.otpId}
+        emailLink={emailLink}
+        onEmailComplete={() => {
+          history.replaceState(
+            null,
+            "",
+            location.pathname + location.search + "#/",
+          );
+          setEmailLink(null);
+        }}
+      />
+    );
   // Remount every private view when the identity changes, including child caches.
   return <Reader key={session} />;
 }
@@ -1710,74 +1729,5 @@ function Reader() {
         </div>
       )}
     </div>
-  );
-}
-function Login() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const login = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    setError("");
-    try {
-      await action();
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const password = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void login(() => api.loginPassword(String(form.get("password"))));
-  };
-  return (
-    <main className="login-shell">
-      <section className="login-card">
-        <Brand />
-        <h1>
-          Your knowledge.
-          <br />
-          Connected.
-        </h1>
-        <p>
-          Your notes and sources, gathered into pages you can follow back to the
-          original evidence.
-        </p>
-        <form className="login-form" onSubmit={password}>
-          <input
-            type="hidden"
-            name="username"
-            autoComplete="username"
-            value={localIdentity}
-          />
-          <label>
-            Password
-            <input
-              required
-              autoFocus
-              name="password"
-              type="password"
-              autoComplete="current-password"
-            />
-          </label>
-          <button className="primary-button" disabled={busy}>
-            Sign in
-          </button>
-        </form>
-        <p className="login-hint">
-          Use the password you chose with <code>pocketcontext init</code>, or
-          run <code>pocketcontext open</code> to sign in with a single-use link.
-        </p>
-        {error && (
-          <p role="alert" className="login-error">
-            {error}
-          </p>
-        )}
-        <div className="login-footer">
-          <span className="live-dot" /> Living pages. Traceable sources.
-        </div>
-      </section>
-    </main>
   );
 }

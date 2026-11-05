@@ -9,6 +9,16 @@ import (
 )
 
 func validateHTTPSArgs(a *args) error {
+	if a.bools["hosted-restore"] && (!a.bools["hosted"] || a.bools["hosted-init"]) {
+		return fail(2, "--hosted-restore requires --hosted and excludes --hosted-init")
+	}
+	if a.bools["hosted-init"] && !a.bools["hosted"] {
+		return fail(2, "--hosted-init requires --hosted")
+	}
+	if a.bools["hosted"] && (!a.bools["mcp"] || !a.bools["headless"] || !a.has("domain") || a.bools["tunnel"] || a.has("acme-email")) {
+		return fail(2, "--hosted requires --headless --domain --mcp and excludes --tunnel and --acme-email")
+	}
+
 	if a.bools["mcp"] && !a.has("domain") {
 		return fail(2, "--mcp requires --domain and --headless")
 	}
@@ -46,6 +56,9 @@ func openPublicReader(p *bundle.Project) (map[string]any, error) {
 	}
 	if info.Key != p.Key || (p.Config.Instance != "" && info.Instance != p.Config.Instance) {
 		return nil, fail(1, "running server identity differs from the selected project")
+	}
+	if info.Hosted {
+		return map[string]any{"url": info.PublicURL, "public": true, "readerSkipped": false, "browserLaunchRequested": false, "note": "Open this website and choose Log in with email."}, nil
 	}
 	base := info.PublicURL
 	u, err := url.Parse(base)

@@ -68,6 +68,9 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 	if _, err := os.Stat(p.DB); err != nil {
 		return fail(2, "no PocketContext database at %s; run `pocketcontext init` first, or pass --db", p.DB)
 	}
+	if err := bundle.CheckLocalProject(p); err != nil {
+		return err
+	}
 	release, err := bundle.AcquireTunnelLock(p)
 	if err != nil {
 		return err
@@ -84,6 +87,9 @@ func tunnelServe(ctx context.Context, a *args, pretty bool) error {
 func serveWithTunnel(p *bundle.Project, opts bundle.ServeOptions, pretty bool) error {
 	if _, err := os.Stat(p.DB); err != nil {
 		return fail(2, "no PocketContext database at %s; run `pocketcontext init` first, or pass --db", p.DB)
+	}
+	if err := bundle.CheckLocalProject(p); err != nil {
+		return err
 	}
 	release, err := bundle.AcquireTunnelLock(p)
 	if err != nil {
@@ -106,6 +112,9 @@ func runServerTunnel(parent context.Context, p *bundle.Project, rotate, pretty, 
 	info, err := bundle.Health(p)
 	if err != nil {
 		return err
+	}
+	if info.Hosted {
+		return fail(2, "hosted instances support public MCP only; private tunnels are unavailable")
 	}
 	if info.Instance != p.Config.Instance || info.Key != p.Key {
 		return fmt.Errorf("project identity mismatch")

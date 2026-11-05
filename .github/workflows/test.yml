@@ -2,6 +2,7 @@ name: Test
 on:
   push:
   pull_request:
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -63,6 +64,7 @@ jobs:
           node tests/sidebar_layout_browser.mjs --binary "$EXE"
           POCKETCONTEXT_HTTPS_BROWSER_TEST=1 CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" ./internal/bundle -run TestPublicHTTPSPhoneBrowser -count=1
           POCKETCONTEXT_MCP_BROWSER_TEST=1 CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" ./internal/bundle -run TestMCPOAuthBrowser -count=1
+          POCKETCONTEXT_HOSTED_BROWSER_TEST=1 CGO_ENABLED=1 go test -tags "$(cat build-tags.txt)" ./internal/bundle -run '^TestHostedEmailBrowser$' -count=1
       - name: Name check of the repository and binary
         run: $PY tests/name_check.py --binary "$EXE"
       - name: End-to-end test with synthetic notes

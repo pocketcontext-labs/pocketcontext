@@ -262,7 +262,7 @@ parsed:
 		return nil
 	}
 	spec := map[string][2][]string{
-		"serve":          {{"ui-dev", "port", "domain", "acme-email"}, {"take-over", "headless", "tcp-only", "tunnel", "mcp"}},
+		"serve":          {{"ui-dev", "port", "domain", "acme-email"}, {"take-over", "headless", "tcp-only", "tunnel", "mcp", "hosted", "hosted-init", "hosted-restore"}},
 		"start":          {nil, {"take-over"}},
 		"ensure-running": {nil, {"take-over"}},
 		"stop":           {nil, nil},
@@ -396,6 +396,9 @@ parsed:
 			servePort = n
 		}
 		opts := bundle.ServeOptions{TakeOver: a.bools["take-over"], UIDev: a.flags["ui-dev"], Headless: a.bools["headless"], TCPOnly: a.bools["tcp-only"], Port: servePort, HTTPSDomain: a.flags["domain"], ACMEEmail: a.flags["acme-email"]}
+		opts.Hosted = a.bools["hosted"]
+		opts.HostedInit = a.bools["hosted-init"]
+		opts.HostedRestore = a.bools["hosted-restore"]
 		opts.MCP = a.bools["mcp"]
 		if opts.MCP {
 			opts.MCPHandler = newMCPHandler
@@ -941,6 +944,9 @@ func loginCode(p *bundle.Project, a *args, pretty bool) error {
 // storage/, pocketcontext.json and the one account, which signs in with a
 // password (or a local key or one-time code) under a fixed identity.
 func initProject(p *bundle.Project, a *args, pretty bool) error {
+	if err := bundle.CheckLocalProject(p); err != nil {
+		return err
+	}
 	if err := a.need(0, "init [--name NAME] [--port N] [--password-stdin]"); err != nil {
 		return err
 	}
@@ -956,6 +962,9 @@ func initProject(p *bundle.Project, a *args, pretty bool) error {
 		}
 		if err := bundle.CheckServerCompatibility(info); err != nil {
 			return err
+		}
+		if info.Hosted {
+			return fail(2, "hosted instances cannot be initialized through local init")
 		}
 	}
 	if fresh && !a.has("name") {

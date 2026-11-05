@@ -11,14 +11,15 @@ var oauthTemplate = template.Must(template.New("oauth").Parse(`<!doctype html>
 <script src="/oauth/app.js" defer></script></head><body data-connections="{{.Connections}}"><p>PocketContext</p><h1>{{.Title}}</h1>
 {{if .Connections}}<p>These apps can read and change knowledge in every space. Revoke access to disconnect an app.</p><ul id="connections"></ul><button id="reload">Refresh connections</button>
 {{else}}<p><strong>{{.Name}}</strong> is asking to read and change your knowledge in every space, including originals, citations and published pages.</p><p>This does not grant server administration or shell access.</p><p>The app name is supplied by its developer. Check that you intended to connect it.</p><small>Registered callback: {{.Redirect}}</small><button id="approve">Allow access</button><button id="deny">Cancel</button>{{end}}
-<p id="message" role="status"></p><p>If you are not signed in, open your fresh PocketContext reader sign-in link in another tab of this browser, then return here. Your setup agent can issue one with <code>open --public</code>. You can also <a href="/" target="_blank" rel="noopener">open the reader</a> and use your password if you set one.</p><p><a href="/oauth/connections">Manage connected apps</a></p></body></html>`))
+<p id="message" role="status"></p><p>{{if .Hosted}}To sign in, <a href="/" target="_blank" rel="noopener">open the reader</a> and choose Log in with email, then return here.{{else}}If you are not signed in, open your fresh PocketContext reader sign-in link in another tab of this browser, then return here. Your setup agent can issue one with <code>open --public</code>. You can also <a href="/" target="_blank" rel="noopener">open the reader</a> and use your password if you set one.{{end}}</p><p><a href="/oauth/connections">Manage connected apps</a></p></body></html>`))
 
-func oauthPage(w http.ResponseWriter, title, name, redirect string, connections bool) {
+func oauthPage(w http.ResponseWriter, title, name, redirect string, connections bool, hosted ...bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = oauthTemplate.Execute(w, struct {
 		Title, Name, Redirect string
 		Connections           bool
-	}{title, name, redirect, connections})
+		Hosted                bool
+	}{title, name, redirect, connections, len(hosted) > 0 && hosted[0]})
 }
 
 const oauthScript = `"use strict";

@@ -321,6 +321,9 @@ func ReadLease(p *Project) (*Lease, error) {
 
 func writeLease(p *Project) error {
 	host, _ := os.Hostname()
+	if p.LeaseHost != "" {
+		host = p.LeaseHost
+	}
 	data, _ := json.Marshal(Lease{Host: host, PID: os.Getpid(), Instance: p.Config.Instance, Heartbeat: time.Now().UTC()})
 	return WriteAtomic(p.LeaseFile(), data, 0644)
 }
@@ -332,6 +335,9 @@ func claimLease(p *Project, takeOver bool) error {
 		return err
 	}
 	host, _ := os.Hostname()
+	if p.LeaseHost != "" {
+		host = p.LeaseHost
+	}
 	if l != nil && l.Host != host && time.Since(l.Heartbeat) < LeaseTimeout && !takeOver {
 		return fmt.Errorf("the project is active on %s (last seen %s); stop it there, or start with --take-over if that computer is off",
 			l.Host, l.Heartbeat.Local().Format(time.RFC822))
@@ -341,6 +347,9 @@ func claimLease(p *Project, takeOver bool) error {
 
 func releaseLease(p *Project) {
 	host, _ := os.Hostname()
+	if p.LeaseHost != "" {
+		host = p.LeaseHost
+	}
 	if l, _ := ReadLease(p); l != nil && l.Host == host && l.PID == os.Getpid() {
 		_ = os.Remove(p.LeaseFile())
 	}

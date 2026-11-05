@@ -34,6 +34,7 @@ type localRoutes struct {
 	nameMu    sync.RWMutex
 	publicURL string
 	mcp       bool
+	hosted    bool
 }
 
 // Sign-in code lifetimes in seconds. Codes live only in server memory.
@@ -155,12 +156,20 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		},
 	})
 
+	e.Router.GET("/api/bundle/auth-mode", func(re *core.RequestEvent) error {
+		mode := "password"
+		if l.hosted {
+			mode = "email"
+		}
+		re.Response.Header().Set("Cache-Control", "no-store")
+		return re.JSON(http.StatusOK, map[string]string{"mode": mode})
+	})
 	e.Router.GET("/api/bundle/instance", func(re *core.RequestEvent) error {
 		l.nameMu.RLock()
 		defer l.nameMu.RUnlock()
 		info := map[string]any{
 			"app": "pocketcontext", "version": Version, "instance": l.p.Config.Instance, "key": l.p.Key, "name": l.p.Config.Name, "port": l.p.Config.Port,
-			"databaseFormat": DatabaseFormat,
+			"databaseFormat": DatabaseFormat, "hosted": l.hosted,
 		}
 		if l.publicURL != "" {
 			info["publicURL"] = l.publicURL
@@ -209,6 +218,9 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 		if err := l.requireKey(re); err != nil {
 			return err
 		}
+		if l.hosted {
+			return re.ForbiddenError("Hosted mode has no private TCP reader.", nil)
+		}
 		if l.listeners == nil {
 			return re.InternalServerError("listener manager unavailable", nil)
 		}
@@ -232,6 +244,9 @@ func (l *localRoutes) register(e *core.ServeEvent) {
 	e.Router.POST("/api/bundle/account", func(re *core.RequestEvent) error {
 		if err := l.requireKey(re); err != nil {
 			return err
+		}
+		if l.hosted {
+			return re.ForbiddenError("Hosted mode uses email authentication.", nil)
 		}
 		// Creates the project's one account, or changes its password. A second
 		// account is refused by the hooks as well.

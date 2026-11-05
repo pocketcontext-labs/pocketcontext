@@ -95,3 +95,27 @@ func TestPublicReaderRequiresRunningServiceAndNeverStartsOne(t *testing.T) {
 		}
 	}
 }
+
+func TestHostedCLIOptions(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		ok   bool
+	}{
+		{[]string{"--headless", "--hosted", "--domain", "knowledge.example.com", "--mcp"}, true},
+		{[]string{"--headless", "--hosted", "--hosted-init", "--domain", "knowledge.example.com", "--mcp"}, true},
+		{[]string{"--headless", "--hosted", "--hosted-restore", "--domain", "knowledge.example.com", "--mcp"}, true},
+		{[]string{"--headless", "--hosted", "--hosted-init", "--hosted-restore", "--domain", "knowledge.example.com", "--mcp"}, false},
+		{[]string{"--headless", "--hosted", "--domain", "knowledge.example.com", "--mcp", "--tunnel"}, false},
+		{[]string{"--headless", "--hosted", "--domain", "knowledge.example.com", "--mcp", "--acme-email", "owner@example.test"}, false},
+		{[]string{"--hosted"}, false}, {[]string{"--hosted-init"}, false}, {[]string{"--hosted-restore"}, false},
+		{[]string{"--headless", "--hosted", "--domain", "knowledge.example.com"}, false},
+	} {
+		a, err := parseArgs(tc.args, []string{"domain", "acme-email", "port", "ui-dev"}, []string{"headless", "tcp-only", "tunnel", "mcp", "hosted", "hosted-init", "hosted-restore"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = validateHTTPSArgs(a); (err == nil) != tc.ok {
+			t.Errorf("%v: %v", tc.args, err)
+		}
+	}
+}

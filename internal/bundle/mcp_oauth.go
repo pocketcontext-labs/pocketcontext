@@ -79,6 +79,7 @@ type mcpOAuth struct {
 	now          func() time.Time
 	mcp          http.Handler
 	limiter      publicAuthLimiter
+	hosted       bool
 }
 
 func oauthHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
@@ -412,7 +413,7 @@ func (o *mcpOAuth) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" {
-		oauthPage(w, "Authorize a connection", c.Name, r.URL.Query().Get("redirect_uri"), false)
+		oauthPage(w, "Authorize a connection", c.Name, r.URL.Query().Get("redirect_uri"), false, o.hosted)
 		return
 	}
 	user, err := o.reader(r)
@@ -684,7 +685,7 @@ func (o *mcpOAuth) revoke(w http.ResponseWriter, r *http.Request) {
 }
 func (o *mcpOAuth) connections(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" && !strings.Contains(r.Header.Get("Accept"), "application/json") {
-		oauthPage(w, "Connected apps", "", "", true)
+		oauthPage(w, "Connected apps", "", "", true, o.hosted)
 		return
 	}
 	user, err := o.reader(r)

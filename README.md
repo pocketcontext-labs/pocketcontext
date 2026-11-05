@@ -10,6 +10,22 @@ Version [0.18.0](docs/releases/0.18.0.md): optional native HTTPS with automatic 
 
 Earlier: [0.15.0](docs/releases/0.15.0.md), with guarded executable replacement and explicit database, server, profile and managed-forward compatibility checks, [0.14.0](docs/releases/0.14.0.md), with one copyable client setup prompt, managed tunnel forwards and automatic reader sign-in, [0.13.0](docs/releases/0.13.0.md), with named knowledge bases, a router skill, headless local sockets and an embedded manual, [0.12.1](docs/releases/0.12.1.md), upgrading the embedded PocketBase to v0.41.1, [0.12.0](docs/releases/0.12.0.md), with Obsidian collection imports, protected image embeds and cross-space navigation, [0.11.1](docs/releases/0.11.1.md), where the recommended layout keeps the binary in the project folder, beside its database, [0.11.0](docs/releases/0.11.0.md), where PocketContext became single-user, spaces became plain partitions with their own commands, and databases from earlier releases are no longer opened (no upgrade path), [0.10.0](docs/releases/0.10.0.md), where `ingest` stores any file and the agent converts PDFs, images and audio into derived text with `extract`, [0.9.2](docs/releases/0.9.2.md), with `ingest` working on Windows again, [0.9.1](docs/releases/0.9.1.md), with a tunnel forward that reconnects after the agent computer restarts its tunnel, [0.9.0](docs/releases/0.9.0.md), with a built-in private tunnel to use one server from another computer, and [0.8.0](docs/releases/0.8.0.md), with reader navigation, source browsing, space management and UI hot reload.
 
+## Optional container hosting
+
+The opt-in [hosted deployment mode](docs/hosting.md) packages one knowledge base
+per container and domain for PocketDeploy/ONCE. ONCE terminates HTTPS; the
+container serves the restricted public reader and MCP endpoints over HTTP.
+Users sign in by email through PocketBase OTP and the container's configured
+SMTP service. Public password login and private tunnels are disabled in hosted
+mode. Existing local projects, password login, native HTTPS and tunnels keep
+their existing behavior; no installation switches modes automatically.
+
+Hosted instances keep their project and private runtime state on a dedicated
+persistent volume. Complete backups go to a private S3-compatible destination
+daily and before upgrades, with 30-day retention. Litestream is not used.
+Provisioning and digest-pinned upgrades are operator-managed; see the hosting
+manual for initialization, recovery, credentials and validation requirements.
+
 ## A project
 
 ```
@@ -56,6 +72,10 @@ Linux and macOS binaries share the name `pocketcontext`. For synced projects use
 Background startup is headless: local commands use a private socket in the per-machine cache. `open` activates the reader on the configured loopback port when a usable desktop browser is detected and leaves TCP enabled until shutdown. In SSH, headless or uncertain sessions it skips reader setup before starting a server, enabling TCP or issuing a sign-in code. Use `--no-browser` only to explicitly request a manual link for a browser known to reach the address; `--skip-reader` explicitly omits the reader step. New projects choose an available port starting at 8096, excluding registered ports; `init --port PORT` selects one explicitly. A new project has one space, `Default`, which the reader and CLI use unless another is selected. Create more with `create-space NAME`, choose one with `--space` (ID or unique name) or `POCKETCONTEXT_SPACE`, and change the default with `default-space SPACE`; see [docs/spaces.md](docs/spaces.md). Run `pocketcontext help` for every command.
 
 ## Authentication
+
+The following describes local and native-HTTPS projects. Explicit hosted
+containers instead use the configured owner's email and PocketBase OTP login;
+see [hosted authentication](docs/hosting.md).
 
 A project has exactly one account, created by `init`; a second account is refused. It has no email to choose (its fixed identity is `me@pocketcontext.localhost`), so the reader asks only for its password, which `password` changes. When reader setup is selected, `open` issues a single-use browser sign-in link valid for two minutes; `login-code` issues one-time codes for remote clients (see below). The CLI needs no password: it reads a random key that the server writes to the private cache at start and exchanges it for an ordinary `users` token. Anyone who can read that key can already read the database. Knowledge APIs still require a token on either transport. Local management endpoints additionally require the private local key. CORS allows only the server's own origin; TCP accepts only its configured loopback Host. The private socket additionally accepts its internal hostname.
 
@@ -172,7 +192,7 @@ Remote `--url` accepts only `http://127.0.0.1:PORT` or `http://localhost:PORT`. 
 
 ## Scope
 
-`ingest` stores any file up to 50 MiB (UTF-8 text up to 100 MiB) as an immutable original. It splits UTF-8 text (`.txt .md .markdown .csv .json .rst .log .srt .org`, or no extension when the content is valid UTF-8) into passages itself. Any other file is stored without passages and its media type is taken from the extension, never from the content. The binary never parses PDFs, images, audio or office documents and calls no external tool or service for them: the user's agent downloads the original (`original SOURCE --out FILE`), converts it to UTF-8 text or Markdown with its own abilities, and records the result with `extract SOURCE --text FILE --tool TOOL`. That creates an `agent-text` rendition whose passages are derived evidence, not an exact copy of the original; `pending` lists sources that still need it. Originals are never replaced, so a large file is shrunk before ingest (for example audio to Opus), with its provenance recorded by `extract --original-sha256` and `--conversion`. There is no knowledge export, no external identity provider, no object storage and no managed hosting service. Optional self-hosted HTTPS serves the reader at your own domain. See [docs/data-model.md](docs/data-model.md) and [docs/spaces.md](docs/spaces.md) for the rules the server enforces, and [origin](docs/origin.md) for maintenance history.
+`ingest` stores any file up to 50 MiB (UTF-8 text up to 100 MiB) as an immutable original. It splits UTF-8 text (`.txt .md .markdown .csv .json .rst .log .srt .org`, or no extension when the content is valid UTF-8) into passages itself. Any other file is stored without passages and its media type is taken from the extension, never from the content. The binary never parses PDFs, images, audio or office documents and calls no external tool or service for them: the user's agent downloads the original (`original SOURCE --out FILE`), converts it to UTF-8 text or Markdown with its own abilities, and records the result with `extract SOURCE --text FILE --tool TOOL`. That creates an `agent-text` rendition whose passages are derived evidence, not an exact copy of the original; `pending` lists sources that still need it. Originals are never replaced, so a large file is shrunk before ingest (for example audio to Opus), with its provenance recorded by `extract --original-sha256` and `--conversion`. There is no external identity provider or hosted provisioning portal. Originals stay on local storage; the optional container supervisor stores complete backups in private S3-compatible storage. Optional native HTTPS serves the reader at your own domain; hosted containers use the explicitly configured HTTPS proxy. See [docs/data-model.md](docs/data-model.md) and [docs/spaces.md](docs/spaces.md) for the rules the server enforces, and [origin](docs/origin.md) for maintenance history.
 
 The reader's topics and custom catalogs come from published page properties: `topics` and `catalogs` list group keys. Optional definition pages (`navigation_kind: "topic"` or `"catalog"`, keyed by their slug) supply labels, order and catalog columns. Existing pages with no topic membership appear under the unassigned group; titles never assign membership. Definitions, memberships and catalog settings follow the selected publication, including historical views. See the [navigation contract and examples](docs/data-model.md#topic-and-catalog-navigation).
 

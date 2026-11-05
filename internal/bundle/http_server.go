@@ -134,7 +134,11 @@ func serveHTTPContext(parent context.Context, app core.App, p *Project, opts Ser
 	}
 	var public *publicServers
 	if opts.HTTPSDomain != "" {
-		public, err = startPublicHTTPS(ctx, app, p, opts, server.Handler, listeners.errors)
+		if opts.Hosted {
+			public, err = startHostedHTTP(ctx, app, p, opts, server.Handler, listeners.errors)
+		} else {
+			public, err = startPublicHTTPS(ctx, app, p, opts, server.Handler, listeners.errors)
+		}
 		if err != nil {
 			_ = server.Close()
 			return err
