@@ -322,3 +322,49 @@ func TestMCPRequiresExplicitDomain(t *testing.T) {
 		t.Fatal("MCP without a domain must fail before opening a project")
 	}
 }
+
+func TestMCPOAuthNativeCallbacks(t *testing.T) {
+	for _, redirect := range []string{"http://127.0.0.1:49152/callback/server-id", "http://[::1]:49153/callback", "http://127.0.0.1/callback"} {
+		t.Run(redirect, func(t *testing.T) {
+			f := newOAuthFixture(t)
+			body, _ := json.Marshal(map[string]any{"redirect_uris": []string{redirect}, "token_endpoint_auth_method": "none"})
+			client := f.request("POST", "/oauth/register", "", string(body), "application/json", 201)["client_id"].(string)
+			verifier := strings.Repeat("n", 64)
+			q := f.authorization(client, verifier)
+			q.Set("redirect_uri", redirect)
+			f.request("POST", "/oauth/authorize?"+q.Encode(), "", `{"approve":true}`, "application/json", 401)
+			for _, mismatch := range []string{redirect + "/other", "http://127.0.0.1:49154/callback", "http://192.168.1.2/callback"} {
+				bad := f.authorization(client, verifier)
+				bad.Set("redirect_uri", mismatch)
+				f.request("GET", "/oauth/authorize?"+bad.Encode(), "", "", "", 400)
+			}
+			authorize := func() string {
+				out := f.request("POST", "/oauth/authorize?"+q.Encode(), f.a.token, `{"approve":true}`, "application/json", 200)
+				u, err := url.Parse(out["redirect"].(string))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if u.Query().Get("state") != "synthetic-state" {
+					t.Fatal("lost state")
+				}
+				return u.Query().Get("code")
+			}
+			form := url.Values{"client_id": {client}, "code": {authorize()}, "redirect_uri": {redirect}, "code_verifier": {strings.Repeat("w", 64)}, "resource": {f.o.resource()}, "grant_type": {"authorization_code"}}
+			f.request("POST", "/oauth/token", "", form.Encode(), "application/x-www-form-urlencoded", 400)
+			form.Set("code", authorize())
+			form.Set("code_verifier", verifier)
+			form.Set("redirect_uri", redirect+"/other")
+			f.request("POST", "/oauth/token", "", form.Encode(), "application/x-www-form-urlencoded", 400)
+			form.Set("code", authorize())
+			form.Set("redirect_uri", redirect)
+			result := f.request("POST", "/oauth/token", "", form.Encode(), "application/x-www-form-urlencoded", 200)
+			f.request("POST", "/mcp", result["access_token"].(string), `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"native-test","version":"1"}}}`, "application/json", 200)
+			f.refresh(client, result["refresh_token"].(string), 200)
+		})
+	}
+	for _, redirect := range []string{"http://localhost:49152/callback", "http://127.0.0.1.example.com/callback", "http://192.168.1.1/callback", "http://0.0.0.0/callback", "http://[::]/callback", "http://127.0.0.1:0/callback", "http://127.0.0.1:65536/callback", "http://127.0.0.1:/callback", "http://user@127.0.0.1/callback", "http://127.0.0.1/callback#fragment", "custom://callback"} {
+		if validOAuthRedirect(redirect) {
+			t.Errorf("accepted unsafe callback %q", redirect)
+		}
+	}
+}

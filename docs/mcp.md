@@ -62,6 +62,15 @@ The OAuth grant belongs to the project's one account. Spaces remain partitions,
 not access boundaries. Approved knowledge access includes all spaces and history;
 selecting a space in a tool does not restrict the account's authorization.
 
+## Native desktop clients
+
+Native desktop MCP clients can register HTTP callbacks on literal `127.0.0.1`
+or `[::1]` with their selected listener port. Public callbacks still require
+HTTPS. Hostnames such as `localhost`, LAN addresses and custom URI schemes are
+not accepted. Registration and authorization must use the exact same callback,
+including its port and path; code exchange must also match it. S256 PKCE and
+explicit reader consent remain required. The MCP endpoint itself stays on HTTPS.
+
 ## Knowledge operations
 
 MCP tools cover schema and bounded SQL, search, records, spaces, source ingestion,

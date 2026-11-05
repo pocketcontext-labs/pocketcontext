@@ -23,8 +23,11 @@ their existing behavior; no installation switches modes automatically.
 Hosted instances keep their project and private runtime state on a dedicated
 persistent volume. Complete backups go to a private S3-compatible destination
 daily and before upgrades, with 30-day retention. Litestream is not used.
-Provisioning and digest-pinned upgrades are operator-managed; see the hosting
-manual for initialization, recovery, credentials and validation requirements.
+Provisioning is operator-managed. Explicitly enrolled PocketDeploy instances can
+follow validated `:latest` releases from `main` through restricted, sequential
+deployments with a verified backup before each upgrade; other instances retain
+operator-managed digest pins. See the hosting manual for initialization, release
+enrollment, recovery, credentials and validation requirements.
 
 ## A project
 

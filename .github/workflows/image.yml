@@ -48,6 +48,8 @@ jobs:
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
         with:
           version: '0.13.6'
+      - name: Deployment workflow guards
+        run: uv run tests/hosted_deploy_workflow.py -v
       - name: Populated HTTPS S3 backup and disaster restore
         run: uv run docker/recovery.py --image pocketcontext:ci
   publish:
@@ -101,6 +103,8 @@ jobs:
           retention-days: 7
   manifest:
     needs: publish
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -117,7 +121,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
-      - name: Assemble source tag
+      - name: Require current main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ ! "$head" =~ ^[0-9a-f]{40}$ || "$head" != "$GITHUB_SHA" ]]; then
+            echo 'Refusing stale release: workflow revision is not current main.' >&2
+            exit 1
+          fi
+      - name: Assemble source and latest tags
+        id: manifest
         working-directory: /tmp/digests
         run: |
           set -euo pipefail
@@ -128,6 +143,74 @@ jobs:
             [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
             sources+=("$IMAGE@sha256:$digest")
           done
-          docker buildx imagetools create -t "$IMAGE:sha-$GITHUB_SHA" "${sources[@]}"
-          docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA"
-# Publishing never deploys. Each user has a separately reviewed digest pin in PocketDeploy.
+          docker buildx imagetools create -t "$IMAGE:sha-$GITHUB_SHA" -t "$IMAGE:latest" "${sources[@]}"
+          digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' | jq -er '.digest')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.CONTEXT_DEPLOY_PAUSED != 'true' && vars.COLORS_PROFILE != ''
+    needs: manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    environment:
+      name: ${{ vars.COLORS_PROFILE }}
+    concurrency:
+      group: deploy-${{ vars.COLORS_PROFILE }}
+      cancel-in-progress: false
+    steps:
+      - name: Require current main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ ! "$head" =~ ^[0-9a-f]{40}$ || "$head" != "$GITHUB_SHA" ]]; then
+            echo 'Refusing stale release: workflow revision is not current main.' >&2
+            exit 1
+          fi
+      - name: Deploy validated digest through restricted SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_IP: ${{ vars.SERVER_IP }}
+          SERVER_USER: ${{ vars.SERVER_USER }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+          DEPLOY_DIGEST: ${{ needs.manifest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          test -n "$SERVER_IP"
+          test -n "$SERVER_USER"
+          test -n "$SSH_KNOWN_HOSTS"
+          test -n "$SSH_PRIVATE_KEY"
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$ssh_dir/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
+            -o UserKnownHostsFile="$ssh_dir/known_hosts" -i "$ssh_dir/id_ed25519" \
+            "$SERVER_USER@$SERVER_IP" "deploy $IMAGE@$DEPLOY_DIGEST" < /dev/null
+      - name: Verify every public target
+        env:
+          SITE_URLS: ${{ vars.SITE_URLS }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import json, os, subprocess, urllib.parse
+          urls = json.loads(os.environ['SITE_URLS'])
+          if not isinstance(urls, list) or not urls:
+              raise SystemExit('SITE_URLS must contain the deployment targets')
+          for origin in urls:
+              if not isinstance(origin, str):
+                  raise SystemExit('Invalid deployment target')
+              parsed = urllib.parse.urlsplit(origin)
+              if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ('', '/') or parsed.query or parsed.fragment:
+                  raise SystemExit('Deployment targets must be HTTPS origins')
+              subprocess.run(['curl', '--fail', '--silent', '--show-error',
+                  '--connect-timeout', '10', '--max-time', '20', '--retry', '12',
+                  '--retry-delay', '5', '--retry-max-time', '180', '--retry-all-errors',
+                  origin.rstrip('/') + '/up'], check=True)
+          PYTHON

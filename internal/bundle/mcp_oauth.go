@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -245,11 +246,23 @@ func oauthDecode(r *http.Request, v any) error {
 }
 func validOAuthRedirect(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || len(raw) > 2048 || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" || u.Opaque != "" || strings.ContainsAny(raw, "\\\r\n\t*") {
+	if err != nil || len(raw) > 2048 || u.Host == "" || u.User != nil || u.Fragment != "" || u.Opaque != "" || strings.ContainsAny(raw, "\\\r\n\t*") {
 		return false
 	}
-	// Hosted clients use HTTPS callbacks. No local-network callback or URI scheme
-	// exceptions are needed by this remote-only endpoint.
+	// Native clients receive the authorization code on their own loopback
+	// listener. Permit only literal loopback addresses, never LAN addresses or
+	// hostnames that could resolve elsewhere. PKCE and exact redirect matching
+	// still apply; the server never fetches this URL.
+	if u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "::1") {
+		if u.Port() == "" {
+			return !strings.HasSuffix(u.Host, ":")
+		}
+		port, err := strconv.Atoi(u.Port())
+		return err == nil && port > 0 && port <= 65535
+	}
+	if u.Scheme != "https" {
+		return false
+	}
 	host := strings.ToLower(u.Hostname())
 	if host == "localhost" || !strings.Contains(host, ".") || strings.HasSuffix(host, ".localhost") {
 		return false
@@ -320,12 +333,12 @@ func (o *mcpOAuth) register(w http.ResponseWriter, r *http.Request) {
 		ResponseTypes []string `json:"response_types"`
 	}
 	if oauthDecode(r, &in) != nil || len(in.Redirects) == 0 || len(in.Redirects) > 8 || len(in.Name) > 120 || strings.IndexFunc(in.Name, unicode.IsControl) >= 0 || in.Method != "" && in.Method != "none" && in.Method != "client_secret_basic" && in.Method != "client_secret_post" {
-		oauthError(w, 400, "invalid_client_metadata", "Use HTTPS redirect URIs and supported client authentication.")
+		oauthError(w, 400, "invalid_client_metadata", "Use public HTTPS or loopback HTTP redirect URIs and supported client authentication.")
 		return
 	}
 	for _, redirect := range in.Redirects {
 		if !validOAuthRedirect(redirect) {
-			oauthError(w, 400, "invalid_redirect_uri", "An exact public HTTPS callback is required.")
+			oauthError(w, 400, "invalid_redirect_uri", "An exact public HTTPS or literal loopback HTTP callback is required.")
 			return
 		}
 	}

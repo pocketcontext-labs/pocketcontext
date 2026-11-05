@@ -9,8 +9,9 @@ HTTPS and project layout do not change.
 
 The image contains the Go binary and its embedded reader, plus a small Python
 container supervisor for complete S3 backups. It contains no Litestream or Node
-runtime. Image publication does not deploy: operators pin a verified multi-platform
-image digest for each instance. There is no automatic signup or container creation.
+runtime. Operators either pin a verified multi-platform image digest or explicitly
+enroll existing instances in PocketDeploy delivery of validated `:latest` releases.
+There is no automatic signup or container creation.
 
 ## Runtime configuration
 
@@ -123,6 +124,48 @@ setting does not extend ONCE's internal budget. `/up` accepts internal container
 health probes; all application routes require the configured public Host. Public
 `/up` does not expose knowledge or credentials.
 
+## Automatic release enrollment
+
+Enroll only initialized, healthy instances already owned by the deployment.
+The application entries for a shared repository use one GitHub environment and
+restricted SSH key; their configured order determines sequential rollout. Keep
+separate domains, volumes, owner bindings and backup buckets. Add these fields to
+each enrolled application's existing configuration:
+
+```yaml
+image: ghcr.io/pocketcontext-labs/pocketcontext:latest
+github: pocketcontext-labs/pocketcontext
+deploy-strategy: stop-first
+deploy-prepare-command: [pocketcontext-container, prepare-upgrade]
+deploy-prepare-timeout: 900
+```
+
+Use a PocketDeploy release supporting grouped repository targets and preparation
+hooks. Its convergence installs the host policy and GitHub environment, including
+`SSH_PRIVATE_KEY`, pinned `SSH_KNOWN_HOSTS`, `SERVER_IP`, `SERVER_USER`, and the
+`SITE_URLS` JSON array. Set the repository variable `COLORS_PROFILE` to that
+managed environment's name. Set repository variable `CONTEXT_DEPLOY_PAUSED=true`
+to pause CI delivery; this does not prevent operator convergence or publication
+of `:latest`.
+
+The image workflow runs the application checks, native AMD64/ARM64 container
+checks and populated backup/restore rehearsals before publication. A current-main
+check protects publication of the source tag and `:latest`; a second check protects
+deployment. CI sends the resulting immutable manifest digest through the restricted
+SSH dispatcher, rather than resolving a mutable tag during deployment. Main
+workflows and deploy jobs serialize without cancelling an active deployment.
+
+Under the host lock, PocketDeploy prepares one instance, replaces it stop-first,
+checks health and volume continuity, then advances to the next. Preparation must
+succeed before replacement. A failed or uncertain deployment stops the remaining
+targets for operator inspection; previously completed targets remain upgraded.
+Never automatically downgrade a volume that a newer release has opened. Public
+HTTPS health is checked for every configured target after the dispatcher succeeds.
+
+Initialization and disaster recovery remain explicit operator operations. An
+ordinary convergence follows the enrolled `:latest` channel; reverting the scaffold
+to an old digest is not a safe rollback procedure.
+
 ## Complete backups and upgrades
 
 Daily backups run every 24 hours after the latest successful backup; a new instance
@@ -146,7 +189,8 @@ untouched. Bucket versioning can retain old versions beyond this application pol
 configure provider lifecycle deliberately if strict physical deletion is required.
 A daily schedule can lose up to a day of writes after total volume loss.
 
-Before upgrading, run this command in the current container:
+For manual upgrades, run this command in the current container (the configured
+automatic deployment hook runs it for enrolled instances):
 
 ```sh
 pocketcontext-container prepare-upgrade
@@ -186,7 +230,9 @@ writes and deliberately restore the appropriate backup when schema changes requi
 
 ## Validation
 
-`python3 docker/test_backups.py -v` exercises populated backup/restore, checksums,
+`uv run tests/hosted_deploy_workflow.py -v` checks stale-release refusal, exact-digest
+SSH delivery, host-key requirements and all-target public health using synthetic
+executables. `python3 docker/test_backups.py -v` exercises populated backup/restore, checksums,
 original-file integrity, retained runtime state, credential revocation markers,
 archive path safety, ownership-scoped retention, writer locks and failed upgrade
 backup gates using synthetic local fixtures. `python3 docker/smoke.py --image IMAGE`
