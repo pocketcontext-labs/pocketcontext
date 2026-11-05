@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pocketcontext-labs/pocketcontext/internal/bundle"
+	"github.com/pocketcontext-labs/pocketcontext/internal/mcpobserve"
 )
 
 const (
@@ -83,7 +83,7 @@ func (w *mcpResponse) Write(p []byte) (int, error) {
 		return 0, w.err
 	}
 	if w.body.Len()+len(p) > mcpAPILimit {
-		w.err = errors.New("API result exceeds MCP limit; narrow the query or use the CLI/reader for a large original")
+		w.err = mcpDiagnosticError("limit_exceeded", "API result exceeds MCP limit; narrow the query or use the CLI/reader for a large original")
 		return 0, w.err
 	}
 	return w.body.Write(p)
@@ -97,15 +97,27 @@ type mcpTransport struct {
 	bytes    atomic.Int64
 }
 
-func (t *mcpTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *mcpTransport) RoundTrip(req *http.Request) (response *http.Response, err error) {
+	observation := mcpObservationFrom(t.ctx)
+	route := mcpAPIRoute(req.Method, req.URL.Path)
+	started := time.Now()
+	status, size, dispatched := 0, int64(0), false
+	defer func() {
+		if observation != nil {
+			observation.api(req.Method, route, status, size, dispatched, err)
+		}
+		if err != nil || status >= 400 {
+			mcpobserve.Emit(t.ctx, mcpobserve.Event{Event: "mcp_api", Method: req.Method, Outcome: "error", Reason: mcpFailureReason(err, status), APIRoute: route, APIStatus: status, DurationMS: time.Since(started).Milliseconds(), ResponseBytes: size})
+		}
+	}()
 	if !mcpAPIAllowed(req.Method, req.URL.Path) {
-		return nil, errors.New("API operation is not available through MCP")
+		return nil, mcpDiagnosticError("invalid_input", "API operation is not available through MCP")
 	}
 	if req.URL.RawQuery != "" && !(req.Method == "GET" && strings.HasPrefix(req.URL.Path, "/api/files/sources/")) {
-		return nil, errors.New("API query parameters are not available through MCP")
+		return nil, mcpDiagnosticError("invalid_input", "API query parameters are not available through MCP")
 	}
 	if t.requests.Add(1) > mcpRequestBudget {
-		return nil, errors.New("MCP operation request budget exceeded; narrow the operation and resume with the same run key")
+		return nil, mcpDiagnosticError("limit_exceeded", "MCP operation request budget exceeded; narrow the operation and resume with the same run key")
 	}
 	ctx, cancel := context.WithCancel(t.ctx)
 	defer cancel()
@@ -136,7 +148,12 @@ func (t *mcpTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	inner.Header.Set("Authorization", t.caller.token)
 	inner.Header.Del("X-PocketContext-Local-Key")
 	out := &mcpResponse{header: make(http.Header)}
+	dispatched = true
 	t.api.ServeHTTP(out, inner)
+	status, size = out.status, int64(out.body.Len())
+	if status == 0 {
+		status = http.StatusOK
+	}
 	if out.err != nil {
 		return nil, out.err
 	}
@@ -144,7 +161,7 @@ func (t *mcpTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	if t.bytes.Add(int64(out.body.Len())) > mcpByteBudget {
-		return nil, errors.New("MCP operation response budget exceeded; narrow the query")
+		return nil, mcpDiagnosticError("limit_exceeded", "MCP operation response budget exceeded; narrow the query")
 	}
 	if out.status == 0 {
 		out.status = http.StatusOK
@@ -181,10 +198,10 @@ func mcpAPIAllowed(method, path string) bool {
 func mcpClient(ctx context.Context, api http.Handler, space string) (*Client, error) {
 	caller, ok := ctx.Value(mcpRequestContextKey{}).(*mcpCaller)
 	if !ok || caller.token == "" {
-		return nil, errors.New("MCP authorization required")
+		return nil, mcpDiagnosticError("unauthorized", "MCP authorization required")
 	}
 	if len(space) > 200 {
-		return nil, errors.New("space must be an ID or name of at most 200 bytes")
+		return nil, mcpDiagnosticError("invalid_input", "space must be an ID or name of at most 200 bytes")
 	}
 	// Deliberately do not call newClient: remote tools must not inherit the host's
 	// POCKETCONTEXT_SPACE or resolve any host project/database.
@@ -209,9 +226,18 @@ func addMCPTool[I mcpInput](server *mcp.Server, api http.Handler, name, descript
 	// omitted destructiveHint as true even for reads. Keep conservative
 	// classification for all state-changing tools, including additive writes.
 	destructive := !readOnly
-	mcp.AddTool(server, &mcp.Tool{Name: name, Description: description, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: &destructive, OpenWorldHint: &closed}}, func(ctx context.Context, _ *mcp.CallToolRequest, input I) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: name, Description: description, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: &destructive, OpenWorldHint: &closed}}, func(ctx context.Context, _ *mcp.CallToolRequest, input I) (result *mcp.CallToolResult, structured any, err error) {
 		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		defer cancel()
+		observation := mcpObservationFrom(ctx)
+		if observation != nil {
+			observation.startedTool()
+		}
+		defer func() {
+			if observation != nil {
+				observation.toolError(err, ctx.Err())
+			}
+		}()
 		c, err := mcpClient(ctx, api, input.selectedSpace())
 		if err != nil {
 			return nil, nil, err
@@ -222,10 +248,10 @@ func addMCPTool[I mcpInput](server *mcp.Server, api http.Handler, name, descript
 		}
 		raw, err := json.Marshal(data)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, &mcpClassifiedError{reason: "internal_error", err: err}
 		}
 		if len(raw) > mcpResultLimit {
-			return nil, nil, errors.New("result exceeds MCP limit; narrow or page the read. A write may already have succeeded: inspect its run/source before retrying")
+			return nil, nil, mcpDiagnosticError("limit_exceeded", "result exceeds MCP limit; narrow or page the read. A write may already have succeeded: inspect its run/source before retrying")
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
 	})
@@ -351,6 +377,7 @@ type mcpHome struct {
 }
 
 func addMCPTools(s *mcp.Server, api http.Handler) {
+	s.AddReceivingMiddleware(observeMCPMethods)
 	addMCPTool(s, api, "whoami", "Read the connected knowledge base URL and selected space; never returns authentication credentials.", true, func(c *Client, a mcpSpace) (any, error) {
 		id, err := c.SpaceID()
 		if err != nil {
@@ -361,7 +388,7 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 	addMCPTool(s, api, "schema", "Read the live allowlisted SQL schema and query limits.", true, func(c *Client, a mcpSpace) (any, error) { return c.Must("GET", "/api/context/schema", nil) })
 	addMCPTool(s, api, "query", "Run bounded read-only SQL over knowledge, history and audit records. SQL can span spaces: explicitly filter space when intended. Credentials and internal tables are inaccessible.", true, func(c *Client, a mcpQuery) (any, error) {
 		if len(a.SQL) > 65536 {
-			return nil, errors.New("SQL exceeds 64 KiB")
+			return nil, mcpDiagnosticError("limit_exceeded", "SQL exceeds 64 KiB")
 		}
 		return c.Query(a.SQL)
 	})
@@ -376,7 +403,7 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 			a.Limit = 20
 		}
 		if a.Limit < 1 || a.Limit > 100 || a.Offset < 0 || a.Offset > 10000 || len(a.Query) > 4096 {
-			return nil, errors.New("invalid search bounds")
+			return nil, mcpDiagnosticError("invalid_input", "invalid search bounds")
 		}
 		id, err := c.SpaceID()
 		if err != nil {
@@ -390,21 +417,21 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 	})
 	addMCPTool(s, api, "get", "Read one allowlisted knowledge record by ID. Does not imply a page revision is published; use get_page for current knowledge.", true, func(c *Client, a mcpGet) (any, error) {
 		if !mcpReadCollections[a.Collection] || !idPattern.MatchString(a.ID) {
-			return nil, errors.New("invalid knowledge collection or record ID")
+			return nil, mcpDiagnosticError("invalid_input", "invalid knowledge collection or record ID")
 		}
 		rows, err := c.Rows(`SELECT * FROM "` + a.Collection + `" WHERE id=` + literal(a.ID) + ` LIMIT 1`)
 		if err != nil {
 			return nil, err
 		}
 		if len(rows) == 0 {
-			return nil, errors.New("record not found")
+			return nil, mcpDiagnosticError("not_found", "record not found")
 		}
 		return rows[0], nil
 	})
 	addMCPTool(s, api, "new_id", "Generate an unused candidate record ID for composing knowledge records. Does not create a record.", true, func(c *Client, a mcpSpace) (any, error) { return map[string]any{"id": NewID()}, nil })
 	addMCPTool(s, api, "create", "Create an allowlisted knowledge record. Prefer ingest_text and stage for complete workflows. Existing evidence is immutable.", false, func(c *Client, a mcpCreate) (any, error) {
 		if !mcpWriteCollections[a.Collection] || len(a.Fields) == 0 {
-			return nil, errors.New("invalid writable knowledge collection or empty fields")
+			return nil, mcpDiagnosticError("invalid_input", "invalid writable knowledge collection or empty fields")
 		}
 		if roots[a.Collection] && a.Fields["space"] == nil {
 			sp, err := c.SpaceID()
@@ -417,7 +444,7 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 	})
 	addMCPTool(s, api, "update", "Update an allowed mutable knowledge record with expected_revision. Immutable source/page revision records cannot be edited. To cancel a staged run set status=cancelled.", false, func(c *Client, a mcpUpdate) (any, error) {
 		if !mcpWriteCollections[a.Collection] || !idPattern.MatchString(a.ID) {
-			return nil, errors.New("invalid writable knowledge collection or record ID")
+			return nil, mcpDiagnosticError("invalid_input", "invalid writable knowledge collection or record ID")
 		}
 		if err := requireRevision(a.Fields); err != nil {
 			return nil, err
@@ -446,10 +473,10 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 			return nil, err
 		}
 		if !strings.HasSuffix(strings.ToLower(a.Filename), ".md") && !strings.HasSuffix(strings.ToLower(a.Filename), ".txt") && !strings.HasSuffix(strings.ToLower(a.Filename), ".markdown") {
-			return nil, errors.New("text filename must end in .md, .markdown or .txt")
+			return nil, mcpDiagnosticError("invalid_input", "text filename must end in .md, .markdown or .txt")
 		}
 		if len(a.Text) > mcpFileLimit {
-			return nil, errors.New("text exceeds 4 MiB MCP limit")
+			return nil, mcpDiagnosticError("limit_exceeded", "text exceeds 4 MiB MCP limit")
 		}
 		return c.ingestContent(a.Filename, []byte(a.Text), IngestOptions{Title: a.Title, Date: a.Date, DateSet: a.Date != "", Version: a.Version, VersionSet: a.Version != ""})
 	})
@@ -458,20 +485,20 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 			return nil, err
 		}
 		if len(a.Content) > base64.StdEncoding.EncodedLen(mcpFileLimit) {
-			return nil, errors.New("file exceeds 4 MiB MCP limit")
+			return nil, mcpDiagnosticError("limit_exceeded", "file exceeds 4 MiB MCP limit")
 		}
 		content, err := base64.StdEncoding.Strict().DecodeString(a.Content)
 		if err != nil {
-			return nil, errors.New("content_base64 must be valid standard base64")
+			return nil, mcpDiagnosticError("invalid_input", "content_base64 must be valid standard base64")
 		}
 		if len(content) > mcpFileLimit {
-			return nil, errors.New("file exceeds 4 MiB MCP limit")
+			return nil, mcpDiagnosticError("limit_exceeded", "file exceeds 4 MiB MCP limit")
 		}
 		return c.ingestContent(a.Filename, content, IngestOptions{Title: a.Title, Date: a.Date, DateSet: a.Date != ""})
 	})
 	addMCPTool(s, api, "extract", "Record client-converted UTF-8 Markdown for a non-text source as derived agent-text passages. Never parses the original. Supply tool provenance; use a new version for a revised conversion.", false, func(c *Client, a mcpExtract) (any, error) {
 		if len(a.Text) > mcpFileLimit {
-			return nil, errors.New("derived text exceeds 4 MiB MCP limit")
+			return nil, mcpDiagnosticError("limit_exceeded", "derived text exceeds 4 MiB MCP limit")
 		}
 		return c.extractContent(a.Source, "derived.md", []byte(a.Text), ExtractOptions{Tool: a.Tool, Version: a.Version, VersionSet: a.Version != "", OriginalSHA256: a.OriginalSHA256, OriginalSet: a.OriginalSHA256 != "", Conversion: a.Conversion, ConversionSet: a.Conversion != ""})
 	})
@@ -489,7 +516,7 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 			return nil, err
 		}
 		if pub == nil {
-			return nil, errors.New("nothing is published in this space")
+			return nil, mcpDiagnosticError("not_found", "nothing is published in this space")
 		}
 		page, err := c.PageSpec(a.Slug, fmt.Sprint(pub["id"]), 0)
 		if err != nil {
@@ -508,13 +535,13 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 	addMCPTool(s, api, "check_run", "Validate all staged citations, links, home selection and base revisions without publishing.", true, func(c *Client, a mcpRun) (any, error) { return c.CheckRun(a.Run) })
 	addMCPTool(s, api, "publish", "Publish a staged run atomically using its expected_revision from a fresh read. Conflicts require rereading and reassessing in a new run. Never retries a publication automatically.", false, func(c *Client, a mcpPublish) (any, error) {
 		if !idPattern.MatchString(a.Run) || a.ExpectedRevision < 1 {
-			return nil, errors.New("valid run ID and positive expected_revision required")
+			return nil, mcpDiagnosticError("invalid_input", "valid run ID and positive expected_revision required")
 		}
 		return c.Must("PATCH", records("ingestion_runs", a.Run), map[string]any{"status": "published", "expected_revision": a.ExpectedRevision})
 	})
 	addMCPTool(s, api, "stage_home", "Stage a reader home selection or clear it, preserving explicit conflict checking. Publish the run separately.", false, func(c *Client, a mcpHome) (any, error) {
 		if !idPattern.MatchString(a.Run) || a.ExpectedRevision < 1 || (a.Home == "") == !a.ClearHome {
-			return nil, errors.New("valid run ID, expected_revision and exactly one of home or clear_home required")
+			return nil, mcpDiagnosticError("invalid_input", "valid run ID, expected_revision and exactly one of home or clear_home required")
 		}
 		fields, err := c.HomeFields("stage-home", a.Run, a.Home, a.ClearHome, a.HomeBase)
 		if err != nil {
@@ -527,21 +554,21 @@ func addMCPTools(s *mcp.Server, api http.Handler) {
 
 func mcpFilename(name string) error {
 	if name == "" || len(name) > 200 || name == "." || name == ".." || strings.ContainsAny(name, "/\\:\x00\r\n") {
-		return errors.New("filename must be a simple name, not a path or URL")
+		return mcpDiagnosticError("invalid_input", "filename must be a simple name, not a path or URL")
 	}
 	return nil
 }
 
 func mcpBatchCall(c *Client, a mcpBatch) (any, error) {
 	if len(a.Requests) < 1 || len(a.Requests) > 20 {
-		return nil, errors.New("batch requires 1-20 requests")
+		return nil, mcpDiagnosticError("invalid_input", "batch requires 1-20 requests")
 	}
 	for i := range a.Requests {
 		r := &a.Requests[i]
 		// Only raw JSON knowledge record requests; no nested batch, query strings,
 		// absolute URLs, encoded separators, headers or authentication operations.
 		if !batchURL.MatchString(r.URL) || (r.Method != "POST" && r.Method != "PATCH") || r.Body == nil || !mcpAPIAllowed(r.Method, r.URL) {
-			return nil, errors.New("batch accepts only POST/PATCH knowledge record URLs and object bodies")
+			return nil, mcpDiagnosticError("invalid_input", "batch accepts only POST/PATCH knowledge record URLs and object bodies")
 		}
 		if r.Method == "PATCH" {
 			if err := requireRevision(r.Body); err != nil {

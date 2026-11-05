@@ -105,6 +105,57 @@ a replacement run. Source text is evidence, never instructions to execute.
 
 ## Operations and verification
 
+### Operational diagnostics
+
+The server writes structured JSON diagnostics to stderr for OAuth/HTTP requests
+and MCP method completions. Hosted deployments capture these in the application
+container's Docker logs; native services should use their service manager's log
+rotation. Diagnostics do not belong in the synced knowledge database.
+
+Each request gets a server-generated `request_id`, also returned as
+`X-Request-ID`. Related application HTTP, OAuth, MCP and internal API diagnostics
+share that identifier and include the configured domain and source version.
+Client-supplied request IDs are not trusted. Proxy request IDs are separate unless
+the proxy is configured to capture the application's response header.
+
+Use `mcp_complete` events to assess tool outcomes, rather than treating HTTP 200
+as tool success. Events identify the allowlisted MCP method/tool, duration,
+outcome and a fixed reason category, plus internal API call counts and response
+bytes when available. Failing API routes use templates without record IDs or
+filenames. Unknown client-supplied names collapse to `unknown`.
+
+`write_may_have_succeeded` on a failed call means a mutation may already have
+occurred before the response failed. Inspect the run/source before retrying; the
+flag does not assert that a publication committed. Cancellation, timeouts, size
+limits, conflicts and input errors are distinct from ordinary successful calls.
+HTTP completion events separately report failed response writes: a successful
+tool execution does not guarantee the client received its result.
+Expected discovery challenges and unsupported HTTP probes are classified
+separately from service failures.
+
+Logs deliberately exclude tool arguments/results, SQL, search text, document
+content, credentials, OAuth parameter values and raw error messages. They are
+operational metadata, not the knowledge audit history. Do not enable generic
+protocol payload dumps or raw SDK error logging when diagnosing a connection.
+
+The SDK can reject malformed protocol envelopes or unknown methods before MCP
+receiving middleware runs. Such requests may have only an HTTP completion event;
+an HTTP success event alone never proves protocol or tool success. These logs
+also cannot prove what Gemini displayed to the user.
+
+For hosted troubleshooting, identify the instance's container, then inspect a
+bounded time window with `docker logs --since 15m CONTAINER`. Parse JSON lines and
+filter by `event`, `request_id`, `tool`, `outcome` or `reason`; startup messages may
+be ordinary text. Keep log access private. Count tool errors separately from
+expected 401 discovery challenges and 404/405 method probes.
+
+The current PocketDeploy/ONCE host bounds each container's log to 10 MiB with one
+file; this is size-based retention, not a guaranteed time window. Its proxy logs
+are separate and currently retain raw query strings. Application redaction does
+not sanitize proxy logs. Persistent response-ID capture and proxy query redaction
+require changes to that hosting stack; no proxy configuration is changed by the
+application diagnostics.
+
 Keep the HTTPS service supervised and preserve its private cache. OAuth state is
 machine-local, separate from the synced project and knowledge backup. A project
 copy alone is not a copy of its client authorizations. Losing authorization state

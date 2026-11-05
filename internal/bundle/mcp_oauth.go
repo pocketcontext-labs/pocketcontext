@@ -237,6 +237,13 @@ func oauthJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 func oauthError(w http.ResponseWriter, status int, code, description string) {
+	if out, ok := w.(*oauthResponse); ok && out.reason == "" {
+		outcome := "rejected"
+		if status >= 500 {
+			outcome = "internal_error"
+		}
+		setOAuthOutcome(w, oauthFailureReason(code, description), outcome)
+	}
 	oauthJSON(w, status, map[string]string{"error": code, "error_description": description})
 }
 func oauthDecode(r *http.Request, v any) error {
@@ -294,6 +301,9 @@ func oauthRoute(method, p string) bool {
 	return false
 }
 func (o *mcpOAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	o.observe(w, r, o.serveHTTP)
+}
+func (o *mcpOAuth) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Frame-Options", "DENY")
@@ -392,6 +402,7 @@ func (o *mcpOAuth) register(w http.ResponseWriter, r *http.Request) {
 		response["client_secret"] = secret
 		response["client_secret_expires_at"] = 0
 	}
+	setOAuthOutcome(w, "registration_complete", "success")
 	oauthJSON(w, 201, response)
 }
 func (o *mcpOAuth) authRequest(q url.Values) (oauthClient, error) {
@@ -452,6 +463,7 @@ func (o *mcpOAuth) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" {
+		setOAuthOutcome(w, "consent_required", "success")
 		oauthPage(w, "Authorize a connection", c.Name, r.URL.Query().Get("redirect_uri"), false, o.hosted)
 		return
 	}
@@ -474,6 +486,7 @@ func (o *mcpOAuth) authorize(w http.ResponseWriter, r *http.Request) {
 		params.Set("state", state)
 	}
 	if !in.Approve {
+		setOAuthOutcome(w, "consent_denied", "denied")
 		params.Set("error", "access_denied")
 	} else {
 		now := o.clock()
@@ -489,6 +502,7 @@ func (o *mcpOAuth) authorize(w http.ResponseWriter, r *http.Request) {
 		code := RandomHex(32)
 		o.codes[oauthHash(code)] = oauthCode{Client: c.ID, Redirect: q.Get("redirect_uri"), Challenge: q.Get("code_challenge"), User: user.Id, KeyHash: oauthHash(user.TokenKey()), Expires: now.Add(2 * time.Minute)}
 		params.Set("code", code)
+		setOAuthOutcome(w, "consent_approved", "success")
 	}
 	target.RawQuery = params.Encode()
 	oauthJSON(w, 200, map[string]string{"redirect": target.String()})
@@ -668,6 +682,11 @@ func (o *mcpOAuth) token(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, 503, "temporarily_unavailable", "Could not save authorization; revoke unused connections or reconnect if the token limit was reached.")
 		return
 	}
+	if f.Get("grant_type") == "refresh_token" {
+		setOAuthOutcome(w, "token_refreshed", "success")
+	} else {
+		setOAuthOutcome(w, "token_issued", "success")
+	}
 	oauthJSON(w, 200, map[string]any{"access_token": access, "token_type": "Bearer", "expires_in": int(oauthAccessLifetime.Seconds()), "refresh_token": refresh, "scope": mcpScope})
 }
 func (o *mcpOAuth) revoke(w http.ResponseWriter, r *http.Request) {
@@ -697,6 +716,7 @@ func (o *mcpOAuth) revoke(w http.ResponseWriter, r *http.Request) {
 		found = true
 	}
 	if !found {
+		setOAuthOutcome(w, "revoked", "success")
 		oauthJSON(w, 200, map[string]any{})
 		return
 	}
@@ -720,6 +740,7 @@ func (o *mcpOAuth) revoke(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, 503, "temporarily_unavailable", "Could not save revocation.")
 		return
 	}
+	setOAuthOutcome(w, "revoked", "success")
 	oauthJSON(w, 200, map[string]any{})
 }
 func (o *mcpOAuth) connections(w http.ResponseWriter, r *http.Request) {
@@ -768,6 +789,7 @@ func (o *mcpOAuth) connections(w http.ResponseWriter, r *http.Request) {
 			list = append(list, map[string]any{"id": g.ID, "name": o.state.Clients[g.Client].Name, "created": g.Created, "expires": g.Expires})
 		}
 	}
+	setOAuthOutcome(w, "connections_listed", "success")
 	oauthJSON(w, 200, map[string]any{"connections": list})
 }
 func (o *mcpOAuth) access(w http.ResponseWriter, r *http.Request) {
@@ -787,6 +809,15 @@ func (o *mcpOAuth) access(w http.ResponseWriter, r *http.Request) {
 		user, err = o.grantUser(g)
 	}
 	if user == nil || err != nil {
+		if token == "" {
+			setOAuthOutcome(w, "auth_required", "expected_probe")
+		} else if ok && !has {
+			setOAuthOutcome(w, "grant_revoked", "rejected")
+		} else if ok && (a.Expires <= o.clock().Unix() || g.Expires <= o.clock().Unix()) {
+			setOAuthOutcome(w, "token_expired", "rejected")
+		} else {
+			setOAuthOutcome(w, "invalid_token", "rejected")
+		}
 		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource/mcp", scope="knowledge"`, o.origin))
 		oauthError(w, 401, "invalid_token", "Connect and authorize PocketContext first.")
 		return
