@@ -205,7 +205,11 @@ type mcpInput interface{ selectedSpace() string }
 // pretending that a failed write was published.
 func addMCPTool[I mcpInput](server *mcp.Server, api http.Handler, name, description string, readOnly bool, fn func(*Client, I) (any, error)) {
 	closed := false
-	mcp.AddTool(server, &mcp.Tool{Name: name, Description: description, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, OpenWorldHint: &closed}}, func(ctx context.Context, _ *mcp.CallToolRequest, input I) (*mcp.CallToolResult, any, error) {
+	// Declare both hints explicitly: clients may conservatively classify an
+	// omitted destructiveHint as true even for reads. Keep conservative
+	// classification for all state-changing tools, including additive writes.
+	destructive := !readOnly
+	mcp.AddTool(server, &mcp.Tool{Name: name, Description: description, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: &destructive, OpenWorldHint: &closed}}, func(ctx context.Context, _ *mcp.CallToolRequest, input I) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		defer cancel()
 		c, err := mcpClient(ctx, api, input.selectedSpace())

@@ -81,6 +81,46 @@ func mcpCall(t *testing.T, h http.Handler, token, name string, args any, wantErr
 	return out
 }
 
+func TestMCPToolAnnotations(t *testing.T) {
+	// Check the wire response, including explicit false values, rather than
+	// struct defaults: clients use this metadata for action permission groups.
+	wantReadOnly := map[string]bool{
+		"whoami": true, "schema": true, "query": true, "search": true,
+		"search_sources": true, "get": true, "new_id": true,
+		"list_spaces": true, "default_space": true, "pending": true,
+		"original": true, "passages": true, "get_page": true,
+		"lint": true, "check_run": true,
+		"create": false, "update": false, "batch": false,
+		"create_space": false, "rename_space": false, "archive_space": false,
+		"restore_space": false, "set_default_space": false,
+		"ingest_text": false, "ingest_file": false, "extract": false,
+		"stage": false, "publish": false, "stage_home": false,
+	}
+	h := mcpTestHandler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("tool discovery must not call the knowledge API")
+	}))
+	listed := mcpRequest(t, h, "synthetic", "tools/list", map[string]any{})
+	tools, _ := dig(listed, "result", "tools").([]any)
+	if len(tools) != len(wantReadOnly) {
+		t.Fatalf("got %d tools, want %d", len(tools), len(wantReadOnly))
+	}
+	for _, tool := range tools {
+		name, _ := dig(tool, "name").(string)
+		readOnly, ok := wantReadOnly[name]
+		if !ok {
+			t.Fatalf("unexpected or duplicate tool %q; review its annotations", name)
+		}
+		for hint, want := range map[string]bool{
+			"readOnlyHint": readOnly, "destructiveHint": !readOnly, "openWorldHint": false,
+		} {
+			if got := dig(tool, "annotations", hint); got != want {
+				t.Errorf("%s: %s = %v, want explicit %t", name, hint, got, want)
+			}
+		}
+		delete(wantReadOnly, name)
+	}
+}
+
 func TestMCPProtocolAndPrincipalIsolation(t *testing.T) {
 	type key struct{}
 	var calls atomic.Int64
