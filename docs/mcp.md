@@ -58,6 +58,13 @@ registered client secret and can use persistent refresh tokens. Client registrat
 itself grant access. Explicit consent is still required. OAuth tokens are separate
 from the reader's ordinary account token and do not grant server administration.
 
+Each instance serves one OAuth resource: its own HTTPS `/mcp` endpoint. Clients
+should send that exact URL as `resource` in authorization and token requests.
+For clients such as Gemini that omit the parameter, PocketContext defaults it to
+that instance's endpoint. An explicitly empty, different or repeated resource is
+rejected. This compatibility behavior does not change token audience binding,
+exact callback matching, S256 PKCE or explicit consent.
+
 The OAuth grant belongs to the project's one account. Spaces remain partitions,
 not access boundaries. Approved knowledge access includes all spaces and history;
 selecting a space in a tool does not restrict the account's authorization.

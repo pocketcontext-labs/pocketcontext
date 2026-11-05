@@ -92,6 +92,14 @@ func (o *mcpOAuth) clock() time.Time {
 }
 func (o *mcpOAuth) resource() string { return o.origin + "/mcp" }
 
+// This authorization server serves only its own MCP endpoint. Clients that omit
+// resource still receive grants bound to that endpoint
+// through this instance's private OAuth state; explicit foreign resources fail.
+func (o *mcpOAuth) acceptsResource(values url.Values) bool {
+	resources, supplied := values["resource"]
+	return !supplied || len(resources) == 1 && resources[0] == o.resource()
+}
+
 func newMCPOAuth(app core.App, p *Project, domain string, mcp http.Handler) (*mcpOAuth, error) {
 	o := &mcpOAuth{app: app, origin: "https://" + domain, codes: map[string]oauthCode{}, mcp: mcp}
 	o.path = filepath.Join(p.Cache, "mcp-oauth-"+oauthHash(o.origin)[:16]+".json")
@@ -403,9 +411,27 @@ func (o *mcpOAuth) authRequest(q url.Values) (oauthClient, error) {
 			found = true
 		}
 	}
+	if !found {
+		return c, errors.New("redirect_uri must exactly match a registered callback")
+	}
+	if q.Get("response_type") != "code" {
+		return c, errors.New("response_type must be code")
+	}
+	if !o.acceptsResource(q) {
+		return c, errors.New("resource must be this MCP endpoint")
+	}
+	if q.Get("code_challenge_method") != "S256" {
+		return c, errors.New("code_challenge_method must be S256")
+	}
 	challenge, err := base64.RawURLEncoding.DecodeString(q.Get("code_challenge"))
-	if !found || q.Get("response_type") != "code" || q.Get("resource") != o.resource() || q.Get("code_challenge_method") != "S256" || err != nil || len(challenge) != 32 || len(q.Get("code_challenge")) != 43 || len(q.Get("state")) > 2048 || q.Get("scope") != "" && q.Get("scope") != mcpScope {
-		return c, errors.New("expected exact redirect, MCP resource, code response, knowledge scope and S256 PKCE")
+	if err != nil || len(challenge) != 32 || len(q.Get("code_challenge")) != 43 {
+		return c, errors.New("code_challenge must be a 43-character base64url-encoded SHA-256 hash")
+	}
+	if len(q.Get("state")) > 2048 {
+		return c, errors.New("state must not exceed 2048 bytes")
+	}
+	if q.Get("scope") != "" && q.Get("scope") != mcpScope {
+		return c, errors.New("only knowledge scope is supported")
 	}
 	return c, nil
 }
@@ -542,7 +568,7 @@ func (o *mcpOAuth) token(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, 400, "invalid_scope", "Only knowledge scope is supported.")
 		return
 	}
-	if f.Get("resource") != o.resource() {
+	if !o.acceptsResource(f) {
 		oauthError(w, 400, "invalid_target", "The resource must be this MCP endpoint.")
 		return
 	}

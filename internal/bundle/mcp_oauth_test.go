@@ -216,6 +216,32 @@ func TestMCPOAuthCodeExpiryAndPersistenceFailure(t *testing.T) {
 	f.exchange(client, f.code(client, bad), bad, 400)
 }
 
+func (f *oauthFixture) clientRequest(path, method, client, supplied string, form url.Values, want int) map[string]any {
+	f.t.Helper()
+	f.requests++
+	copied := url.Values{}
+	for k, v := range form {
+		copied[k] = append([]string{}, v...)
+	}
+	if method == "client_secret_post" && supplied != "" {
+		copied.Set("client_secret", supplied)
+	}
+	r := httptest.NewRequest("POST", "https://knowledge.example.com"+path, strings.NewReader(copied.Encode()))
+	r.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", f.requests)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if method == "client_secret_basic" && supplied != "" {
+		r.SetBasicAuth(client, supplied)
+	}
+	w := httptest.NewRecorder()
+	f.h.ServeHTTP(w, r)
+	if w.Code != want {
+		f.t.Fatalf("%s returned %d: %s", path, w.Code, w.Body)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	return out
+}
+
 func TestMCPOAuthConfidentialClients(t *testing.T) {
 	for _, method := range []string{"client_secret_basic", "client_secret_post"} {
 		t.Run(method, func(t *testing.T) {
@@ -227,29 +253,7 @@ func TestMCPOAuthConfidentialClients(t *testing.T) {
 			code := f.code(client, verifier)
 			values := url.Values{"client_id": {client}, "code": {code}, "redirect_uri": {"https://client.example.com/callback"}, "code_verifier": {verifier}, "resource": {f.o.resource()}, "grant_type": {"authorization_code"}}
 			send := func(path string, form url.Values, supplied string, want int) map[string]any {
-				t.Helper()
-				f.requests++
-				copied := url.Values{}
-				for k, v := range form {
-					copied[k] = append([]string{}, v...)
-				}
-				if method == "client_secret_post" && supplied != "" {
-					copied.Set("client_secret", supplied)
-				}
-				r := httptest.NewRequest("POST", "https://knowledge.example.com"+path, strings.NewReader(copied.Encode()))
-				r.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", f.requests)
-				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-				if method == "client_secret_basic" && supplied != "" {
-					r.SetBasicAuth(client, supplied)
-				}
-				w := httptest.NewRecorder()
-				f.h.ServeHTTP(w, r)
-				if w.Code != want {
-					t.Fatalf("%s returned %d: %s", path, w.Code, w.Body)
-				}
-				var out map[string]any
-				_ = json.Unmarshal(w.Body.Bytes(), &out)
-				return out
+				return f.clientRequest(path, method, client, supplied, form, want)
 			}
 			send("/oauth/token", values, "", 401)
 			send("/oauth/token", values, "wrong-secret", 401)
@@ -366,5 +370,110 @@ func TestMCPOAuthNativeCallbacks(t *testing.T) {
 		if validOAuthRedirect(redirect) {
 			t.Errorf("accepted unsafe callback %q", redirect)
 		}
+	}
+}
+
+func TestMCPOAuthOptionalResourceLifecycle(t *testing.T) {
+	for _, method := range []string{"none", "client_secret_basic", "client_secret_post"} {
+		for _, mode := range []string{"omitted", "explicit"} {
+			t.Run(method+"/"+mode, func(t *testing.T) {
+				f := newOAuthFixture(t)
+				body := `{"client_name":"Optional resource client","redirect_uris":["https://client.example.com/callback"],"token_endpoint_auth_method":"` + method + `"}`
+				registration := f.request("POST", "/oauth/register", "", body, "application/json", 201)
+				client := registration["client_id"].(string)
+				secret, _ := registration["client_secret"].(string)
+				verifier := strings.Repeat("r", 64)
+				setResource := func(q url.Values) {
+					switch mode {
+					case "omitted":
+						q.Del("resource")
+					case "explicit":
+						q.Set("resource", f.o.resource())
+					}
+				}
+				q := f.authorization(client, verifier)
+				setResource(q)
+				f.request("GET", "/oauth/authorize?"+q.Encode(), "", "", "", 200)
+				f.request("POST", "/oauth/authorize?"+q.Encode(), "", `{"approve":true}`, "application/json", 401)
+				denied := f.request("POST", "/oauth/authorize?"+q.Encode(), f.a.token, `{"approve":false}`, "application/json", 200)
+				if !strings.Contains(denied["redirect"].(string), "error=access_denied") || len(f.o.codes) != 0 {
+					t.Fatal("denial must not issue a code")
+				}
+				out := f.request("POST", "/oauth/authorize?"+q.Encode(), f.a.token, `{"approve":true}`, "application/json", 200)
+				u, err := url.Parse(out["redirect"].(string))
+				if err != nil {
+					t.Fatal(err)
+				}
+				form := url.Values{"client_id": {client}, "code": {u.Query().Get("code")}, "redirect_uri": {q.Get("redirect_uri")}, "code_verifier": {verifier}, "grant_type": {"authorization_code"}}
+				setResource(form)
+				result := f.clientRequest("/oauth/token", method, client, secret, form, 200)
+				access := result["access_token"].(string)
+				f.request("POST", "/mcp", access, "{}", "application/json", 200)
+				form = url.Values{"client_id": {client}, "refresh_token": {result["refresh_token"].(string)}, "grant_type": {"refresh_token"}}
+				setResource(form)
+				refreshed := f.clientRequest("/oauth/token", method, client, secret, form, 200)
+				f.request("POST", "/mcp", refreshed["access_token"].(string), "{}", "application/json", 200)
+				// A second domain sharing the account and cache still has independent,
+				// origin-bound OAuth state and cannot accept this endpoint's token.
+				other, err := newMCPOAuth(f.a.app, f.p, "other.example.com", f.o.mcp)
+				if err != nil {
+					t.Fatal(err)
+				}
+				h := publicHandler(f.a.app, "other.example.com", http.NotFoundHandler(), other)
+				r := httptest.NewRequest("POST", "https://other.example.com/mcp", strings.NewReader("{}"))
+				r.Header.Set("Authorization", "Bearer "+access)
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, r)
+				if w.Code != 401 {
+					t.Fatalf("token accepted on another domain: %d", w.Code)
+				}
+			})
+		}
+	}
+}
+
+func TestMCPOAuthResourceRejections(t *testing.T) {
+	f := newOAuthFixture(t)
+	client := f.registration()
+	verifier := strings.Repeat("r", 64)
+	for _, resources := range [][]string{{""}, {"https://other.example.com/mcp"}, {" "}, {f.o.resource() + "/"}, {"", f.o.resource()}, {f.o.resource(), f.o.resource()}} {
+		q := f.authorization(client, verifier)
+		q["resource"] = resources
+		f.request("GET", "/oauth/authorize?"+q.Encode(), "", "", "", 400)
+		for _, grant := range []string{"authorization_code", "refresh_token"} {
+			form := url.Values{"client_id": {client}, "grant_type": {grant}, "resource": resources}
+			result := f.request("POST", "/oauth/token", "", form.Encode(), "application/x-www-form-urlencoded", 400)
+			want := "invalid_target"
+			if len(resources) > 1 {
+				want = "invalid_request"
+			}
+			if result["error"] != want {
+				t.Fatalf("resource %q: got %v, want %s", resources, result["error"], want)
+			}
+		}
+	}
+}
+
+func TestMCPOAuthAuthorizationErrors(t *testing.T) {
+	f := newOAuthFixture(t)
+	client := f.registration()
+	for _, tc := range []struct{ key, value, message string }{
+		{"redirect_uri", "https://other.example.com/callback", "redirect_uri must exactly match a registered callback"},
+		{"response_type", "token", "response_type must be code"},
+		{"resource", "https://other.example.com/mcp", "resource must be this MCP endpoint"},
+		{"code_challenge_method", "plain", "code_challenge_method must be S256"},
+		{"code_challenge", "invalid", "code_challenge must be a 43-character base64url-encoded SHA-256 hash"},
+		{"state", strings.Repeat("s", 2049), "state must not exceed 2048 bytes"},
+		{"scope", "admin", "only knowledge scope is supported"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			q := f.authorization(client, strings.Repeat("r", 64))
+			q.Del("resource")
+			q.Set(tc.key, tc.value)
+			out := f.request("GET", "/oauth/authorize?"+q.Encode(), "", "", "", 400)
+			if out["error_description"] != tc.message {
+				t.Fatalf("got %v, want %s", out["error_description"], tc.message)
+			}
+		})
 	}
 }
