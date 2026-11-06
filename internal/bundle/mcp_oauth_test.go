@@ -328,7 +328,7 @@ func TestMCPRequiresExplicitDomain(t *testing.T) {
 }
 
 func TestMCPOAuthNativeCallbacks(t *testing.T) {
-	for _, redirect := range []string{"http://127.0.0.1:49152/callback/server-id", "http://[::1]:49153/callback", "http://127.0.0.1/callback"} {
+	for _, redirect := range []string{"http://127.0.0.1:49152/callback/server-id", "http://[::1]:49153/callback", "http://127.0.0.1/callback", "http://localhost:8787/callback", "com.example.app:/oauth/callback", "com.example.app:/oauth/callback?channel=desktop"} {
 		t.Run(redirect, func(t *testing.T) {
 			f := newOAuthFixture(t)
 			body, _ := json.Marshal(map[string]any{"redirect_uris": []string{redirect}, "token_endpoint_auth_method": "none"})
@@ -366,9 +366,194 @@ func TestMCPOAuthNativeCallbacks(t *testing.T) {
 			f.refresh(client, result["refresh_token"].(string), 200)
 		})
 	}
-	for _, redirect := range []string{"http://localhost:49152/callback", "http://127.0.0.1.example.com/callback", "http://192.168.1.1/callback", "http://0.0.0.0/callback", "http://[::]/callback", "http://127.0.0.1:0/callback", "http://127.0.0.1:65536/callback", "http://127.0.0.1:/callback", "http://user@127.0.0.1/callback", "http://127.0.0.1/callback#fragment", "custom://callback"} {
+	for _, redirect := range []string{"http://localhost.example.com:49152/callback", "http://sub.localhost:49152/callback", "http://localhost.:49152/callback", "http://127.0.0.1.example.com/callback", "http://192.168.1.1/callback", "http://0.0.0.0/callback", "http://[::]/callback", "http://127.0.0.1:0/callback", "http://127.0.0.1:65536/callback", "http://127.0.0.1:/callback", "http://user@127.0.0.1/callback", "http://127.0.0.1/callback#fragment", "custom://callback"} {
 		if validOAuthRedirect(redirect) {
 			t.Errorf("accepted unsafe callback %q", redirect)
+		}
+	}
+}
+
+// Registering mixed web and native callbacks must preserve every exact URI. A
+// client may select any registered callback, but cannot switch during exchange.
+func TestMCPOAuthMixedCallbacks(t *testing.T) {
+	const legacy = "cursor://anysphere.cursor-mcp/oauth/callback"
+	redirects := []string{
+		"https://www.cursor.com/agents/mcp/oauth/callback",
+		"http://localhost:8787/callback",
+		legacy,
+	}
+	f := newOAuthFixture(t)
+	body, _ := json.Marshal(map[string]any{
+		"redirect_uris": redirects, "token_endpoint_auth_method": "none",
+		// Client-provided metadata must never enable a server exception.
+		"redirect_exceptions": []string{legacy},
+	})
+	denied := f.request("POST", "/oauth/register", "", string(body), "application/json", 400)
+	if denied["error"] != "invalid_redirect_uri" || !strings.Contains(fmt.Sprint(denied["error_description"]), "redirect_uris[2]") {
+		t.Fatalf("missing failing callback index: %v", denied)
+	}
+	if strings.Contains(fmt.Sprint(denied), legacy) || len(f.o.state.Clients) != 0 {
+		t.Fatal("rejected array leaked its callback or partially registered a client")
+	}
+	if _, err := os.Stat(f.o.path); !os.IsNotExist(err) {
+		t.Fatalf("rejected registration wrote OAuth state: %v", err)
+	}
+	f.o.redirectExceptions = map[string]bool{legacy: true}
+	registered := f.request("POST", "/oauth/register", "", string(body), "application/json", 201)
+	stored, _ := json.Marshal(registered["redirect_uris"])
+	want, _ := json.Marshal(redirects)
+	if string(stored) != string(want) {
+		t.Fatalf("registration changed callbacks: %s", stored)
+	}
+	client := registered["client_id"].(string)
+	for i, redirect := range redirects {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			parentT := f.t
+			f.t = t
+			defer func() { f.t = parentT }()
+			verifier := strings.Repeat("m", 64)
+			q := f.authorization(client, verifier)
+			q.Set("redirect_uri", redirect)
+			f.request("GET", "/oauth/authorize?"+q.Encode(), "", "", "", 200)
+			f.request("POST", "/oauth/authorize?"+q.Encode(), "", `{"approve":true}`, "application/json", 401)
+			for _, mismatch := range []string{redirect + "/", redirect + "?different=true", strings.Replace(redirect, "callback", "other", 1)} {
+				bad := f.authorization(client, verifier)
+				bad.Set("redirect_uri", mismatch)
+				f.request("GET", "/oauth/authorize?"+bad.Encode(), "", "", "", 400)
+			}
+			issue := func(approve bool) string {
+				body, _ := json.Marshal(map[string]bool{"approve": approve})
+				out := f.request("POST", "/oauth/authorize?"+q.Encode(), f.a.token, string(body), "application/json", 200)
+				u, err := url.Parse(out["redirect"].(string))
+				if err != nil {
+					t.Fatal(err)
+				}
+				values := u.Query()
+				if values.Get("state") != "synthetic-state" {
+					t.Fatal("lost state")
+				}
+				u.RawQuery = ""
+				if u.String() != redirect {
+					t.Fatal("authorization changed callback")
+				}
+				if !approve {
+					if values.Get("error") != "access_denied" || values.Get("code") != "" {
+						t.Fatal("denied consent issued a code")
+					}
+					return ""
+				}
+				return values.Get("code")
+			}
+			issue(false)
+			form := url.Values{"client_id": {client}, "code": {issue(true)}, "redirect_uri": {redirects[(i+1)%len(redirects)]}, "code_verifier": {verifier}, "resource": {f.o.resource()}, "grant_type": {"authorization_code"}}
+			f.request("POST", "/oauth/token", "", form.Encode(), "application/x-www-form-urlencoded", 400)
+			form.Set("code", issue(true))
+			form.Set("redirect_uri", redirect)
+			form.Set("code_verifier", strings.Repeat("w", 64))
+			f.request("POST", "/oauth/token", "", form.Encode(), "application/x-www-form-urlencoded", 400)
+			form.Set("code", issue(true))
+			form.Set("code_verifier", verifier)
+			result := f.request("POST", "/oauth/token", "", form.Encode(), "application/x-www-form-urlencoded", 200)
+			f.request("POST", "/mcp", result["access_token"].(string), "{}", "application/json", 200)
+			f.refresh(client, result["refresh_token"].(string), 200)
+		})
+	}
+	// An exception is for one callback, not all callbacks sharing its scheme,
+	// authority or path prefix. Failure leaves the prior registration intact.
+	for _, redirect := range []string{legacy + "/other", "cursor://other/oauth/callback", legacy + "?next=other", "other://anysphere.cursor-mcp/oauth/callback"} {
+		body, _ := json.Marshal(map[string]any{"redirect_uris": []string{redirects[0], redirect}, "token_endpoint_auth_method": "none"})
+		f.request("POST", "/oauth/register", "", string(body), "application/json", 400)
+		if len(f.o.state.Clients) != 1 {
+			t.Fatal("invalid exception variant partially registered a client")
+		}
+	}
+}
+
+func TestMCPOAuthRedirectExceptionConfiguration(t *testing.T) {
+	const callback = "cursor://anysphere.cursor-mcp/oauth/callback"
+	for _, raw := range []string{"", "[]", `["` + callback + `"]`} {
+		exceptions, err := parseOAuthRedirectExceptions(raw)
+		if err != nil {
+			t.Fatalf("valid exception configuration: %v", err)
+		}
+		if raw != "" && raw != "[]" && (!exceptions[callback] || len(exceptions) != 1) {
+			t.Fatal("exception did not preserve the exact callback")
+		}
+	}
+	for _, raw := range []string{
+		`[`, `null`, `"cursor://app/callback"`, `{}`, `[1]`, `["cursor://app/callback"] {}`,
+		`["https://client.example.com/callback"]`, `["http://localhost:8787/callback"]`,
+		`["javascript://app/callback"]`, `["data://app/callback"]`, `["file:///callback"]`,
+		`["cursor:callback"]`, `["cursor://user@app/callback"]`, `["cursor://app/callback#fragment"]`,
+		`["cursor://app/callback*"]`, `["cursor://app/call back"]`, `["cursor://app/call\nback"]`,
+	} {
+		if _, err := parseOAuthRedirectExceptions(raw); err == nil {
+			t.Errorf("accepted invalid operator exception configuration %q", raw)
+		}
+	}
+	tooMany := make([]string, 33)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("custom://app/callback/%d", i)
+	}
+	raw, _ := json.Marshal(tooMany)
+	if _, err := parseOAuthRedirectExceptions(string(raw)); err == nil {
+		t.Fatal("accepted more than 32 operator exceptions")
+	}
+	// Invalid configuration must not reveal a callback/query supplied by an
+	// operator in startup errors and must fail before reading OAuth state.
+	const canary = "private-callback-canary"
+	t.Setenv("POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS", `["https://example.com/`+canary+`"]`)
+	a := newTestApp(t)
+	p := &Project{Cache: t.TempDir(), Config: Config{Instance: "exception-fixture"}}
+	if _, err := newMCPOAuth(a.app, p, "knowledge.example.com", http.NotFoundHandler()); err == nil || strings.Contains(err.Error(), canary) {
+		t.Fatal("invalid constructor configuration was accepted or disclosed")
+	}
+	t.Setenv("POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS", `["`+callback+`"]`)
+	o, err := newMCPOAuth(a.app, p, "knowledge.example.com", http.NotFoundHandler())
+	if err != nil || !o.redirectExceptions[callback] {
+		t.Fatalf("constructor did not load operator exceptions: %v", err)
+	}
+}
+
+func TestMCPOAuthRedirectExceptionRemoval(t *testing.T) {
+	const callback = "cursor://anysphere.cursor-mcp/oauth/callback"
+	t.Setenv("POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS", `["`+callback+`"]`)
+	f := newOAuthFixture(t)
+	body, _ := json.Marshal(map[string]any{"redirect_uris": []string{callback}, "token_endpoint_auth_method": "none"})
+	client := f.request("POST", "/oauth/register", "", string(body), "application/json", 201)["client_id"].(string)
+	q := f.authorization(client, strings.Repeat("v", 64))
+	q.Set("redirect_uri", callback)
+	f.request("GET", "/oauth/authorize?"+q.Encode(), "", "", "", 200)
+	// Reloading persisted client metadata must not preserve a removed operator
+	// exception or let that old registration authorize a new grant.
+	t.Setenv("POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS", "")
+	o, err := newMCPOAuth(f.a.app, f.p, "knowledge.example.com", http.NotFoundHandler())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.o = o
+	f.h = publicHandler(f.a.app, "knowledge.example.com", http.NotFoundHandler(), o)
+	f.request("GET", "/oauth/authorize?"+q.Encode(), "", "", "", 400)
+	f.request("POST", "/oauth/authorize?"+q.Encode(), f.a.token, `{"approve":true}`, "application/json", 400)
+	if len(o.codes) != 0 || len(o.state.Grants) != 0 {
+		t.Fatal("removed exception authorized new access")
+	}
+}
+
+func TestMCPOAuthUnsafeNativeCallbacks(t *testing.T) {
+	for _, redirect := range []string{
+		"http://localhost:0/callback", "http://localhost:65536/callback", "http://localhost:/callback",
+		"http://localhost@evil.example/callback", "http://evil.example@localhost/callback", "http://localhost\\@evil.example/callback",
+		"http://2130706433/callback", "http://127.1/callback", "http://0x7f000001/callback",
+		"com.example.app:callback", "com.example.app://callback", "com.example.app:///callback", "com.example.app:",
+		"com.example.app:/callback#fragment", "com.example.app:/callback#", "com.example.app:/callback*",
+		"com.example.app:/callback%0a", "com.example.app:/callback%5c", "com.example.app:/callback\t",
+		"com..example:/callback", ".example:/callback", "com.example.:/callback", "com.-example:/callback",
+		"javascript:alert(1)", "javascript://app/callback", "data:text/html,hello", "file:///callback", "https:/callback",
+		"cursor://anysphere.cursor-mcp/oauth/callback", "custom://callback",
+	} {
+		if validOAuthRedirect(redirect) {
+			t.Errorf("accepted unsafe or unconfigured callback %q", redirect)
 		}
 	}
 }

@@ -81,6 +81,8 @@ type mcpOAuth struct {
 	mcp          http.Handler
 	limiter      publicAuthLimiter
 	hosted       bool
+	// Operator policy is machine-local and never supplied by a registering client.
+	redirectExceptions map[string]bool
 }
 
 func oauthHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
@@ -101,7 +103,11 @@ func (o *mcpOAuth) acceptsResource(values url.Values) bool {
 }
 
 func newMCPOAuth(app core.App, p *Project, domain string, mcp http.Handler) (*mcpOAuth, error) {
-	o := &mcpOAuth{app: app, origin: "https://" + domain, codes: map[string]oauthCode{}, mcp: mcp}
+	exceptions, err := parseOAuthRedirectExceptions(os.Getenv("POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS"))
+	if err != nil {
+		return nil, err
+	}
+	o := &mcpOAuth{app: app, origin: "https://" + domain, codes: map[string]oauthCode{}, mcp: mcp, redirectExceptions: exceptions}
 	o.path = filepath.Join(p.Cache, "mcp-oauth-"+oauthHash(o.origin)[:16]+".json")
 	o.state = oauthState{Version: 1, Origin: o.origin, Instance: p.Config.Instance, Clients: map[string]oauthClient{}, Grants: map[string]oauthGrant{}, Access: map[string]oauthAccess{}, UsedRefresh: map[string]oauthAccess{}}
 	if st, err := os.Lstat(o.path); err == nil {
@@ -260,32 +266,118 @@ func oauthDecode(r *http.Request, v any) error {
 	return nil
 }
 func validOAuthRedirect(raw string) bool {
+	return oauthRedirectError(raw, nil) == ""
+}
+
+// Validate URI syntax before applying transport policy. Never return the URI in
+// an error: callback paths and queries may contain client-specific private data.
+func parseOAuthRedirect(raw string) (*url.URL, string) {
 	u, err := url.Parse(raw)
-	if err != nil || len(raw) > 2048 || u.Host == "" || u.User != nil || u.Fragment != "" || u.Opaque != "" || strings.ContainsAny(raw, "\\\r\n\t*") {
-		return false
+	if err != nil || raw == "" || len(raw) > 2048 || u.Scheme == "" || u.User != nil || u.Opaque != "" || strings.ContainsAny(raw, "\\#*") || strings.IndexFunc(raw, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
+		return nil, "malformed callback URI"
+	}
+	decoded, err := url.PathUnescape(raw)
+	if err != nil || strings.Contains(decoded, "\\") || strings.IndexFunc(decoded, unicode.IsControl) >= 0 {
+		return nil, "malformed callback URI"
+	}
+	if u.Host == "" && strings.HasPrefix(raw[strings.IndexByte(raw, ':')+1:], "//") {
+		return nil, "empty callback authority"
+	}
+	return u, ""
+}
+
+func oauthRedirectError(raw string, exceptions map[string]bool) string {
+	u, reason := parseOAuthRedirect(raw)
+	if reason != "" {
+		return reason
 	}
 	// Native clients receive the authorization code on their own loopback
-	// listener. Permit only literal loopback addresses, never LAN addresses or
-	// hostnames that could resolve elsewhere. PKCE and exact redirect matching
-	// still apply; the server never fetches this URL.
-	if u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "::1") {
-		if u.Port() == "" {
-			return !strings.HasSuffix(u.Host, ":")
+	// listener. localhost is a compatibility concession; other hostnames and
+	// LAN addresses remain forbidden. The server never resolves or fetches it.
+	if u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "::1" || u.Hostname() == "localhost") {
+		host := u.Hostname()
+		if host == "::1" {
+			host = "[::1]"
 		}
-		port, err := strconv.Atoi(u.Port())
-		return err == nil && port > 0 && port <= 65535
+		if u.Port() != "" {
+			host += ":" + u.Port()
+		}
+		if u.Host != host {
+			return "invalid loopback callback authority"
+		}
+		if u.Port() == "" {
+			if !strings.HasSuffix(u.Host, ":") {
+				return ""
+			}
+		} else if port, err := strconv.Atoi(u.Port()); err == nil && port > 0 && port <= 65535 {
+			return ""
+		}
+		return "invalid loopback callback port"
 	}
-	if u.Scheme != "https" {
+	if u.Scheme == "http" {
+		return "HTTP callbacks require literal loopback or exact localhost"
+	}
+	if u.Scheme == "https" {
+		host := strings.ToLower(u.Hostname())
+		if host == "localhost" || !strings.Contains(host, ".") || strings.HasSuffix(host, ".localhost") || net.ParseIP(host) != nil || strings.HasSuffix(u.Host, ":") || u.Port() != "" && u.Port() != "443" {
+			return "HTTPS callbacks require a public hostname and the default HTTPS port"
+		}
+		return ""
+	}
+	if !safeOAuthPrivateRedirect(u) {
+		return "unsupported private callback URI"
+	}
+	if exceptions[raw] || u.Host == "" && reverseDomainScheme(u.Scheme) {
+		return ""
+	}
+	return "private callback requires a reverse-domain scheme without authority or an exact operator exception"
+}
+
+func reverseDomainScheme(scheme string) bool {
+	labels := strings.Split(scheme, ".")
+	if len(labels) < 2 {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
-	if host == "localhost" || !strings.Contains(host, ".") || strings.HasSuffix(host, ".localhost") {
+	for _, label := range labels {
+		if label == "" || label[0] < 'a' || label[0] > 'z' || strings.HasSuffix(label, "-") {
+			return false
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func safeOAuthPrivateRedirect(u *url.URL) bool {
+	// An exception permits native app dispatch, never browser scripting, local
+	// files or other standard transports. Opaque URIs were rejected above.
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "javascript", "vbscript", "data", "file", "blob", "about", "intent", "ftp", "ftps", "ws", "wss", "mailto", "tel", "sms", "ssh", "shell", "cmd", "powershell", "bash":
 		return false
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return false
+	return strings.HasPrefix(u.Path, "/") && !strings.HasPrefix(u.Path, "//") && (u.Host != "" || u.OmitHost) && u.Host == u.Hostname() && !strings.Contains(u.Host, ":")
+}
+
+func parseOAuthRedirectExceptions(raw string) (map[string]bool, error) {
+	result := map[string]bool{}
+	if raw == "" {
+		return result, nil
 	}
-	return u.Port() == "" || u.Port() == "443"
+	var redirects []string
+	if len(raw) > 64<<10 || json.Unmarshal([]byte(raw), &redirects) != nil || redirects == nil || len(redirects) > 32 {
+		return nil, errors.New("POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS must be a JSON array of at most 32 exact private callbacks")
+	}
+	for i, redirect := range redirects {
+		u, reason := parseOAuthRedirect(redirect)
+		if reason != "" || !safeOAuthPrivateRedirect(u) {
+			return nil, fmt.Errorf("POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS[%d]: a safe, absolute private callback is required", i)
+		}
+		result[redirect] = true
+	}
+	return result, nil
 }
 func oauthRoute(method, p string) bool {
 	switch p {
@@ -351,12 +443,12 @@ func (o *mcpOAuth) register(w http.ResponseWriter, r *http.Request) {
 		ResponseTypes []string `json:"response_types"`
 	}
 	if oauthDecode(r, &in) != nil || len(in.Redirects) == 0 || len(in.Redirects) > 8 || len(in.Name) > 120 || strings.IndexFunc(in.Name, unicode.IsControl) >= 0 || in.Method != "" && in.Method != "none" && in.Method != "client_secret_basic" && in.Method != "client_secret_post" {
-		oauthError(w, 400, "invalid_client_metadata", "Use public HTTPS or loopback HTTP redirect URIs and supported client authentication.")
+		oauthError(w, 400, "invalid_client_metadata", "Use supported exact callback URIs and client authentication.")
 		return
 	}
-	for _, redirect := range in.Redirects {
-		if !validOAuthRedirect(redirect) {
-			oauthError(w, 400, "invalid_redirect_uri", "An exact public HTTPS or literal loopback HTTP callback is required.")
+	for i, redirect := range in.Redirects {
+		if reason := oauthRedirectError(redirect, o.redirectExceptions); reason != "" {
+			oauthError(w, 400, "invalid_redirect_uri", fmt.Sprintf("redirect_uris[%d]: %s", i, reason))
 			return
 		}
 	}
@@ -424,6 +516,9 @@ func (o *mcpOAuth) authRequest(q url.Values) (oauthClient, error) {
 	}
 	if !found {
 		return c, errors.New("redirect_uri must exactly match a registered callback")
+	}
+	if oauthRedirectError(redirect, o.redirectExceptions) != "" {
+		return c, errors.New("redirect_uri is no longer permitted by operator policy")
 	}
 	if q.Get("response_type") != "code" {
 		return c, errors.New("response_type must be code")

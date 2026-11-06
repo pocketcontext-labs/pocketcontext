@@ -50,6 +50,33 @@ try{
  await reader.getByText('Access revoked.',{exact:true}).waitFor();
  assert.equal((await call('/mcp',{},tokens.data.access_token)).status,401);
  assert.equal((await call('/oauth/token',{grant_type:'refresh_token',client_id:client,refresh_token:tokens.data.refresh_token,resource:origin+'/mcp'},'',true)).status,400);
+ // Capture Chromium's native-scheme navigation request. No OS handler is
+ // installed by this fixture; native-client receipt remains a manual check.
+ for(const redirect of ['com.example.app:/oauth/callback','cursor://anysphere.cursor-mcp/oauth/callback']){
+  const registeredNative=await call('/oauth/register',{client_name:'Synthetic native client',redirect_uris:[redirect],token_endpoint_auth_method:'none'});
+  assert.equal(registeredNative.status,201);
+  const nativeVerifier=randomBytes(32).toString('base64url');
+  const nativeParams=new URLSearchParams({client_id:registeredNative.data.client_id,redirect_uri:redirect,response_type:'code',code_challenge_method:'S256',code_challenge:createHash('sha256').update(nativeVerifier).digest('base64url'),scope:'knowledge',state:'native-state'});
+  const native=await context.newPage();native.on('pageerror',e=>problems.push(e.message));
+  await native.goto(origin+'/oauth/authorize?'+nativeParams);
+  await native.getByText('Registered callback: '+redirect,{exact:true}).waitFor();
+  const cdp=await context.newCDPSession(native);await cdp.send('Page.enable');
+  let timer;
+  const requested=new Promise((resolve,reject)=>{
+   timer=setTimeout(()=>reject(new Error('native callback navigation was not requested')),10000);
+   cdp.on('Page.frameRequestedNavigation',event=>{
+    if(event.url.startsWith(redirect+'?')){clearTimeout(timer);resolve(event.url)}
+   });
+  });
+  let nativeURL;
+  try{await native.getByRole('button',{name:'Allow access',exact:true}).click();nativeURL=new URL(await requested)}
+  finally{clearTimeout(timer);await cdp.detach();await native.close()}
+  assert.equal(nativeURL.searchParams.get('state'),'native-state');
+  assert(nativeURL.searchParams.get('code'));
+  const nativeTokens=await call('/oauth/token',{grant_type:'authorization_code',client_id:registeredNative.data.client_id,code:nativeURL.searchParams.get('code'),redirect_uri:redirect,code_verifier:nativeVerifier},'',true);
+  assert.equal(nativeTokens.status,200);
+  assert.equal((await call('/mcp',{},nativeTokens.data.access_token)).status,200);
+ }
  assert.deepEqual(problems,[]);
- console.log('ok - reader link login without password, consent retry, escaped client name, exact callback, OAuth exchange, authenticated MCP, browser revocation');
+ console.log('ok - reader link login without password, consent retry, escaped client name, exact callback, OAuth exchange, authenticated MCP, browser revocation, private-scheme consent navigation');
 }finally{await context.close();await browser.close()}

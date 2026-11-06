@@ -52,6 +52,8 @@ func oauthFailureReason(code, description string) string {
 		return "unknown_client"
 	case "redirect_uri must exactly match a registered callback":
 		return "redirect_mismatch"
+	case "redirect_uri is no longer permitted by operator policy":
+		return "redirect_policy"
 	case "response_type must be code", "Only response_type code is supported.":
 		return "unsupported_response_type"
 	case "resource must be this MCP endpoint", "The resource must be this MCP endpoint.":

@@ -71,12 +71,44 @@ selecting a space in a tool does not restrict the account's authorization.
 
 ## Native desktop clients
 
-Native desktop MCP clients can register HTTP callbacks on literal `127.0.0.1`
-or `[::1]` with their selected listener port. Public callbacks still require
-HTTPS. Hostnames such as `localhost`, LAN addresses and custom URI schemes are
-not accepted. Registration and authorization must use the exact same callback,
-including its port and path; code exchange must also match it. S256 PKCE and
-explicit reader consent remain required. The MCP endpoint itself stays on HTTPS.
+Native desktop MCP clients can register HTTP callbacks on literal `127.0.0.1`,
+`[::1]` or exactly `localhost` with their selected listener port. Literal IPs
+are preferred; `localhost` is supported for client compatibility, not other
+hostnames, subdomains or LAN addresses. Public callbacks still require HTTPS.
+Native private schemes based on a reversed domain are also accepted, for example
+`com.example.app:/oauth/callback`: lowercase domain labels, an absolute path and
+no authority (`//host`). Registration and authorization must use the exact same
+callback, including its port, path and query; code exchange must also match it.
+Ephemeral-port matching is not implemented. S256 PKCE and explicit reader consent
+remain required. The MCP endpoint itself stays on HTTPS.
+
+For legacy native schemes, the operator can set the server environment variable
+`POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS` to a JSON array of up to 32 exact private
+callback URIs. For example, Cursor's legacy callback needs this exception:
+
+```sh
+POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS='["cursor://anysphere.cursor-mcp/oauth/callback"]'
+```
+
+Set it in private service/container configuration and restart the affected
+service. It is not a project setting, client registration field or knowledge
+record. Both native HTTPS and hosted servers read it at startup. Malformed
+configuration fails startup; errors identify the entry index without echoing
+its value. Exceptions cannot enable HTTP destinations, browser scripting,
+opaque URIs, local files, fragments, userinfo or wildcards. They permit native
+app dispatch, so only add an exact callback required by an intended client and
+verify that its installed URI handler is appropriate. Structural validation
+cannot establish the safety or ownership of an arbitrary native app handler.
+Removing an exception and restarting blocks new authorizations using that URI;
+revoke existing connections separately to invalidate their access/refresh grants.
+
+Registration validates every callback before saving any of them. An invalid
+array is rejected with `invalid_redirect_uri`, the zero-based entry index and
+a reason; callbacks are never silently dropped or rewritten. A client sending
+Cursor's HTTPS, localhost and custom-scheme callbacks together needs the exception
+above even if it later selects HTTPS. No Cursor HTTPS host exception is needed.
+Neither registration nor a callback exception proves the client's identity;
+approve access only when you intended to connect that app.
 
 ## Knowledge operations
 

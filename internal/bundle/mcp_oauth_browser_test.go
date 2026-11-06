@@ -21,6 +21,7 @@ func TestMCPOAuthBrowser(t *testing.T) {
 	if os.Getenv("POCKETCONTEXT_MCP_BROWSER_TEST") != "1" {
 		t.Skip("opt-in Playwright OAuth browser test")
 	}
+	t.Setenv("POCKETCONTEXT_MCP_REDIRECT_EXCEPTIONS", `["cursor://anysphere.cursor-mcp/oauth/callback"]`)
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
