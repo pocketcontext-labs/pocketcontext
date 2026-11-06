@@ -13,6 +13,9 @@ runtime. Operators either pin a verified multi-platform image digest or explicit
 enroll existing instances in PocketDeploy delivery of validated `:latest` releases.
 There is no automatic signup or container creation.
 
+See [hosted rate limits](rate-limits.md) for authenticated bulk budgets, anonymous
+protection, batch accounting and HTTP/MCP retry metadata.
+
 ## Runtime configuration
 
 Inject settings privately through PocketDeploy bindings. Do not put secret values

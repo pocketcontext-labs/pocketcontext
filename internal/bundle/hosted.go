@@ -118,7 +118,7 @@ func configureHosted(app core.App, domain string, c *HostedConfig, initialize bo
 	settings.Meta.AppURL = "https://" + domain
 	settings.Meta.SenderName = "PocketContext"
 	settings.Meta.SenderAddress = c.From
-	settings.RateLimits.Enabled = true
+	configureHostedRateLimits(app)
 	return nil
 }
 

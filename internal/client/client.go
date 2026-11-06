@@ -154,6 +154,9 @@ func (c *Client) send(method, path string, body any, headers map[string]string, 
 	if err := decoder.Decode(&parsed); err != nil {
 		parsed = string(data)
 	}
+	if throttled := responseRateLimit(method, path, resp.StatusCode, parsed, resp.Header); throttled != nil {
+		return resp.StatusCode, parsed, throttled
+	}
 	return resp.StatusCode, parsed, nil
 }
 
@@ -164,7 +167,7 @@ func (c *Client) Must(method, path string, body any) (any, error) {
 		return nil, err
 	}
 	safeRead := method == "GET" || path == "/api/context/query" || path == "/api/context/search"
-	for attempt := 0; safeRead && (status == 429 || status == 503) && attempt < 3; attempt++ {
+	for attempt := 0; safeRead && status == 503 && attempt < 3; attempt++ {
 		time.Sleep(time.Duration(500*(attempt+1)) * time.Millisecond)
 		if status, data, err = c.send(method, path, body, nil, "", nil); err != nil {
 			return nil, err
@@ -174,6 +177,9 @@ func (c *Client) Must(method, path string, body any) (any, error) {
 }
 
 func checked(method, path string, status int, data any) (any, error) {
+	if throttled := responseRateLimit(method, path, status, data, nil); throttled != nil {
+		return nil, throttled
+	}
 	if status < 400 {
 		return data, nil
 	}

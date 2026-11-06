@@ -181,12 +181,13 @@ func publicHandlerMode(app core.App, domain string, next http.Handler, hosted bo
 		if isOTP {
 			w.Header().Set("Cache-Control", "no-store")
 			selectedLimiter := emailLimiter
+			limitName := "email_request"
 			if r.URL.Path == "/api/collections/users/auth-with-otp" {
 				selectedLimiter = redemptionLimiter
+				limitName = "email_redemption"
 			}
 			if !selectedLimiter.Allow() {
-				w.Header().Set("Retry-After", "60")
-				http.Error(w, "Too many requests. Please try again shortly.", http.StatusTooManyRequests)
+				writeRateLimit(app, w, r, rateLimitInfo{limitName, 6, 10, 0, 60}, "Too many requests. Please try again shortly.")
 				return
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
@@ -197,8 +198,7 @@ func publicHandlerMode(app core.App, domain string, next http.Handler, hosted bo
 		} else if r.URL.Path == "/api/bundle/redeem" || r.URL.Path == "/api/collections/users/auth-with-password" {
 			w.Header().Set("Cache-Control", "no-store")
 			if !limiter.allow(r.RemoteAddr) {
-				w.Header().Set("Retry-After", "6")
-				http.Error(w, "Too many sign-in attempts. Try again shortly.", http.StatusTooManyRequests)
+				writeRateLimit(app, w, r, limiter.rejection(r.RemoteAddr, "public_auth"), "Too many sign-in attempts. Try again shortly.")
 				return
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, 16<<10)

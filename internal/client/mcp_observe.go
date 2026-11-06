@@ -34,6 +34,10 @@ func mcpFailureReason(err error, status int) string {
 	if errors.As(err, &classified) {
 		return classified.reason
 	}
+	var limited *RateLimitError
+	if errors.As(err, &limited) {
+		return "rate_limited"
+	}
 	var failure *Fail
 	if errors.As(err, &failure) && failure.Code == 4 {
 		return "conflict"

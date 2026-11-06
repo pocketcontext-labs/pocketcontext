@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -244,6 +245,15 @@ func addMCPTool[I mcpInput](server *mcp.Server, api http.Handler, name, descript
 		}
 		data, err := fn(c, input)
 		if err != nil {
+			var limited *RateLimitError
+			if errors.As(err, &limited) {
+				if observation != nil {
+					observation.toolError(err, ctx.Err())
+				}
+				payload := map[string]any{"error": map[string]any{"code": "rate_limited", "message": err.Error(), "rate_limit": limited.RateLimit}}
+				raw, _ := json.Marshal(payload)
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}, StructuredContent: payload}, nil, nil
+			}
 			return nil, nil, err
 		}
 		raw, err := json.Marshal(data)

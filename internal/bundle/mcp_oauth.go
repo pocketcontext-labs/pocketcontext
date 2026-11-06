@@ -405,8 +405,7 @@ func (o *mcpOAuth) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/oauth/register" || r.URL.Path == "/oauth/token" || r.URL.Path == "/oauth/revoke" || r.URL.Path == "/oauth/authorize" && r.Method == "POST" {
 		if !o.limiter.allow(r.RemoteAddr) {
-			w.Header().Set("Retry-After", "6")
-			oauthError(w, 429, "slow_down", "Too many authorization attempts.")
+			oauthRateLimit(o.app, w, r, o.limiter.rejection(r.RemoteAddr, "oauth_auth"), "slow_down", "Too many authorization attempts.")
 			return
 		}
 	}
@@ -591,7 +590,7 @@ func (o *mcpOAuth) authorize(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(o.codes) >= 200 {
-			oauthError(w, 429, "temporarily_unavailable", "Too many pending authorizations.")
+			oauthRateLimit(o.app, w, r, rateLimitInfo{"oauth_pending", 120, 200, 0, 120}, "temporarily_unavailable", "Too many pending authorizations.")
 			return
 		}
 		code := RandomHex(32)

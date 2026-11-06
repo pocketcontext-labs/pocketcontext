@@ -197,13 +197,17 @@ func readPassword(fromStdin bool, confirm bool) (string, error) {
 
 // Run executes one command and returns the process exit code.
 func Run(argv []string) int {
-	if err := run(argv); err != nil {
+	return commandResult(run(argv), os.Stderr)
+}
+
+func commandResult(err error, stderr io.Writer) int {
+	if err != nil {
 		var f *Fail
 		if errors.As(err, &f) {
-			fmt.Fprintln(os.Stderr, "pocketcontext: "+f.Message)
+			fmt.Fprintln(stderr, "pocketcontext: "+err.Error())
 			return f.Code
 		}
-		fmt.Fprintln(os.Stderr, "pocketcontext: "+err.Error())
+		fmt.Fprintln(stderr, "pocketcontext: "+err.Error())
 		return 1
 	}
 	return 0

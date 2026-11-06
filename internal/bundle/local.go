@@ -139,6 +139,9 @@ func (l *localRoutes) account(app core.App) (*core.Record, error) {
 }
 
 func (l *localRoutes) register(e *core.ServeEvent) {
+	if l.hosted {
+		registerHostedRateLimits(e)
+	}
 	// DNS rebinding protection: a web page cannot reach this server under another name.
 	e.Router.Bind(&hook.Handler[*core.RequestEvent]{
 		Id: "pocketcontextLocalHost", Priority: -99999,

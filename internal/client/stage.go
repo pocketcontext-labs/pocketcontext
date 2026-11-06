@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -857,11 +858,7 @@ func (c *Client) Stage(data []byte, dryRun bool) (map[string]any, error) {
 	batches := packBatches(groups, batchLimit)
 	for i, batch := range batches {
 		if _, err := c.Must("POST", "/api/batch", map[string]any{"requests": batch}); err != nil {
-			code := 1
-			if f, ok := err.(*Fail); ok {
-				code = f.Code
-			}
-			return nil, &Fail{code, fmt.Sprintf("%v\nbatch %d of %d failed; earlier batches are saved in run %s. Fix the spec and run stage again with the same run_key to resume.", err, i+1, len(batches), runID)}
+			return nil, stageBatchError(err, i+1, len(batches), runID)
 		}
 	}
 
@@ -971,4 +968,19 @@ func problemCount(v any) int {
 		return len(list)
 	}
 	return 0
+}
+
+// Preserve throttle metadata through the staging context so MCP and CLI callers
+// can distinguish a temporary budget failure from an invalid specification.
+func stageBatchError(err error, batch, total int, runID string) error {
+	var limited *RateLimitError
+	if errors.As(err, &limited) {
+		return fmt.Errorf("%w\nbatch %d of %d failed; earlier committed batches remain saved. Wait %d seconds, then run stage again with the same run_key to resume (run %s).", err, batch, total, limited.RateLimit.RetryAfterSeconds, runID)
+	}
+	code := 1
+	var failure *Fail
+	if errors.As(err, &failure) {
+		code = failure.Code
+	}
+	return &Fail{code, fmt.Sprintf("%v\nbatch %d of %d failed; earlier batches are saved in run %s. Fix the spec and run stage again with the same run_key to resume.", err, batch, total, runID)}
 }
